@@ -297,13 +297,22 @@ data class Request(val type: String, val from: String, val arg: String? = null) 
  * names behind the letters, the listen mode and the commander's status lines. Small JSON only, never audio.
  */
 data class Board(val brief: String, val mode: String, val ranks: List<Rank>, val names: Map<String, String>,
-                 val events: List<SensorEvent>, val status: String, val discovered: String) {
+                 val events: List<SensorEvent>, val status: String, val discovered: String,
+                 val pos: Map<String, Pair<Double, Double>> = emptyMap(),   // metres, map frame (every phone runs the locator on these)
+                 val scale: Float? = null,                                  // metres per map width
+                 val rotation: Float? = null) {                             // map bearing + rotation = heading frame
+
     data class Rank(val letter: String, val score: Float, val evidence: Float, val source: Int)
 
     fun toJson(): String = JSONObject().put("rep", "board").put("brief", brief).put("mode", mode).put("st", status).put("disc", discovered)
         .put("rk", JSONArray().apply { ranks.forEach { put(JSONObject().put("l", it.letter).put("s", it.score.toDouble()).put("e", Math.round(it.evidence * 100.0) / 100.0).put("src", it.source)) } })
         .put("nm", JSONObject().apply { names.forEach { (l, n) -> put(l, n) } })
         .put("ev", JSONArray().apply { events.forEach { put(JSONObject(it.toJson())) } })
+        .apply {
+            if (pos.isNotEmpty()) put("pos", JSONObject().apply { pos.forEach { (l, p) -> put(l, JSONArray().put(Math.round(p.first * 1000.0) / 1000.0).put(Math.round(p.second * 1000.0) / 1000.0)) } })
+            scale?.let { put("sc", Math.round(it * 1000.0) / 1000.0) }
+            rotation?.let { put("rot", Math.round(it * 10.0) / 10.0) }
+        }
         .toString()
 
     companion object {
@@ -313,8 +322,35 @@ data class Board(val brief: String, val mode: String, val ranks: List<Rank>, val
                 (0 until rk.length()).map { val r = rk.getJSONObject(it); Rank(r.getString("l"), r.getDouble("s").toFloat(), r.getDouble("e").toFloat(), r.optInt("src", 0)) },
                 LinkedHashMap<String, String>().apply { for (k in nm.keys()) put(k, nm.getString(k)) },
                 (0 until ev.length()).mapNotNull { SensorEvent.fromJson(ev.getJSONObject(it)) },
-                o.optString("st"), o.optString("disc"))
+                o.optString("st"), o.optString("disc"),
+                LinkedHashMap<String, Pair<Double, Double>>().apply {
+                    o.optJSONObject("pos")?.let { p -> for (k in p.keys()) { val a = p.getJSONArray(k); put(k, a.getDouble(0) to a.getDouble(1)) } }
+                },
+                if (o.has("sc")) o.getDouble("sc").toFloat() else null,
+                if (o.has("rot")) o.getDouble("rot").toFloat() else null)
         } catch (e: Exception) { HLog.d("bad Board json: $e"); null }
+    }
+}
+
+/**
+ * Commander → every phone after each chirp round: which phone heard which chirp at which sample (its own clock) and
+ * the distances used, so every phone computes the same clock offsets and runs the same locator (27 Sep, step 3).
+ */
+data class ClockRound(val letters: List<String>, val heard: Map<String, Map<String, Long>>, val dist: Map<String, Double>) {
+    fun toJson(): String = JSONObject().put("rep", "clk").put("l", letters.joinToString(","))
+        .put("h", JSONObject().apply { heard.forEach { (h, m) -> put(h, JSONObject().apply { m.forEach { (f, s) -> put(f, s) } }) } })
+        .put("d", JSONObject().apply { dist.forEach { (k, v) -> put(k, Math.round(v * 1000.0) / 1000.0) } })
+        .toString()
+
+    companion object {
+        fun fromJson(o: JSONObject): ClockRound? = try {
+            val h = o.getJSONObject("h"); val d = o.getJSONObject("d")
+            ClockRound(o.getString("l").split(',').filter { it.isNotEmpty() },
+                LinkedHashMap<String, Map<String, Long>>().apply {
+                    for (k in h.keys()) { val m = h.getJSONObject(k); put(k, LinkedHashMap<String, Long>().apply { for (f in m.keys()) put(f, m.getLong(f)) }) }
+                },
+                LinkedHashMap<String, Double>().apply { for (k in d.keys()) put(k, d.getDouble(k)) })
+        } catch (e: Exception) { HLog.d("bad ClockRound json: $e"); null }
     }
 }
 
@@ -326,6 +362,7 @@ object Messages {
             o.has("cmd") -> Command.fromJson(o)
             o.has("req") -> Request.fromJson(o)
             o.optString("rep") == "board" -> Board.fromJson(o)
+            o.optString("rep") == "clk" -> ClockRound.fromJson(o)
             o.optString("rep") == "chirp" -> ChirpReport.fromJson(o)
             o.optString("rep") == "place" -> Placement.fromJson(o)
             o.optString("rep") == "onsets" -> OnsetReport.fromJson(o)

@@ -67,6 +67,8 @@
     <string name="arrow_conf">" · confidence %1$d%%"</string>
     <string name="arrow_heard_here">→ KNOCKING · heard here: %1$d knocks · left/right from %2$s</string>
     <string name="arrow_parallel">" · same direction as the phones that hear it (Place the phones on the map to point at the spot)"</string>
+    <string name="arrow_located">→ KNOCK · %1$.1f m ±%2$.1f · located by timing across all phones (%3$d knocks)</string>
+    <string name="arrow_located_no_north">Knock located %1$.1f m away (±%2$.1f) · tap SYNC COMPASS with the phones parallel to orient the map</string>
     <string name="arrow_knock_by">→ KNOCKING · %1$d knocks · confirmed by %2$s</string>
     <string name="export_ok">Saved Downloads/%1$s</string>
     <string name="export_failed">Export failed, see log</string>

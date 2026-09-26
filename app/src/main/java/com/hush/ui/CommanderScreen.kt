@@ -62,7 +62,16 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity,
             arrow.confidence = shared?.confidence ?: own?.confidence ?: 1f
             val lines = Engine.bearingLines()
             if (lines != map.bearings) { map.bearings.clear(); map.bearings.putAll(lines); map.invalidate() }
-            if (own != null && Engine.ownHeardWell(own)) {
+            val loc = Engine.localSourceArrow()
+            if (loc?.screenDeg != null) {
+                // The timing locator (every phone's knock timings, clocks from the inaudible chirps) beats any bearing.
+                arrow.active = true
+                arrow.angleDeg = loc.screenDeg
+                arrow.label = activity.getString(R.string.arrow_located, loc.metres, loc.radius, loc.knocks)
+            } else if (loc != null && own == null) {
+                arrow.active = false
+                arrow.label = activity.getString(R.string.arrow_located_no_north, loc.metres, loc.radius)
+            } else if (own != null && Engine.ownHeardWell(own)) {
                 // The commander hears it: its own mics point from where it lies; the others settled left/right.
                 arrow.active = true
                 arrow.angleDeg = own.screenDeg

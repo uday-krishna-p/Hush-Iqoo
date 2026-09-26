@@ -146,14 +146,19 @@ class Locator {
             if (i == a) continue
             val hi = heard[i] ?: continue
             val est = ArrayList<Double>()
+            val clean = ArrayList<Double>()
             for (j in letters) {
                 val ti = hi[j] ?: continue
                 val ta = heardA[j] ?: continue
                 val dij = d(i, j) ?: continue
                 val daj = d(a, j) ?: continue
-                est.add((ti - ta) - (dij - daj) * FS / C)
+                val e = (ti - ta) - (dij - daj) * FS / C
+                est.add(e)
+                // A third phone's chirp involves no phone hearing itself (self-hearing delays were odd: 27 Sep 00:30).
+                if (j != i && j != a) clean.add(e)
             }
             if (est.isEmpty()) continue
+            if (clean.isNotEmpty()) { est.clear(); est.addAll(clean) }
             est.sort()
             val off = est[est.size / 2]
             val spread = est.last() - est.first()
@@ -203,6 +208,7 @@ class Locator {
     }
 
     fun hasClock(letter: String) = letter == "A" || !clock[letter].isNullOrEmpty()
+    fun hasAnyClock() = clock.values.any { it.isNotEmpty() }
 
     // ---- Mic axes ---------------------------------------------------------------------------------
 

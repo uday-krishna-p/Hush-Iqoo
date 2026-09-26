@@ -41,7 +41,15 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
             v.twinAngleDeg = null   // one arrow only (team, 27 Sep 03:30); the mirror shows as low confidence instead
             v.confidence = shared?.confidence ?: own?.confidence ?: 1f
             val point = a?.takeIf { !it.here && it.near == null && it.screenDeg != null }
-            if (own != null && Engine.ownHeardWell(own)) {
+            val loc = Engine.localSourceArrow()
+            if (loc?.screenDeg != null) {
+                // Step 3: this phone's own locator (every phone's knock timings, clocks from the inaudible chirps).
+                v.active = true; v.angleDeg = loc.screenDeg
+                v.label = activity.getString(R.string.arrow_located, loc.metres, loc.radius, loc.knocks)
+            } else if (loc != null && own == null) {
+                v.active = false
+                v.label = activity.getString(R.string.arrow_located_no_north, loc.metres, loc.radius)
+            } else if (own != null && Engine.ownHeardWell(own)) {
                 // This phone hears it: its own mics point from where it lies; the others only settled left/right.
                 v.active = true; v.angleDeg = own.screenDeg
                 v.label = activity.getString(R.string.arrow_heard_here, own.knocks, own.resolvedBy ?: "turning")

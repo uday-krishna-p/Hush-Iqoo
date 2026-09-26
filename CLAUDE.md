@@ -171,6 +171,37 @@ brief sent down); (6) the 1 s audio window (a knock is reported at the end of it
 ~0.4 s); (7) silent ultrasonic chirps (plan step 4) to bring back ranging, clock sync and the timing locator.
 The paragraphs below are the chronological log, newest first.
 
+**Timing locator back, inaudible chirps, every phone locates, 27 Sep 04:40 (team: "we are just pointing a compass
+… not using the power of multiple devices to triangulate"; "if the chirps are made, make them at such high frequencies
+that humans cant hear"):** (1) *Top-band test* (`tools/calibration/ultrasweep.py` makes the file,
+`ultrasweep_measure.py` measures it): 6a46 playing a 12–23.5 kHz sweep and steady tones to its OWN mics at alarm ×0.5:
+19 kHz 47/31 dB above the background (mic 0 / mic 1), 20 kHz 39/24, 21 kHz 33/17, 22 kHz 21/15, 23 kHz nothing (the
+capture filter). The between-phone level is not measured yet (two phones were off USB). (2) *The chirp* is now a
+120 ms 19–21.5 kHz Hann sweep at alarm ×0.8; the matched filter's coarse pass runs at 48 kHz (the 16 kHz copy could
+not hold it); `ChirpTest` passes (found to the sample, weak direct path before a strong echo). The two-mic delay of a
+chirp is now nearly always ambiguous (2.4 samples per carrier cycle) and stays gated off; the test now checks that an
+accepted delay is right. (3) *Knock detector vs chirps*: an onset whose second-difference energy is > 8× its energy
+(19–21.5 kHz ≈ 13–14, white noise ≈ 6, knocks < 2) is a PHANTOM "(ultrasonic: a chirp)"; the blanking after a chirp
+command dropped from 1.5 s to 0.3 s. (4) *Clocks from tape positions*: with a hand layout (`--es layout
+"B=x,y;C=x,y"`, metres, A at 0,0; or GPS positions) a chirp round only syncs the clocks, using the TAPE distances
+(chirp ranging read 0.78 m for a 0.40 m pair) and preferring third-party chirps (a phone hearing its own chirp had odd
+delays); it never moves a taped map; `RANGING vs tape: AB tape 0.50 chirp 0.52 …` is logged every round (step 4:
+can the inaudible chirp replace the tape?). A round runs 2 s after the layout is applied and every 60 s (commander,
+`Clock round (every 60 s, inaudible …)`), and needs only 2 phones. The status line says "Clocks: inaudible chirp
+round N, all phones timed". The locator's fix is no longer gated on the old `chirpCalibration` flag. (5) *Orientation
+without pointing*: tape the layout with +y along the direction the phones' tops point when SYNC COMPASS is pressed
+(x to the right); SYNC then sets the map rotation (`ALIGN: taped layout oriented by SYNC`). (6) *Every phone locates
+(step 3)*: the commander relays every phone's onset report down the tree and sends each chirp round down
+(`ClockRound`: who heard which chirp at which sample, the distances used); the board carries positions (metres),
+scale and rotation. Each sensor feeds its own `Locator` and runs it once a second (`LOCATE here: …`); every screen's
+arrow now starts with the located point seen from THAT phone's position ("→ KNOCK · 1.2 m ±0.3 · located by timing
+across all phones"), then own-arrow-heard-well, crossing, fused direction. (7) *Step 4, not built*: positions from
+knocks alone (clock offsets + positions solved jointly from TDOA + two-mic angles: in principle ~2 knocks at different
+places for 3 phones, fragile with the mirror and table-borne knocks) and GPS time for clock sync (raw GNSS clock is
+precise, but tying it to the audio sample clock needs AudioRecord timestamps accurate to < 0.1 ms; outdoors only).
+The practical path is the chirp-vs-tape log above. Not tested on phones yet: installed on 6a46 only (ef39 and 991e
+dropped off USB); first test = the between-phone level of the chirp, then a clock round, then knocks.
+
 **Pointing at a nearby knock, gyroscope heading, 27 Sep 03:45 (team: "sensor B and C now point in the same
 direction, but … all point in the direction of the sound"):** the 03:38 round was knocks beside A (A: 11–14 knocks
 at ×14–93, dl ≈ +22.5 = straight off its bottom; B: 3 faint knocks; C: none). The fused bearing is ONE compass
@@ -650,9 +681,12 @@ data class OnsetReport(val letter: String, val heading: Float, val moving: Boole
 data class Command(val type: String /* ASSIGN|HUSH|STOP|CHIRP|SYNC */, val seconds: Int = 20, val letter: String?, val to: String?, val ble: String?, val heading: Float?)
 // Sensor → commander: a button pressed on a sensor's screen (HUSH|HUSH_SOLO|STOP|SWEEP|MODE arg=TAPPING…|SYNC).
 data class Request(val type: String, val from: String, val arg: String?)
-// Commander → every phone, once a second: what the commander's screen shows (same UI on every phone).
+// Commander → every phone, once a second: what the commander's screen shows (same UI on every phone), plus positions for every phone's locator.
 data class Board(val brief: String, val mode: String, val ranks: List<Rank /* l, s, e, src */>, val names: Map<String, String>,
-                 val events: List<SensorEvent>, val status: String, val discovered: String)
+                 val events: List<SensorEvent>, val status: String, val discovered: String,
+                 val pos: Map<String, Pair<Double, Double>>, val scale: Float?, val rotation: Float?)
+// Commander → every phone after each chirp round; every OnsetReport is also relayed down (every phone locates).
+data class ClockRound(val letters: List<String>, val heard: Map<String, Map<String, Long>>, val dist: Map<String, Double>)
 data class ChirpReport(val hearer: String, val from: String, val sample: Long, val ratio: Float, val micDelay: Float?, val heading: Float?, val level: Float?)
 data class Placement(val letter: String, val east: Float, val north: Float, val steps: Int)
 data class Join(val name: String, val hops: Int, val leaving: Boolean, val ble: String?)
