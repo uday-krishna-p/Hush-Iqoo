@@ -144,6 +144,23 @@ knocks (phones on the same slab) arrive faster than through air: onsets tagged "
 
 ## Status (27 Sep 00:00)
 
+**Phantom knocks, 27 Sep 02:50:** in a quiet room a third of all onsets (91 of 269 on 6a46 in 8 min) were clicks of
+about −38 dBFS (peak 0.011–0.016, ×5–8 the median frame) IDENTICAL in both microphone channels: two-mic delay 0.0,
+correlation 0.95–0.98, rise 0, no accelerometer jolt, at random moments in the second, on every phone, with or
+without the mesh. Checked on ef39's raw stereo audio (02:47–02:50, 68 phantoms vs 30 real knocks): with the mean removed they
+are still coherent at lag 0 with correlation 0.89–0.97, AC peak ~270 counts (−42 dBFS), broadband with 22 % below
+300 Hz; real knocks correlate at 0.55 with peaks ~2100 counts and 57 % in 3–8 kHz. A common signal in both mic
+channels is electrical, not sound (radio, USB or flash bursts; the DC offset is only −3 counts, not the cause). They voted "beside the phone"
+for the arrow and at ~1/s they made a "steady" rhythm (Sensor C's sideways twin arrow and a HUMAN TAPPING label
+with taps=0). Now `Engine.phantomFlags`: an onset whose channel difference energy is < 5 % of the signal, or a weak
+click (peak < 0.03) with correlation ≥ 0.93 at |delay| < 1 sample, is a phantom: logged as `Onset … PHANTOM`, kept
+out of the rhythm tracker, the arrow and the onset reports, subtracted from `taps`; the window line has
+`phantoms=N`. Also: the solid arrow keeps its candidate while the mirror twin is within 0.8 of it (Sensor C with the
+knock beside it flipped 180° every second); a probe heard by a phone already in a role buzzes twice and shows
+"Rescuer probe heard from …" for 10 s (the alert screen is only for armed phones with the app closed). The
+02:29–02:37 rotation test was mostly phantoms plus two large bursts (cable end +26.9, top −29.9), and its raw
+audio was wiped by a reinstall: redo it after this build (5 min recording from a role start).
+
 **Calibration in a tight space and the shared bearing, 27 Sep 02:00–02:25 (team: the phones cannot be more than
 0.5 m apart):** knuckle-knock rounds 0.5 m from the phones, all three on one table, nearly every knock "felt":
 end-fire delays +22..+28 samples on all three phones → `micSpacingM = 0.17` (23.8 samples), set on all phones with

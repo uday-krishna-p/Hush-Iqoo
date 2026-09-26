@@ -1955,13 +1955,19 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             silentSeconds = 0
         }
         val tap = tapDetector.analyse(pcm48k, n48, now - 1000)
+        // Phantom knocks (27 Sep 02:50): in a quiet room a third of all onsets were −38 dBFS clicks IDENTICAL in both
+        // channels (two-mic delay 0.0, correlation 0.97, no accelerometer jolt, random moment in the second):
+        // electrical, not sound. Two mics 17 cm apart never agree like that, so such onsets are dropped before the
+        // rhythm tracker and the arrow see them (they looked like steady tapping beside the phone on Sensor C).
+        val phantom = phantomFlags(tap, startSample)
+        val phantoms = phantom.count { it }
         val acc = accel?.drain() ?: AccelChannel.Result(0, 0f, 0f, emptyList(), false)
         // Rhythm is AUDIO ONLY. Accelerometer jolts were tried as onsets and flooded the history (6–8 per
         // second on a handled phone), which killed every detection. Jolts now only confirm a heard knock.
         // The app's own sounds are not taps: the start buzz (three regular pulses that rattle the phone),
         // the beeps and the ranging chirps all produced "steady tapping" once. Ignore onsets while they play.
         val selfNoise = (inHush && now - hushStartMs < SELF_NOISE_MS) || (now - lastChirpMs < 1500)
-        synchronized(audioLock) { if (!selfNoise) rhythmTracker.add(tap.onsetsAbsMs) }
+        synchronized(audioLock) { if (!selfNoise) rhythmTracker.add(tap.onsetsAbsMs.filterIndexed { i, _ -> !phantom[i] }) }
         val agreed = tap.onsetsAbsMs.any { a -> acc.spikeTimesMs.any { kotlin.math.abs(it - a) <= RhythmTracker.MERGE_MS } }
         if (agreed) lastStructureMs = now
         val structure = now - lastStructureMs < RhythmTracker.HISTORY_MS
@@ -1971,7 +1977,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         main.post { trackWalking(acc); trackPlacement(acc) }
         // Source location, part 1 (every phone): each knock timed to the sample, its loudness, and the
         // two-mic delay that says which side of this phone it came from. Sent to the commander.
-        val onsetReport = if (!selfNoise && tap.onsets.isNotEmpty()) buildOnsetReport(tap, startSample, now - 1000, acc) else null
+        val onsetReport = if (!selfNoise && phantoms < tap.onsets.size) buildOnsetReport(tap, phantom, startSample, now - 1000, acc) else null
         // The own arrow is shown only while this phone hears deliberate tapping: steady/patterned rhythm, a Hush
         // window, or a few LOUD knocks lately. The knock votes accumulate regardless, so it is ready at once.
         val loudCount = synchronized(loudOnsetMs) {
@@ -2012,7 +2018,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             human = cls?.human ?: 0f,
             machine = cls?.machine ?: 0f,
             topClass = cls?.topClass ?: "-",
-            taps = tap.taps,
+            taps = tap.taps - phantoms,
             tapScore = tap.score,
             impact = cls?.impact ?: 0f,
             rhythmScore = rhythm.score,
@@ -2033,8 +2039,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             bearingTwin = own?.twinBearingDeg
         )
         val w = Window(rms, event.floor, classifier?.lastGain ?: 1f, tap, rhythm, acc, structure, cls, event)
-        HLog.d("window id=$letter hush=$inHush label=$label rms=%.4f floor=%.4f taps=%d rej=%d peak=x%.0f acc=%d accMax=%.3f accRms=%.3f struct=%b rhythm=%.1f/%s(%d) voice=%.2f impact=%.2f machine=%.2f | %s".format(
-            rms, event.floor, tap.taps, tap.rejectedSustained, tap.peakRatio, acc.spikes, acc.maxHp, acc.rmsHp, structure,
+        HLog.d("window id=$letter hush=$inHush label=$label rms=%.4f floor=%.4f taps=%d phantoms=%d rej=%d peak=x%.0f acc=%d accMax=%.3f accRms=%.3f struct=%b rhythm=%.1f/%s(%d) voice=%.2f impact=%.2f machine=%.2f | %s".format(
+            rms, event.floor, tap.taps, phantoms, tap.rejectedSustained, tap.peakRatio, acc.spikes, acc.maxHp, acc.rmsHp, structure,
             rhythm.score, rhythm.rhythm, rhythm.count, event.human, event.impact, event.machine,
             cls?.top5?.joinToString(", ") { (name, s) -> "%s %.2f".format(name, s) } ?: "-"))
         main.post {
@@ -2058,10 +2064,41 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
      * that also shook the phone (accelerometer): those travelled through the floor, faster than through
      * air, so the commander trusts their timing less.
      */
-    private fun buildOnsetReport(tap: TapDetector.Result, startSample: Long, windowStartMs: Long, acc: AccelChannel.Result): com.hush.model.OnsetReport {
+    /** Both channels' difference energy below this share of the signal: the same signal in both, not a sound. */
+    private const val PHANTOM_DIFF_RATIO = 0.05
+    /** A weak click with a near-perfect zero-delay correlation is a phantom too (a mono copy with different gain). */
+    private const val PHANTOM_MAX_PEAK = 0.03f
+    private const val PHANTOM_MIN_Q = 0.90f   // measured 27 Sep 02:50 on ef39's raw audio: phantoms 0.89–0.97 at lag 0, real weak sounds ≤ 0.95 at lags 2–3
+
+    /** Per onset of [tap]: true when both microphone channels carry the same signal (electrical click, not a sound). Audio thread. */
+    private fun phantomFlags(tap: TapDetector.Result, startSample: Long): BooleanArray {
+        val out = BooleanArray(tap.onsets.size)
+        val cap = capture ?: return out
+        if (!cap.stereo) return out
+        for ((i, o) in tap.onsets.withIndex()) {
+            val from = startSample + o.sampleInWindow - 48; val count = 48 + 576
+            val x0 = cap.snapshot(from, count, 0) ?: continue
+            val x1 = cap.snapshot(from, count, 1) ?: continue
+            var e0 = 0.0; var ed = 0.0
+            for (k in 0 until count) { val a = x0[k].toDouble(); val d = a - x1[k]; e0 += a * a; ed += d * d }
+            val identical = e0 > 0.0 && ed / e0 < PHANTOM_DIFF_RATIO
+            var weakMono = false
+            if (!identical && o.peak < PHANTOM_MAX_PEAK) {
+                val d = com.hush.audio.Doa.delay(x0, x1, count)
+                weakMono = d != null && d.quality >= PHANTOM_MIN_Q && kotlin.math.abs(d.delay) < 1.0f
+            }
+            out[i] = identical || weakMono
+            if (out[i]) HLog.d("Onset @%d (+%d ms) peak=%.3f x%.0f PHANTOM (channels %s, diff %.3f)".format(
+                startSample + o.sampleInWindow, o.sampleInWindow / 48, o.peak, o.ratio, if (identical) "identical" else "mono-like", ed / e0.coerceAtLeast(1e-12)))
+        }
+        return out
+    }
+
+    private fun buildOnsetReport(tap: TapDetector.Result, phantom: BooleanArray, startSample: Long, windowStartMs: Long, acc: AccelChannel.Result): com.hush.model.OnsetReport {
         val cap = capture
         val out = ArrayList<com.hush.model.Onset>()
-        for (o in tap.onsets) {
+        for ((i, o) in tap.onsets.withIndex()) {
+            if (phantom[i]) continue
             val abs = startSample + o.sampleInWindow
             var delay: Float? = null; var q: Float? = null
             if (cap != null && cap.stereo) {
