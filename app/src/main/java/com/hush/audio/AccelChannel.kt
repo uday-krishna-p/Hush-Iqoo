@@ -51,10 +51,18 @@ class AccelChannel(context: Context) : SensorEventListener {
 
     fun start() {
         if (sensor == null) { HLog.d("Accel: no accelerometer on this phone"); return }
-        val t = HandlerThread("hush-accel").also { it.start() }
-        thread = t
-        val ok = manager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_FASTEST, Handler(t.looper))
-        HLog.d("Accel: started ok=$ok, ${sensor.name}, minDelay=${sensor.minDelay}us")
+        try {
+            val t = HandlerThread("hush-accel").also { it.start() }
+            thread = t
+            // 200 Hz (5000 µs) is the fastest rate allowed without the HIGH_SAMPLING_RATE_SENSORS permission.
+            // SENSOR_DELAY_FASTEST crashed the service with a SecurityException on Android 16.
+            val ok = manager.registerListener(this, sensor, 5000, Handler(t.looper))
+            HLog.d("Accel: started ok=$ok, ${sensor.name}, minDelay=${sensor.minDelay}us")
+        } catch (e: Exception) {
+            HLog.d("Accel: failed to start, continuing without it: $e")
+            thread?.quitSafely()
+            thread = null
+        }
     }
 
     fun stop() {
