@@ -117,6 +117,13 @@ Pairwise distances give a shape, not its orientation or mirror image: every phon
 - **GPS** (`Gps.kt`, framework `LocationManager`, no library): `lat/lon/gacc` in events when a fix < 60 s old exists; in the export.
 - Known gaps: chirp ranging uses only the first three letters; phones closer than ~1 m give poor angles (near field); mesh and Bluetooth ranging not yet built.
 
+### Shipped 26 Sep 17:30–17:40 (mesh, self-noise, north stability)
+- **Mesh link** (`NearbyLink` v2, `P2P_CLUSTER`, service id `com.hush.v2`): every phone advertises and discovers. A sensor keeps one upstream (commander if visible, else a sensor that already has a route) and accepts any number downstream; it advertises only once routed, so no loops. Advertised name = `C|<name>` or `S|<name>|<hops>`. Messages from below go up, commands from above go down; `ASSIGN` carries `to=<name>`. Sensors announce with a `join` message that is relayed to the commander, which keys sensors by name, not by link. Verified from the laptop for the one-hop case; multi-hop needs a physical test.
+- **Bluetooth Channel Sounding confirmed** by the Android 16 Ranging API on the I2501 (`BleCsRangingCapabilities`, security level 1, BLE RSSI also present; UWB/RTT absent). Session code needs `compileSdk = 36`.
+- **Self-noise:** the start buzz (3 × 700 ms pulses rattle the phone), the beeps and the chirps once produced "Source 1 … | Source 2 …" from nothing. Now: rhythm tracker reset at window start; onsets ignored for 3.5 s after start and 1.5 s after any chirp; scoring skips the first 3.5 s.
+- **North stability:** two-mic alignment skips rounds with phones < 0.8 m apart (near field), holds the median mic spacing after 3 rounds, and smooths the rotation over the last 5 rounds.
+- **Known:** a chirp heard too faintly by one phone loses that pair for the round (timing filter drops it); no re-chirp yet. Only the first three letters form the map.
+
 ### Order of work
 1. **Today before 18:00:** manual placement, ranking, export, rehearsal. Nothing above ships in the remaining time without risking the demo.
 2. **Tonight, 30 min:** compass heading in every event → north-up map and arrow.
