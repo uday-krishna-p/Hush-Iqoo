@@ -163,6 +163,7 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
             val start = sb.length
             sb.append(if (l == strongest) "★ " else "   ").append(l).append("  ").append(name)
             if (r != null) sb.append("   score %.4f  evidence %.0f%%".format(r.score, r.evidence * 100))
+            if (r != null && r.source > 0) sb.append("  source ${r.source}")
             sb.append('\n')
             if (l == strongest) {
                 sb.setSpan(StyleSpan(Typeface.BOLD), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)

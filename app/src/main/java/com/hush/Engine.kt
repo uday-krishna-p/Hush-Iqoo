@@ -81,8 +81,32 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val evidence: Float,     // best evidence seen in the window, 0..1
         val rhythm: String?,     // most frequent rhythm name, if any
         val windows: Int,        // seconds of data received
-        val moving: Boolean      // flagged as handled/shaken during the window
+        val moving: Boolean,     // flagged as handled/shaken during the window
+        val tempoMs: Int = 0,    // tapping signature
+        var source: Int = 0      // 1, 2, … which distinct source this sensor is hearing (0 = none)
     )
+
+    /**
+     * Two people tapping do not tap at the same rate. Sensors with tapping evidence are grouped by signature:
+     * same pattern name, or tempo within 25 %. Each group is one source, numbered strongest first.
+     */
+    private fun assignSources(ranks: List<Rank>): Int {
+        val tapping = ranks.filter { it.evidence >= 0.9f && it.rhythm != null }
+        var next = 1
+        for (r in tapping) {
+            if (r.source != 0) continue
+            r.source = next
+            for (o in tapping) {
+                if (o.source != 0 || o === r) continue
+                val samePattern = r.rhythm != "steady" && r.rhythm == o.rhythm
+                val sameTempo = r.tempoMs > 0 && o.tempoMs > 0 &&
+                    kotlin.math.abs(r.tempoMs - o.tempoMs).toFloat() / maxOf(r.tempoMs, o.tempoMs) <= 0.25f
+                if (samePattern || sameTempo) o.source = next
+            }
+            next++
+        }
+        return next - 1
+    }
 
     interface Listener {
         fun onOwnWindow(w: Window)
@@ -110,6 +134,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     private var compass: com.hush.audio.Compass? = null
     private var deadReckoning: com.hush.audio.DeadReckoning? = null
+    private var gps: com.hush.audio.Gps? = null
     private var lastPlacementSentSteps = -1
     private var stillSeconds = 0
 
@@ -513,19 +538,29 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             val scores = events.map { maxOf(0f, it.rms - it.floor) * evidence(it) }.sortedDescending()
             val best = scores.take(5)
             val rhythm = events.mapNotNull { it.rhythm }.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key
+            val tempos = events.filter { it.tempoMs > 0 && it.rhythmScore >= 0.9f }.map { it.tempoMs }
             Rank(
                 letter = letter,
                 score = if (best.isEmpty()) 0f else best.average().toFloat(),
                 evidence = events.maxOfOrNull { evidence(it) } ?: 0f,
                 rhythm = rhythm,
                 windows = events.size,
-                moving = events.count { it.moving } > events.size / 3
+                moving = events.count { it.moving } > events.size / 3,
+                tempoMs = if (tempos.isEmpty()) 0 else tempos.sorted()[tempos.size / 2]
             )
         }.sortedByDescending { it.score }
+        val sources = if (mode != Mode.VOICE) assignSources(ranks) else 0
         lastRanking = ranks
         val top = ranks.firstOrNull()
         lastBrief = when {
             top == null -> "No sensor data in this window"
+            sources >= 2 -> (1..sources).joinToString("  |  ") { s ->
+                val members = ranks.filter { it.source == s }
+                val lead = members.first()
+                val others = members.drop(1).joinToString(",") { it.letter }
+                "Source $s: tapping ${lead.rhythm} %.1f/s · strongest at Sensor ${lead.letter}".format(1000f / lead.tempoMs.coerceAtLeast(1)) +
+                    (if (others.isNotEmpty()) " (also $others)" else "")
+            }
             top.evidence >= 0.9f && mode != Mode.VOICE && top.rhythm != null ->
                 "Human tapping · ${(top.evidence * 100).toInt()}% · strongest at Sensor ${top.letter} · rhythm ${top.rhythm}"
             top.evidence >= 0.9f && mode != Mode.VOICE ->
@@ -615,6 +650,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val cmp = com.hush.audio.Compass(context).also { it.start() }
         compass = cmp
         deadReckoning = com.hush.audio.DeadReckoning(context, cmp).also { it.start() }
+        gps = com.hush.audio.Gps(context).also { it.start() }
         // Probe the mics once (blocks ~0.6 s) before the main capture takes the microphone.
         HLog.d(com.hush.audio.MicProbe.run())
         capture = AudioCapture(context, this).also {
@@ -632,6 +668,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         accel?.stop(); accel = null
         compass?.stop(); compass = null
         deadReckoning?.stop(); deadReckoning = null
+        gps?.stop(); gps = null
         placements.clear(); alignSource = ""; lastPlacementSentSteps = -1; stillSeconds = 0
         mapRotationDeg = null
         frameB = null; frameC = null; lastAInFrame = null; alignSolutions.clear(); mapMetresPerUnit = null
@@ -799,7 +836,11 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             accel = acc.spikes,
             accelMax = acc.maxHp,
             moving = acc.moving,
-            battery = battery
+            battery = battery,
+            tempoMs = rhythm.tempoMs,
+            lat = gps?.fix?.latitude,
+            lon = gps?.fix?.longitude,
+            gpsAcc = gps?.fix?.accuracy
         )
         val w = Window(rms, event.floor, classifier?.lastGain ?: 1f, tap, rhythm, acc, structure, cls, event)
         HLog.d("window id=$letter hush=$inHush label=$label rms=%.4f floor=%.4f taps=%d rej=%d peak=x%.0f acc=%d accMax=%.3f accRms=%.3f struct=%b rhythm=%.1f/%s(%d) voice=%.2f impact=%.2f machine=%.2f | %s".format(

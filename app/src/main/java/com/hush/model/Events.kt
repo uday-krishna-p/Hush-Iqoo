@@ -22,6 +22,10 @@ data class SensorEvent(
     val accelMax: Float = 0f,    // m/s², largest jolt this second
     val moving: Boolean = false, // phone handled / shaken this second: audio from it is suspect, label still shown
     val battery: Int = -1,       // percent
+    val tempoMs: Int = 0,        // tapping signature: mean gap (or pattern repeat) in ms
+    val lat: Double? = null,     // GPS, only when a fix < 60 s old exists
+    val lon: Double? = null,
+    val gpsAcc: Float? = null,   // metres
     val chirpTs: Long? = null
 ) {
     fun toJson(): String = JSONObject().apply {
@@ -41,6 +45,8 @@ data class SensorEvent(
         put("accm", r(accelMax))
         if (moving) put("mov", true)
         put("bat", battery)
+        if (tempoMs > 0) put("tempo", tempoMs)
+        if (lat != null && lon != null) { put("lat", lat); put("lon", lon); put("gacc", Math.round((gpsAcc ?: 0f) * 10.0) / 10.0) }
         rhythm?.let { put("rh", it) }
         chirpTs?.let { put("chirp", it) }
     }.toString()
@@ -66,6 +72,10 @@ data class SensorEvent(
                 accelMax = o.optDouble("accm", 0.0).toFloat(),
                 moving = o.optBoolean("mov", false),
                 battery = o.optInt("bat", -1),
+                tempoMs = o.optInt("tempo", 0),
+                lat = if (o.has("lat")) o.getDouble("lat") else null,
+                lon = if (o.has("lon")) o.getDouble("lon") else null,
+                gpsAcc = if (o.has("gacc")) o.getDouble("gacc").toFloat() else null,
                 rhythm = o.optString("rh").ifEmpty { null },
                 chirpTs = if (o.has("chirp")) o.getLong("chirp") else null
             )

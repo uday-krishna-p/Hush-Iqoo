@@ -9,7 +9,8 @@ class RhythmTracker {
     data class Result(
         val count: Int,          // onsets in the last HISTORY_MS
         val score: Float,        // 0..1
-        val rhythm: String?      // "3-2", "steady", or null
+        val rhythm: String?,     // "3-2", "steady", or null
+        val tempoMs: Int = 0     // mean gap between onsets, ms (the source's signature; 0 if unknown)
     )
 
     companion object {
@@ -49,11 +50,12 @@ class RhythmTracker {
 
         // 1. Steady knocking at ANY tempo: consecutive gaps are regular. Measured 26 Sep: people knock at
         //    1/s or 2–3/s; both are intent. At 600 ms grouping the fast case merged into one endless group.
+        val allGaps = times.zipWithNext { a, b -> (b - a).toFloat() }
+        val tempo = if (allGaps.isEmpty()) 0 else allGaps.average().toInt()
         if (n >= MIN_ONSETS) {
-            val gaps = times.zipWithNext { a, b -> (b - a).toFloat() }
-            val mean = gaps.average().toFloat()
-            val sd = kotlin.math.sqrt(gaps.map { (it - mean) * (it - mean) }.average().toFloat())
-            if (mean in 150f..2500f && sd / mean < STEADY_CV) return Result(n, 0.9f, "steady")
+            val mean = allGaps.average().toFloat()
+            val sd = kotlin.math.sqrt(allGaps.map { (it - mean) * (it - mean) }.average().toFloat())
+            if (mean in 150f..2500f && sd / mean < STEADY_CV) return Result(n, 0.9f, "steady", tempo)
         }
 
         // 2. Patterned knocking (3-2): group onsets into bursts.
@@ -103,6 +105,8 @@ class RhythmTracker {
             regular -> "steady"
             else -> null
         }
-        return Result(n, score, rhythm)
+        // For patterned tapping the signature is the group repeat interval, not the gap between hits.
+        val groupTempo = if (starts.size >= 2) starts.zipWithNext { a, b -> (b - a).toFloat() }.average().toInt() else tempo
+        return Result(n, score, rhythm, if (rhythm != null && rhythm != "steady") groupTempo else tempo)
     }
 }
