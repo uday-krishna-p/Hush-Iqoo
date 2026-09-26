@@ -62,6 +62,8 @@ class SoundAlerts {
         SPEECH("SOMEONE CALLING", 0xFF546E7A.toInt(),
             setOf("Speech", "Child speech, kid speaking", "Conversation", "Narration, monologue"),
             0.5f, 3, 8f, 0, longArrayOf(0, 300, 200, 300), defaultOn = false),
+        /** A sound the person taught the phone (SoundLibrary): the word is the name they gave it, the colour the library's. */
+        TAUGHT("MY SOUND", 0xFFC2185B.toInt(), emptySet(), 9f, 9, 2f, 5, longArrayOf(0, 150, 100, 500, 100, 150), defaultOn = false),
         /** Not a sound category: the whistle counter's DONE / "check the cooker" use this colour and pattern (no classes, never fires by itself). */
         COOKER("WHISTLES DONE", 0xFF2E7D32.toInt(), emptySet(), 9f, 9, 9f, 8, longArrayOf(0, 600, 200, 600, 200, 600, 600, 600, 200, 600, 200, 600), defaultOn = false);
 
@@ -92,7 +94,8 @@ class SoundAlerts {
         val pattern: LongArray,       // vibration
         val repeats: Boolean,
         val atMs: Long,
-        val extended: Boolean         // the same alert is still going on (extend on screen, do not buzz again)
+        val extended: Boolean,        // the same alert is still going on (extend on screen, do not buzz again)
+        val colour: Int = category.colour   // a taught sound carries its own colour
     )
 
     companion object {
@@ -114,6 +117,9 @@ class SoundAlerts {
 
     /** Which categories are on. */
     val enabled: MutableSet<Category> = Category.values().filter { it.defaultOn }.toMutableSet()
+    /** Taught sounds (TEACH on the ALERT screen); matched before the categories, one alert per name per [DEBOUNCE_MS]. */
+    var library: com.hush.SoundLibrary? = null
+    private val lastTaughtFired = HashMap<String, Long>()
     /** 1.0 = normal; 0.7 = high sensitivity (thresholds scaled by it). */
     @Volatile var sensitivity = 1f
 
@@ -124,7 +130,7 @@ class SoundAlerts {
     private var knocksReported = 0L                      // last time KNOCK fired: those onsets are spent
 
     fun reset() {
-        startMs = -1L; history.clear(); knocks.clear(); lastFired.clear(); knocksReported = 0L
+        startMs = -1L; history.clear(); knocks.clear(); lastFired.clear(); lastTaughtFired.clear(); knocksReported = 0L
     }
 
     /** One second in; at most one alert out (the highest-priority category that fired). */
@@ -137,6 +143,16 @@ class SoundAlerts {
         if (s.nowMs - startMs < WARM_UP_MS || s.selfNoise) return null
 
         var best: Alert? = null
+        // A taught sound first: the person's own doorbell beats the generic guess.
+        val lib = library
+        if (lib != null && lib.sounds.isNotEmpty() && !s.moving && loudEnough(Category.TAUGHT, s)) {
+            lib.match(s.scores)?.let { (t, sim) ->
+                val since = s.nowMs - (lastTaughtFired[t.name] ?: Long.MIN_VALUE / 2)
+                lastTaughtFired[t.name] = s.nowMs
+                return Alert(Category.TAUGHT, t.name.uppercase(), "taught sound, similarity %.2f, loud=x%.1f".format(sim, if (s.floor > 0f) s.rms / s.floor else 0f),
+                    sim, Category.TAUGHT.pattern, false, s.nowMs, extended = since < DEBOUNCE_MS, colour = t.colour)
+            }
+        }
         for (c in Category.values()) {
             if (c !in enabled) continue
             val a = evaluate(c, s) ?: continue

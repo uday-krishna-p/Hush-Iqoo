@@ -37,6 +37,17 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     /** Persona C's category detector; its `enabled` set and `sensitivity` are the ALERT screen's settings. */
     val soundAlerts = com.hush.audio.SoundAlerts()
+    /** Sounds the person taught the phone (TEACH on the ALERT screen); matched by [soundAlerts]. */
+    val library = SoundLibrary()
+    /** ALERT screen: start teaching a sound under this name; the next 3 loud seconds are its fingerprint. */
+    fun teach(name: String): String {
+        val s = library.startTeaching(name, SystemClock.elapsedRealtime())
+        listener?.onTeaching(s, false)
+        return s
+    }
+    fun cancelTeach() { library.cancelTeaching(); listener?.onTeaching("", true) }
+    fun forget(name: String) { if (library.forget(name)) { appContext?.let { Alerting.saveLibrary(library) } }; listener?.onTeaching("", true) }
+
     /** Persona B's whistle counter (HOME role); `target` is the screen's setting. */
     val whistles = com.hush.audio.WhistleCounter()
     /** HOME role also hears kitchen timers and alarms, with its own switch set (TIMER + ALARM only). */
@@ -171,6 +182,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         fun onAlert(alert: com.hush.audio.SoundAlerts.Alert) {}
         /** HOME role: a cooker whistle was counted, the target reached, or the cooker has gone quiet for too long. */
         fun onWhistle(event: com.hush.audio.WhistleCounter.Event) {}
+        /** ALERT role: teaching progress ("Make the sound now… 1 of 3 heard"); [done] when the session ended (saved, cancelled or timed out) or the list changed. */
+        fun onTeaching(status: String, done: Boolean) {}
     }
 
     // ---- Probe / discovered phones (PRD 2.1) ----
@@ -1839,6 +1852,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             soundAlerts.reset(); homeAlerts.reset(); whistles.reset()
             if (newRole == ROLE_HOME) { setWalkTuning(); walk.reset(); walkState = walk.state }
             Alerting.init(context)
+            Alerting.loadLibrary(library)
+            soundAlerts.library = library
             return   // no mesh, no Bluetooth tag, no chirps: one phone on its own
         }
         // Build the chirp search tables now, so the first ranging round does not pay for it (4 s on 27 Sep).
@@ -1871,6 +1886,17 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val second = com.hush.audio.SoundAlerts.Second(
             nowMs = now, rms = w.rms, floor = w.floor, moving = w.accel.moving, selfNoise = selfNoise,
             scores = w.cls?.scores ?: emptyMap(), topClass = w.cls?.topClass ?: "-", knocks = knocks)
+        // Teaching a sound: the loud seconds go into the fingerprint instead of being judged.
+        if (library.session != null) {
+            val loud = if (w.floor > 0f) w.rms / w.floor else 0f
+            val taught = library.feed(now, second.scores, loud)
+            when {
+                taught != null -> { Alerting.saveLibrary(library); listener?.onTeaching("Saved '${taught.name}'", true) }
+                library.session == null -> { library.timedOut; listener?.onTeaching("Nothing loud enough heard in 30 s: not saved. Try again closer to the sound.", true) }
+                else -> listener?.onTeaching(library.session!!.status, false)
+            }
+            return
+        }
         val a = soundAlerts.onSecond(second) ?: return
         Alerting.fire(a, listener != null)
         listener?.onAlert(a)

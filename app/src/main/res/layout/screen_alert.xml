@@ -107,6 +107,44 @@
             android:layout_marginTop="8dp"
             android:orientation="vertical" />
 
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/teach_heading"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/teach_hint"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/teachButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="8dp"
+            android:text="@string/teach_button"
+            android:textSize="18sp" />
+
+        <TextView
+            android:id="@+id/teachStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <!-- One row per taught sound is added in code: colour swatch, name, FORGET -->
+        <LinearLayout
+            android:id="@+id/teachList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="vertical" />
+
         <Switch
             android:id="@+id/alertSensitivity"
             android:layout_width="match_parent"

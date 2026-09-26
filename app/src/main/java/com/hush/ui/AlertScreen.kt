@@ -49,6 +49,10 @@ class AlertScreen(private val activity: Activity) : Engine.Listener {
         }
     }
 
+    private val teachButton: Button = activity.findViewById(R.id.teachButton)
+    private val teachStatus: TextView = activity.findViewById(R.id.teachStatus)
+    private val teachList: LinearLayout = activity.findViewById(R.id.teachList)
+
     init {
         dismissBtn.setOnClickListener { dismiss() }
         banner.setOnClickListener { if (dismissBtn.visibility == View.VISIBLE) dismiss() }
@@ -60,6 +64,53 @@ class AlertScreen(private val activity: Activity) : Engine.Listener {
         buildCategoryRows()
         showHistory()
         status.text = activity.getString(R.string.alert_status_starting)
+        teachButton.setOnClickListener { askNameAndTeach() }
+        buildTaughtRows()
+    }
+
+    // ---- TEACH a sound ----
+
+
+    private fun askNameAndTeach() {
+        if (Engine.library.session != null) { Engine.cancelTeach(); teachStatus.text = ""; teachButton.text = activity.getString(R.string.teach_button); return }
+        val input = android.widget.EditText(activity).apply { hint = activity.getString(R.string.teach_name_hint); setSingleLine() }
+        android.app.AlertDialog.Builder(activity)
+            .setTitle(R.string.teach_dialog_title)
+            .setMessage(R.string.teach_dialog_text)
+            .setView(input)
+            .setPositiveButton(R.string.teach_start) { _, _ ->
+                teachStatus.text = Engine.teach(input.text.toString())
+                teachButton.text = activity.getString(R.string.teach_cancel)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun buildTaughtRows() {
+        teachList.removeAllViews()
+        for (t in Engine.library.sounds) {
+            val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, 6, 0, 6) }
+            row.addView(View(activity).apply { setBackgroundColor(t.colour) }, LinearLayout.LayoutParams(36, 36).apply { rightMargin = 16 })
+            row.addView(TextView(activity).apply { text = t.name; textSize = 18f }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(Button(activity).apply {
+                text = activity.getString(R.string.alert_test); textSize = 14f
+                setOnClickListener {
+                    val c = SoundAlerts.Category.TAUGHT
+                    Alerting.fire(SoundAlerts.Alert(c, t.name.uppercase() + " (test)", "test", 1f, c.pattern, false, SystemClock.elapsedRealtime(), false, t.colour), true)
+                    onAlert(SoundAlerts.Alert(c, t.name.uppercase() + " (test)", "test", 1f, c.pattern, false, SystemClock.elapsedRealtime(), false, t.colour))
+                }
+            })
+            row.addView(Button(activity).apply {
+                text = activity.getString(R.string.teach_forget); textSize = 14f
+                setOnClickListener { Engine.forget(t.name) }
+            })
+            teachList.addView(row)
+        }
+    }
+
+    override fun onTeaching(status: String, done: Boolean) {
+        teachStatus.text = status
+        if (done) { teachButton.text = activity.getString(R.string.teach_button); buildTaughtRows() }
     }
 
     private fun buildCategoryRows() {
@@ -118,7 +169,7 @@ class AlertScreen(private val activity: Activity) : Engine.Listener {
         bannerWord.text = alert.word
         bannerTime.text = activity.getString(R.string.alert_heard_at, SimpleDateFormat("HH:mm:ss", Locale.US).format(Date()))
         dismissBtn.visibility = View.VISIBLE
-        flashColour = alert.category.colour
+        flashColour = alert.colour
         if (!alert.extended) {
             flashesLeft = 12
             banner.removeCallbacks(flash); banner.post(flash)

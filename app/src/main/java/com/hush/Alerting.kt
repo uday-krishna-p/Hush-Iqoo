@@ -88,7 +88,7 @@ object Alerting {
             val full = Intent(ctx, AlertActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 .putExtra(EXTRA_CATEGORY, a.category.name).putExtra(EXTRA_WORD, a.word)
-                .putExtra(EXTRA_COLOUR, a.category.colour).putExtra(EXTRA_AT, wall).putExtra(EXTRA_REPEATS, a.repeats)
+                .putExtra(EXTRA_COLOUR, a.colour).putExtra(EXTRA_AT, wall).putExtra(EXTRA_REPEATS, a.repeats)
             val pi = PendingIntent.getActivity(ctx, 4, full, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             val n = Notification.Builder(ctx, CHANNEL)
                 .setSmallIcon(android.R.drawable.ic_dialog_alert)
@@ -96,7 +96,7 @@ object Alerting {
                 .setContentText("Heard at ${clock.format(Date(wall))} · tap to see")
                 .setCategory(Notification.CATEGORY_ALARM)
                 .setVisibility(Notification.VISIBILITY_PUBLIC)
-                .setColor(a.category.colour)
+                .setColor(a.colour)
                 .setColorized(true)
                 .setContentIntent(pi)
                 .setFullScreenIntent(pi, true)
@@ -158,6 +158,24 @@ object Alerting {
             }
             HLog.d("ALERT history loaded: ${history.size} entries")
         } catch (e: Exception) { HLog.d("ALERT history load failed: $e") }
+    }
+
+    // ---- taught sounds (SoundLibrary) ----
+
+    const val SOUNDS_FILE = "sounds.txt"
+
+    fun loadLibrary(lib: SoundLibrary) {
+        val ctx = appContext ?: return
+        try {
+            val f = File(ctx.filesDir, SOUNDS_FILE)
+            if (f.exists()) { lib.fromLines(f.readLines()); HLog.d("TEACH: ${lib.sounds.size} taught sound(s) loaded: " + lib.sounds.joinToString { it.name }) }
+        } catch (e: Exception) { HLog.d("TEACH load failed: $e") }
+    }
+
+    fun saveLibrary(lib: SoundLibrary) {
+        val ctx = appContext ?: return
+        try { File(ctx.filesDir, SOUNDS_FILE).writeText(lib.toLines().joinToString("\n") + "\n"); HLog.d("TEACH: ${lib.sounds.size} sound(s) saved") }
+        catch (e: Exception) { HLog.d("TEACH save failed: $e") }
     }
 
     fun format(e: Entry): String = SimpleDateFormat("EEE HH:mm", Locale.US).format(Date(e.atWallMs)) + "  " + e.word

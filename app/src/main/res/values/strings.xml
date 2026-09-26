@@ -98,7 +98,16 @@
     <string name="alert_sensitivity_high">High sensitivity (more alerts, more false ones)</string>
     <string name="alert_hearing">now: %1$s · loudness ×%2$.1f above the room · %3$s</string>
     <string name="alert_hearing_quiet">quiet</string>
-    <string name="role_home">HOME · count cooker whistles</string>
+    <string name="teach_heading">Teach it your own sounds</string>
+    <string name="teach_hint">Your doorbell, your microwave, the water heater: play the sound three times and the phone learns it (no recording is kept, only what the model made of it).</string>
+    <string name="teach_button">TEACH A SOUND</string>
+    <string name="teach_cancel">CANCEL TEACHING</string>
+    <string name="teach_dialog_title">Teach a sound</string>
+    <string name="teach_dialog_text">Give it a name, press START, then make the sound 3 times within 30 s (ring the bell, run the microwave timer…).</string>
+    <string name="teach_name_hint">e.g. front door bell</string>
+    <string name="teach_start">START</string>
+    <string name="teach_forget">FORGET</string>
+    <string name="role_home">HOME · find a noise, count cooker whistles</string>
     <string name="home_count_title">Whistle counter</string>
     <string name="home_status">Listening for the cooker · a whistle is loud, steady and tonal (a kettle counts too)</string>
     <string name="home_target">Whistles wanted</string>
