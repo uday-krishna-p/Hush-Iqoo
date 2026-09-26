@@ -24,6 +24,7 @@ class AudioCapture(private val context: Context, private val listener: Listener)
         const val WINDOW = 48_000          // one second
         private const val CHUNK = 4_800    // 100 ms per read
         const val DEBUG_WAV_MAX_SECONDS = 90
+        const val RING_SECONDS = 8
     }
 
     private fun wavOpen() {
@@ -69,6 +70,42 @@ class AudioCapture(private val context: Context, private val listener: Listener)
 
     @Volatile private var running = false
     private var thread: Thread? = null
+
+    // Ring buffer of the last RING_SECONDS of raw 48 kHz audio, with an absolute sample counter,
+    // so a chirp can be located to the sample on this phone's own clock.
+    private val ring = ShortArray(SAMPLE_RATE * RING_SECONDS)
+    private var ringWrite = 0
+    @Volatile var samplesCaptured = 0L
+        private set
+    private val ringLock = Any()
+
+    private fun ringPush(chunk: ShortArray, n: Int) {
+        synchronized(ringLock) {
+            for (i in 0 until n) {
+                ring[ringWrite] = chunk[i]
+                ringWrite = (ringWrite + 1) % ring.size
+            }
+            samplesCaptured += n
+        }
+    }
+
+    /**
+     * Copies [count] samples starting at absolute sample [fromSample] into a new array.
+     * Returns null if that stretch is no longer (or not yet) in the buffer.
+     */
+    fun snapshot(fromSample: Long, count: Int): ShortArray? {
+        synchronized(ringLock) {
+            val oldest = samplesCaptured - ring.size
+            if (fromSample < oldest || fromSample + count > samplesCaptured || count > ring.size) return null
+            val out = ShortArray(count)
+            var idx = ((fromSample % ring.size).toInt() + ring.size) % ring.size
+            for (i in 0 until count) {
+                out[i] = ring[idx]
+                idx = (idx + 1) % ring.size
+            }
+            return out
+        }
+    }
 
     /**
      * DEBUG ONLY: when set before start(), the raw 48 kHz stream is also written to this WAV file
@@ -151,6 +188,7 @@ class AudioCapture(private val context: Context, private val listener: Listener)
                     continue
                 }
                 wavWrite(chunk, n)
+                ringPush(chunk, n)
                 var i = 0
                 while (i < n) {
                     val take = minOf(n - i, WINDOW - filled)

@@ -99,11 +99,28 @@ data class Command(val type: String, val seconds: Int = 20, val letter: String? 
     }
 }
 
+/** Sensor → commander: "I heard the chirp from [from] starting at my sample [sample]". */
+data class ChirpReport(val hearer: String, val from: String, val sample: Long, val ratio: Float) {
+    fun toJson(): String = JSONObject().put("rep", "chirp").put("hearer", hearer).put("from", from).put("sample", sample).put("ratio", ratio.toDouble()).toString()
+
+    companion object {
+        fun fromJson(o: JSONObject): ChirpReport? = try {
+            ChirpReport(o.getString("hearer"), o.getString("from"), o.getLong("sample"), o.optDouble("ratio", 0.0).toFloat())
+        } catch (e: Exception) {
+            HLog.d("bad ChirpReport json: $e"); null
+        }
+    }
+}
+
 object Messages {
-    /** Returns a [SensorEvent], a [Command], or null. */
+    /** Returns a [SensorEvent], a [Command], a [ChirpReport], or null. */
     fun parse(text: String): Any? = try {
         val o = JSONObject(text)
-        if (o.has("cmd")) Command.fromJson(o) else SensorEvent.fromJson(o)
+        when {
+            o.has("cmd") -> Command.fromJson(o)
+            o.optString("rep") == "chirp" -> ChirpReport.fromJson(o)
+            else -> SensorEvent.fromJson(o)
+        }
     } catch (e: Exception) {
         HLog.d("unparseable message: $e / $text")
         null

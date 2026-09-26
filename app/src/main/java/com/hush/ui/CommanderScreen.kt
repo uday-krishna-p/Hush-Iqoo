@@ -63,6 +63,13 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
         map.dots.putAll(Engine.mapDots)
         map.onPlaced = { letter -> Engine.mapDots[letter] = map.dots[letter]!!; renderPlaceButtons() }
         map.strongest = Engine.lastRanking.firstOrNull()?.takeIf { it.score > 0f }?.letter
+        activity.findViewById<Button>(R.id.btnAutoPlace).setOnClickListener { Engine.autoPlace() }
+        activity.findViewById<Button>(R.id.btnFlip).setOnClickListener {
+            Engine.mirror = !Engine.mirror
+            val flipped = Engine.mapDots.mapValues { (_, p) -> p.first to (1f - p.second) }
+            Engine.mapDots.clear(); Engine.mapDots.putAll(flipped)
+            map.dots.clear(); map.dots.putAll(flipped); map.invalidate()
+        }
         renderPlaceButtons()
         renderMode()
         render()
@@ -74,7 +81,9 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
 
     override fun onLinkStatus(text: String) {
         super.onLinkStatus(text)
-        commanderStatus.text = text
+        commanderStatus.text = if (Engine.rangingStatus.isEmpty()) text else "$text\n${Engine.rangingStatus}"
+        // Ranging may have replaced the dots.
+        map.dots.clear(); map.dots.putAll(Engine.mapDots); map.invalidate()
     }
 
     override fun onCountdown(secondsLeft: Int) {
@@ -99,6 +108,7 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
 
     override fun onPeers(peers: List<Engine.Peer>) {
         this.peers = peers
+        map.dots.clear(); map.dots.putAll(Engine.mapDots); map.invalidate()
         renderPlaceButtons()
         render()
     }

@@ -85,6 +85,27 @@
             android:layout_marginTop="16dp" />
 
         <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnAutoPlace"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="2"
+                android:text="@string/auto_place" />
+
+            <Button
+                android:id="@+id/btnFlip"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/flip" />
+        </LinearLayout>
+
+        <LinearLayout
             android:id="@+id/placeRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

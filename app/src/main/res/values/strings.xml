@@ -20,6 +20,8 @@
     <string name="brief_listening">Listening…</string>
     <string name="export_button">EXPORT LOG to Downloads</string>
     <string name="place_button">Place %1$s</string>
+    <string name="auto_place">AUTO-PLACE (chirps)</string>
+    <string name="flip">FLIP</string>
     <string name="export_ok">Saved Downloads/%1$s</string>
     <string name="export_failed">Export failed, see log</string>
     <string name="hush_running">HUSH RUNNING</string>

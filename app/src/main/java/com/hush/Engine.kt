@@ -106,6 +106,102 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     /** Commander's map: letter → (x, y) fractions of the square. Kept here so it survives screen changes. */
     val mapDots = LinkedHashMap<String, Pair<Float, Float>>()
 
+    // ---- Acoustic ranging (auto placement) ----
+
+    /** heard[hearer letter][chirping letter] = sample index on the hearer's clock. Commander only. */
+    private val heard = HashMap<String, HashMap<String, Long>>()
+    private var rangingInProgress = false
+    @Volatile var rangingStatus: String = ""
+        private set
+    var mirror = false   // commander's "flip" for the mirror ambiguity of a triangle
+
+    private const val CHIRP_GAP_MS = 1800L
+    private const val SEARCH_BEFORE_MS = 200
+    private const val SEARCH_AFTER_MS = 1300
+
+    /** Commander: run one chirp per phone, then place the dots from the pairwise distances. */
+    fun autoPlace() {
+        if (role != ROLE_COMMANDER || rangingInProgress) return
+        val letters = listOf("A") + peers.values.map { it.letter }
+        if (letters.size < 3) { setRangingStatus("Need at least 3 phones connected (have ${letters.size})"); return }
+        rangingInProgress = true
+        heard.clear()
+        setRangingStatus("Ranging: chirping ${letters.joinToString(" ")}…")
+        sessionLog.addRecord("ranging_start", mapOf("letters" to letters.joinToString(" ")))
+        letters.forEachIndexed { i, l ->
+            main.postDelayed({ triggerChirp(l) }, i * CHIRP_GAP_MS)
+        }
+        main.postDelayed({ finishRanging(letters) }, letters.size * CHIRP_GAP_MS + 2500)
+    }
+
+    /** Commander: tell [letter] to chirp now; everyone (including us) listens for it. */
+    private fun triggerChirp(letter: String) {
+        link?.broadcast(Command(Command.CHIRP, letter = letter).toJson())
+        onChirpCommand(letter)
+    }
+
+    /** Every phone: a chirp from [letter] is about to happen. Play it if it is ours, and search for it. */
+    private fun onChirpCommand(letter: String) {
+        val cap = capture ?: return
+        val startSample = cap.samplesCaptured - AudioCapture.SAMPLE_RATE.toLong() * SEARCH_BEFORE_MS / 1000
+        if (letter == this.letter) appContext?.let { com.hush.audio.Chirp.play(it) }
+        val count = AudioCapture.SAMPLE_RATE * (SEARCH_BEFORE_MS + SEARCH_AFTER_MS) / 1000
+        main.postDelayed({
+            Thread {
+                val audio = cap.snapshot(startSample, count)
+                if (audio == null) { HLog.d("Chirp search: audio for $letter not in buffer"); return@Thread }
+                val t0 = SystemClock.elapsedRealtime()
+                val det = com.hush.audio.Chirp.detect(audio, count)
+                val at = startSample + det.offset
+                HLog.d("Chirp from $letter heard by ${this.letter}: offset=${det.offset} sample=$at peak=%.2f ratio=%.1f (%d ms)".format(det.peak, det.ratio, SystemClock.elapsedRealtime() - t0))
+                if (det.offset < 0 || det.ratio < 5f) { HLog.d("Chirp from $letter: not credible, dropped"); return@Thread }
+                val report = com.hush.model.ChirpReport(this.letter, letter, at, det.ratio)
+                main.post {
+                    if (role == ROLE_COMMANDER) onChirpReport(report) else link?.broadcast(report.toJson())
+                }
+            }.start()
+        }, SEARCH_AFTER_MS + 100L)
+    }
+
+    private fun onChirpReport(r: com.hush.model.ChirpReport) {
+        heard.getOrPut(r.hearer) { HashMap() }[r.from] = r.sample
+        HLog.d("Chirp report: ${r.hearer} heard ${r.from} at ${r.sample} ratio=%.1f".format(r.ratio))
+    }
+
+    private fun finishRanging(letters: List<String>) {
+        rangingInProgress = false
+        val dist = HashMap<String, Double>()
+        for (i in letters.indices) for (j in i + 1 until letters.size) {
+            val d = Ranging.pairDistance(heard, letters[i], letters[j])
+            if (d != null) dist["${letters[i]}${letters[j]}"] = d
+        }
+        val text = dist.entries.joinToString("  ") { "%s %.2f m".format(it.key, it.value) }
+        HLog.d("RANGING result: $text  (heard=$heard)")
+        sessionLog.addRecord("ranging", mapOf("distances" to text))
+        if (letters.size >= 3) {
+            val a = letters[0]; val b = letters[1]; val c = letters[2]
+            val dAB = dist["$a$b"]; val dAC = dist["$a$c"]; val dBC = dist["$b$c"]
+            if (dAB != null && dAC != null && dBC != null) {
+                val tri = Ranging.triangle(a, b, c, dAB, dAC, dBC)
+                if (tri != null) {
+                    val flipped = if (mirror) tri.mapValues { (_, p) -> p.first to -p.second } else tri
+                    mapDots.clear()
+                    mapDots.putAll(Ranging.toUnitSquare(flipped))
+                    setRangingStatus("Placed by sound: $text")
+                    listener?.onPeers(peers.values.toList())
+                    return
+                }
+            }
+        }
+        setRangingStatus(if (dist.isEmpty()) "Ranging failed: no chirps heard. Place manually." else "Ranging incomplete: $text. Place manually.")
+    }
+
+    private fun setRangingStatus(s: String) {
+        rangingStatus = s
+        HLog.d(s)
+        listener?.onLinkStatus(lastStatus)   // nudges the screen to redraw; it reads rangingStatus
+    }
+
     /** Commander: write the session log to Downloads. Returns the file name or null. */
     fun exportLog(): String? {
         val ctx = appContext ?: return null
@@ -428,8 +524,10 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                     }
                     Command.HUSH -> startHushLocal(msg.seconds)
                     Command.STOP -> { inHush = false; listener?.onCountdown(-1) }
+                    Command.CHIRP -> msg.letter?.let { onChirpCommand(it) }
                 }
             }
+            is com.hush.model.ChirpReport -> onChirpReport(msg)
             is SensorEvent -> {
                 val name = peers[endpointId]?.name ?: endpointId
                 recordEvent(msg)
