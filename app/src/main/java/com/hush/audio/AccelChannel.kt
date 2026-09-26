@@ -27,9 +27,11 @@ class AccelChannel(context: Context) : SensorEventListener {
     )
 
     companion object {
-        const val SPIKE_THRESHOLD = 0.15f   // m/s². Sensor noise at rest is ~0.02. Tune from the logs.
+        // Measured 26 Sep on the I2501: at rest noise is 0.02 m/s² (max) / 0.007 (rms);
+        // a handled phone shows 2–28 m/s² spikes and 0.4–3 rms.
+        const val SPIKE_THRESHOLD = 0.5f    // m/s²
         const val REFRACTORY_MS = 120L
-        const val MOVING_RMS = 0.8f         // hand tremor is ~0.1–0.3
+        const val MOVING_RMS = 0.25f        // above this the phone is being handled or shaken
         private const val LOWPASS_ALPHA = 0.02f
     }
 

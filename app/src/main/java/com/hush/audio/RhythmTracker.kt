@@ -17,6 +17,7 @@ class RhythmTracker {
         const val GROUP_GAP_MS = 600L    // onsets closer than this belong to the same group ("3 quick knocks")
         const val REGULAR_CV = 0.35f     // coefficient of variation below this = regular
         const val MIN_ONSETS = 4         // USAR asks victims to "tap three times"; four regular hits is intent, three is chance
+        const val MAX_ONSETS = 20        // more than ~2.5 hits per second for 8 s is rattling, not signalling
         const val MERGE_MS = 100L        // an accelerometer spike this close to an audio onset is the same knock
     }
 
@@ -43,6 +44,7 @@ class RhythmTracker {
     fun score(times: List<Long>, nowMs: Long): Result {
         val n = times.size
         if (n < 2) return Result(n, 0f, null)
+        if (n > MAX_ONSETS) return Result(n, 0f, null)
 
         // Group onsets into bursts.
         val groups = ArrayList<MutableList<Long>>()

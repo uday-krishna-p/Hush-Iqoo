@@ -237,9 +237,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val now = SystemClock.elapsedRealtime()
         val tap = tapDetector.analyse(pcm48k, n48, now - 1000)
         val acc = accel?.drain() ?: AccelChannel.Result(0, 0f, 0f, emptyList(), false)
-        // Audio knocks and structure-borne jolts feed one rhythm; a knock heard AND felt is confirmed.
+        // Rhythm is AUDIO ONLY. Accelerometer jolts were tried as onsets and flooded the history (6–8 per
+        // second on a handled phone), which killed every detection. Jolts now only confirm a heard knock.
         rhythmTracker.add(tap.onsetsAbsMs)
-        if (!acc.moving) rhythmTracker.add(acc.spikeTimesMs)
         val agreed = tap.onsetsAbsMs.any { a -> acc.spikeTimesMs.any { kotlin.math.abs(it - a) <= RhythmTracker.MERGE_MS } }
         if (agreed) lastStructureMs = now
         val structure = now - lastStructureMs < RhythmTracker.HISTORY_MS
