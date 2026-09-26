@@ -23,7 +23,10 @@ class Classifier(context: Context) {
     companion object {
         const val INPUT_SAMPLES = 15_600
         private const val TARGET_PEAK = 0.8f
-        private const val MAX_GAIN = 1000f   // +60 dB cap so a truly silent room is not blown up into noise
+        // Measured 26 Sep: with a x1000 cap a quiet room becomes full-scale rumble that YAMNet calls
+        // "Vehicle"/"Aircraft". x20 keeps speech and knocks well above the model's silence level while a
+        // quiet room still reads as Silence / Inside, small room.
+        private const val MAX_GAIN = 20f
 
         // Exact YAMNet display names. Tune these after watching the top-5 list on the phone.
         val HUMAN = setOf(
