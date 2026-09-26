@@ -109,6 +109,14 @@ Pairwise distances give a shape, not its orientation or mirror image: every phon
 - **North without a button:** ranging alone cannot know rotation. While the commander walks (accelerometer rms > 0.25 for ≥ 3 s, outside a window) it re-ranges automatically; the shift of A across the map is matched to the compass bearing walked → map rotation. The mirror ambiguity is resolved once two walks in different directions agree. Manual ALIGN (point phone top at a placed sensor) remains as a shortcut.
 - **Compass arrow** (`ArrowView`, `Compass` from the rotation-vector sensor): points at the strongest sensor with distance in metres, 10 updates/s.
 
+### Shipped 26 Sep 17:00–17:30 (alignment redesign, sources, GPS)
+- **Permissions approved and declared:** `ACTIVITY_RECOGNITION` (step detector), `RANGING` (Android 16 Bluetooth Channel Sounding), `ACCESS_FINE_LOCATION` without the API-32 cap (GPS). Requested at role pick.
+- **Two-mic direction of arrival:** the I2501 exposes two distinct mics (stereo probe: 78 % channel difference). Capture is now stereo; mic 0 feeds everything as before, mic 1 only the chirp ring buffer. For each sensor's chirp the commander measures the sub-sample delay between mics (parabolic peak refinement), solves the mic spacing and left/right mirror against the ranged triangle's known angle, and sets the map rotation. First run: spacing 0.10 m, angles 44°/8° vs true 38°, rotation spread 1°. **No button, nobody moves.** Falls back to the commander's own walk, then to the placement walk (step detector + compass while a sensor is carried out), then manual.
+- **STOP** button: ends the window on all phones, cancels queued chirps.
+- **Sources:** sensors with rhythm ≥ 0.9 grouped by pattern name or tempo within 25 % → "Source 1 … | Source 2 …" in the brief; `tempo` (ms) added to the event.
+- **GPS** (`Gps.kt`, framework `LocationManager`, no library): `lat/lon/gacc` in events when a fix < 60 s old exists; in the export.
+- Known gaps: chirp ranging uses only the first three letters; phones closer than ~1 m give poor angles (near field); mesh and Bluetooth ranging not yet built.
+
 ### Order of work
 1. **Today before 18:00:** manual placement, ranking, export, rehearsal. Nothing above ships in the remaining time without risking the demo.
 2. **Tonight, 30 min:** compass heading in every event → north-up map and arrow.
