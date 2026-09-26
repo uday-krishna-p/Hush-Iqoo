@@ -171,7 +171,12 @@ the commander's arrow shows "→ CROSSING · ~N m ±r · the arrows of k phones 
 or appends "~N m where the arrows cross" to its own arrow when the two agree within 30°. Needs positions and north
 (hand layout + Align today, GPS in step 3). Log: `CROSS: source at (x, y) m ±r from A→…° B→…° (lines meet at
 ≥ …°, residual …)`, `CROSS: no point from N lines (…)`; export record `cross`. `CrossingTest` (6) passes;
-installed on all three phones; not yet tried with real knocks.
+installed on all three phones. Laptop plumbing test 01:43 (991e as Sensor B playing `knocks.wav` at level 0.3, hand
+layout B=1,0 and a laptop-set pointing): B used 30 of its own knocks, showed its arrow (`shown=true`, screen 98°,
+twin 262°, unresolved because the phone never turned), its bearing reached the commander and became a map line
+(`CROSS: no point from 1 line (B→93°/256°): need two phones on the map hearing it`); the commander heard 3–4 knocks
+without a steady rhythm, so its own arrow stayed off (`shown=false`). The crossing itself needs two phones hearing
+real knocks: not tried yet.
 
 **Compass plan, step 1 built 27 Sep 01:20 (`docs/PLAN-compass.md`; team decision: approximate direction is the
 goal, no audible chirps in the demo path):** every phone now draws its OWN arrow at the knocking from its two
