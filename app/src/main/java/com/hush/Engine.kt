@@ -283,8 +283,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         // A sensor was carried and has settled: its dot is stale, re-range when it is quiet to do so.
         if (role == ROLE_COMMANDER && !inHush && !rangingInProgress && peers.size >= 2 &&
             SystemClock.elapsedRealtime() - lastAFrameMs > 15_000) {
-            HLog.d("Sensor ${p.letter} settled after moving: re-ranging")
-            autoPlace()
+            if (chirpCalibration) { HLog.d("Sensor ${p.letter} settled after moving: re-ranging"); autoPlace() }
+            else HLog.d("Sensor ${p.letter} settled after moving: its dot may be stale (chirp calibration off, re-place it)")
         }
     }
 
@@ -332,6 +332,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         if (role != ROLE_COMMANDER) return "Only the commander aligns"
         val mb = mapBearing("A", letter) ?: return "Place A and $letter on the map first (ranging)"
         pointedHeading[letter] = headingDeg
+        peers.values.firstOrNull { it.letter == letter }?.let { pointedByName[it.name.takeLast(4)] = headingDeg; savePrefs() }
         HLog.d("ALIGN: pointed at $letter, heading %.0f°, map bearing A→$letter %.0f°".format(headingDeg, mb))
         return applyPointedAlign()
     }
@@ -403,7 +404,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     /** Commander only. Fed by every phone's onset reports; read by the map, the arrow and the brief. */
     val locator = Locator()
-    val sourceFix: Locator.Fix? get() = locator.fix
+    val sourceFix: Locator.Fix? get() = if (chirpCalibration) locator.fix else null
 
     /** A dot's position in metres (x right, y up, origin at the map centre), or null before the map has a scale. */
     fun posMetres(letter: String): Pair<Double, Double>? {
@@ -437,7 +438,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val useKnocks = mode != Mode.VOICE && tapping
         val useVoice = mode != Mode.TAPPING
         val changed = try {
-            locator.process(cap.samplesCaptured, now, mirror, { micGain[it] ?: 1f }, useKnocks, useVoice)
+            locator.process(cap.samplesCaptured, now, mirror, { gainOf(it) }, useKnocks, useVoice)
         } catch (e: Exception) { HLog.d("ERROR in locator: $e"); false }
         if (changed) {
             sourceFix?.let { f ->
@@ -454,19 +455,26 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private var lastFixSentMs = 0L
 
     /** Commander: send the source fix down the tree when it changed, and every 5 s while it exists (rotation may change). */
-    private fun sendFixDown(changed: Boolean, now: Long) {
+    private var lastFixKey: String? = null
+
+    private fun sendFixDown(changedFix: Boolean, now: Long) {
         if (role != ROLE_COMMANDER) return
-        val f = sourceFix ?: return
+        val f = sourceFix
+        val near = if (f == null) arrowTarget else null
+        if (f == null && near == null) return
+        val key = if (f != null) "fix" else "near $near"
+        val changed = changedFix || key != lastFixKey
         if (!changed && now - lastFixSentMs < 5000L) return
-        val src = sourceOnMap() ?: return
-        val msg = com.hush.model.Fix(++fixSeq, src.first, src.second, f.radius.toFloat(), f.knocks, f.edge,
-            mapRotationDeg, mirror, mapMetresPerUnit, alignSource, LinkedHashMap(mapDots))
+        val src = (if (f != null) sourceOnMap() else mapDots[near]) ?: return
+        lastFixKey = key
+        val msg = com.hush.model.Fix(++fixSeq, src.first, src.second, f?.radius?.toFloat() ?: 0f, f?.knocks ?: 0, f?.edge ?: false,
+            mapRotationDeg, mirror, mapMetresPerUnit, alignSource, LinkedHashMap(mapDots), near)
         lastFixSentMs = now
         val l = link
         if (l == null) { HLog.d("FIX not sent: no link"); return }
         l.sendDown(msg.toJson())
-        HLog.d("FIX sent seq=%d src=(%.2f, %.2f) r=%.2f knocks=%d rot=%s mirror=%b scale=%s dots=%s north=%s%s".format(
-            msg.seq, msg.x, msg.y, msg.radius, msg.knocks, mapRotationDeg?.let { "%.0f°".format(it) } ?: "-", mirror,
+        HLog.d("FIX sent seq=%d target=%s src=(%.2f, %.2f) r=%.2f knocks=%d rot=%s mirror=%b scale=%s dots=%s north=%s%s".format(
+            msg.seq, near?.let { "loudest $it" } ?: "located source", msg.x, msg.y, msg.radius, msg.knocks, mapRotationDeg?.let { "%.0f°".format(it) } ?: "-", mirror,
             mapMetresPerUnit?.let { "%.2f".format(it) } ?: "-",
             msg.dots.entries.joinToString(" ") { "%s(%.2f,%.2f)".format(it.key, it.value.first, it.value.second) },
             alignSource.ifEmpty { "-" }, if (changed) "" else " (repeat)"))
@@ -481,26 +489,28 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private fun onFix(f: com.hush.model.Fix) {
         receivedFix = f; receivedFixMs = SystemClock.elapsedRealtime()
         val a = sensorArrow()
-        HLog.d("FIX received seq=%d src=(%.2f, %.2f) knocks=%d rot=%s own dot=%s -> mapBearing=%s dist=%s heading=%.0f° screen=%s".format(
-            f.seq, f.x, f.y, f.knocks, f.rotation?.let { "%.0f°".format(it) } ?: "-",
+        HLog.d("FIX received seq=%d target=%s src=(%.2f, %.2f) knocks=%d rot=%s own dot=%s -> mapBearing=%s dist=%s heading=%.0f° screen=%s".format(
+            f.seq, f.near?.let { if (it == letter) "loudest $it = HERE" else "loudest $it" } ?: "located source", f.x, f.y, f.knocks, f.rotation?.let { "%.0f°".format(it) } ?: "-",
             f.dots[letter]?.let { "(%.2f,%.2f)".format(it.first, it.second) } ?: "none($letter)",
             a?.mapBearing?.let { "%.0f°".format(it) } ?: "-", a?.metres?.let { "%.2f m".format(it) } ?: "-", headingDeg,
             a?.screenDeg?.let { "%.0f°".format(it) } ?: "-"))
     }
 
     /** What a sensor's arrow shows: map bearing own dot → source, metres, and the screen angle (null until north is set). */
-    data class SensorArrow(val mapBearing: Float, val metres: Float?, val screenDeg: Float?, val north: String, val knocks: Int, val edge: Boolean)
+    data class SensorArrow(val mapBearing: Float, val metres: Float?, val screenDeg: Float?, val north: String, val knocks: Int, val edge: Boolean,
+                           val near: String? = null, val here: Boolean = false)
 
     /** Sensor: its arrow toward the commander's latest fix, or null (no fix, fix older than 60 s, or not on the map). */
     fun sensorArrow(): SensorArrow? {
         val f = receivedFix ?: return null
         if (SystemClock.elapsedRealtime() - receivedFixMs > 60_000L) return null
+        if (f.near != null && f.near == letter) return SensorArrow(0f, 0f, null, f.north, 0, false, f.near, here = true)
         val me = f.dots[letter] ?: return null
         val dx = f.x - me.first; val dy = f.y - me.second   // map y grows downward
         val bearing = ((Math.toDegrees(kotlin.math.atan2(dx.toDouble(), -dy.toDouble())).toFloat()) + 360f) % 360f
         val metres = f.scale?.let { kotlin.math.hypot(dx.toDouble(), dy.toDouble()).toFloat() * it }
         val screen = f.rotation?.let { ((bearing + it - headingDeg) + 720f) % 360f }
-        return SensorArrow(bearing, metres, screen, f.north, f.knocks, f.edge)
+        return SensorArrow(bearing, metres, screen, f.north, f.knocks, f.edge, f.near)
     }
 
     /** Distance from the commander's dot to the source fix, metres, or null. */
@@ -621,6 +631,97 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     @Volatile private var lastChirpDetectedSample = -1L
 
     /** Commander: run one chirp per phone, then place the dots from the pairwise distances. */
+    /**
+     * Chirp calibration (27 Sep 00:50, the team: "impossible in a chaotic place"): off. Nothing chirps on its own —
+     * HUSH goes straight to the window, no re-ranging after walking or a moved sensor, mic gains are taken as 1
+     * (identical phones). Positions come from the layout hook or the Place buttons, north from ALIGN pointing, and the
+     * arrow target is the phone that hears the knocking loudest. The AUTO-PLACE button and --ez range still chirp.
+     */
+    @Volatile var chirpCalibration = false
+
+    fun gainOf(letter: String): Float = if (chirpCalibration) micGain[letter] ?: 1f else 1f
+
+    /**
+     * Commander: positions without sound. [spec] is "B=x,y;C=x,y" in metres with A at 0,0 (any orientation and either
+     * mirror image: ALIGN by pointing fixes both). Returns a one-line result.
+     */
+    fun setLayout(spec: String): String {
+        if (role != ROLE_COMMANDER) return "Only the commander sets the layout"
+        val byName = LinkedHashMap<String, Pair<Double, Double>>()   // name suffix → metres
+        try {
+            for (part in spec.split(';').map { it.trim() }.filter { it.isNotEmpty() }) {
+                val (k, xy) = part.split('=').map { it.trim() }
+                val (x, y) = xy.split(',').map { it.trim().toDouble() }
+                // A token is a letter (B) or a phone's name suffix (991e); stored by suffix, letters change on rejoin.
+                val suffix = peers.values.firstOrNull { it.letter.equals(k, true) }?.name?.takeLast(4) ?: k.lowercase()
+                byName[suffix] = x to y
+            }
+        } catch (e: Exception) { HLog.d("LAYOUT: bad spec '$spec': $e"); return "Bad layout '$spec' (want B=x,y;C=x,y or 991e=x,y)" }
+        layoutByName.clear(); layoutByName.putAll(byName)
+        savePrefs()
+        return applyLayout()
+    }
+
+    /** Name suffix → position in metres (A at 0,0). Set by the layout hook, kept in the commander's preferences. */
+    private val layoutByName = LinkedHashMap<String, Pair<Double, Double>>()
+    /** Name suffix → the commander's heading when it pointed at that phone (ALIGN), kept in preferences. */
+    private val pointedByName = LinkedHashMap<String, Float>()
+    private var prefs: android.content.SharedPreferences? = null
+
+    private fun savePrefs() {
+        val p = prefs ?: return
+        val layout = layoutByName.entries.joinToString(";") { "%s=%.3f,%.3f".format(java.util.Locale.US, it.key, it.value.first, it.value.second) }
+        val align = pointedByName.entries.joinToString(";") { "%s=%.1f".format(java.util.Locale.US, it.key, it.value) }
+        p.edit().putString("layout", layout).putString("align", align).apply()
+        HLog.d("PREFS saved: layout='$layout' align='$align'")
+    }
+
+    private fun loadPrefs(context: Context) {
+        val p = context.getSharedPreferences("hush_commander", Context.MODE_PRIVATE)
+        prefs = p
+        layoutByName.clear(); pointedByName.clear()
+        try {
+            p.getString("layout", "")!!.split(';').filter { it.contains('=') }.forEach { t ->
+                val (k, xy) = t.split('='); val (x, y) = xy.split(',').map { it.toDouble() }; layoutByName[k] = x to y
+            }
+            p.getString("align", "")!!.split(';').filter { it.contains('=') }.forEach { t ->
+                val (k, h) = t.split('='); pointedByName[k] = h.toFloat()
+            }
+        } catch (e: Exception) { HLog.d("PREFS: unreadable, ignored: $e") }
+        HLog.d("PREFS loaded: layout=$layoutByName align=$pointedByName")
+    }
+
+    /** Commander: put the stored layout on the map for the phones present now, then re-apply stored pointing. */
+    private fun applyLayout(): String {
+        if (layoutByName.isEmpty()) return "No layout stored"
+        val pts = LinkedHashMap<String, Pair<Double, Double>>()
+        pts["A"] = 0.0 to 0.0
+        for ((suffix, xy) in layoutByName) {
+            val l = peers.values.firstOrNull { it.name.endsWith(suffix) }?.letter ?: continue
+            pts[l] = xy
+        }
+        if (pts.size < 2) return "Layout stored for ${layoutByName.keys}, none of them connected yet"
+        var maxSide = 0.0
+        for (a in pts.values) for (b in pts.values) maxSide = maxOf(maxSide, kotlin.math.hypot(a.first - b.first, a.second - b.second))
+        if (maxSide <= 0.0) return "Layout needs at least one sensor away from A"
+        val scale = (1.6 * maxSide).toFloat()
+        val cx = pts.values.map { it.first }.average(); val cy = pts.values.map { it.second }.average()
+        mapDots.clear()
+        for ((l, p) in pts) mapDots[l] = (0.5 + (p.first - cx) / scale).toFloat() to (0.5 - (p.second - cy) / scale).toFloat()
+        mapMetresPerUnit = scale
+        mirror = false   // dots are as given; stored pointing below decides the mirror again
+        try { syncLocatorPositions() } catch (e: Exception) { HLog.d("ERROR in locator after layout: $e") }
+        val text = pts.entries.joinToString(" ") { "%s(%.2f,%.2f)".format(it.key, it.value.first, it.value.second) }
+        HLog.d("LAYOUT: set by hand $text m, scale %.2f m per map, dots %s".format(scale,
+            mapDots.entries.joinToString(" ") { "%s(%.2f,%.2f)".format(it.key, it.value.first, it.value.second) }))
+        setRangingStatus("Placed by hand: $text")
+        // Stored pointing (by phone name) back onto letters present now.
+        for ((suffix, h) in pointedByName) peers.values.firstOrNull { it.name.endsWith(suffix) }?.let { pointedHeading[it.letter] = h }
+        if (pointedHeading.isNotEmpty()) applyPointedAlign()
+        listener?.onPeers(peers.values.toList())
+        return "Layout set: $text"
+    }
+
     fun autoPlace() {
         if (role != ROLE_COMMANDER || rangingInProgress) return
         val letters = listOf("A") + peers.values.map { it.letter }
@@ -1045,8 +1146,13 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         if (!inHush && !rangingInProgress && movedSinceRanging >= 3f && peers.size >= 2 &&
             SystemClock.elapsedRealtime() - lastAFrameMs > 8000) {
             HLog.d("Auto re-ranging after %.0f s of walking".format(movedSinceRanging))
-            if (pointedHeading.isNotEmpty()) { HLog.d("ALIGN: the commander walked, pointing at ${pointedHeading.keys} forgotten"); pointedHeading.clear() }
-            autoPlace()
+            if (!chirpCalibration) {
+                HLog.d("Walk: commander walked %.0f s; chirp calibration off, no re-ranging".format(movedSinceRanging))
+                movedSinceRanging = 0f
+            } else {
+                if (pointedHeading.isNotEmpty()) { HLog.d("ALIGN: the commander walked, pointing at ${pointedHeading.keys} forgotten"); pointedHeading.clear() }
+                autoPlace()
+            }
         }
     }
 
@@ -1128,7 +1234,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         sessionLog.add(e.toJson())
         updateLive(e)
         if (e.human >= 0.3f) {
-            locator.addVoice(e.sensorId, maxOf(0f, e.rms - e.floor) / (micGain[e.sensorId] ?: 1f), e.micDelay, e.micQ,
+            locator.addVoice(e.sensorId, maxOf(0f, e.rms - e.floor) / gainOf(e.sensorId), e.micDelay, e.micQ,
                 if (e.sensorId == "A") headingDeg else (peerHeading[e.sensorId] ?: 0f), e.moving, SystemClock.elapsedRealtime())
         }
         if (e.sensorId == "A") runLocator()
@@ -1143,7 +1249,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     private fun computeRanking() {
         val ranks = hushEvents.map { (letter, events) ->
-            val gain = micGain[letter] ?: 1f
+            val gain = gainOf(letter)
             val scores = events.map { maxOf(0f, it.rms - it.floor) / gain * evidence(it) }.sortedDescending()
             val best = scores.take(5)
             val rhythm = events.mapNotNull { it.rhythm }.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key
@@ -1161,7 +1267,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val sources = if (mode != Mode.VOICE) assignSources(ranks) else 0
         lastRanking = ranks
         lastBrief = "Window · " + (if (ranks.isEmpty()) "No sensor data in this window" else briefFor(ranks, sources))
-        HLog.d("RANKING ($mode): " + ranks.joinToString(" | ") { "%s score=%.5f ev=%.2f rh=%s n=%d gain=%.2f".format(it.letter, it.score, it.evidence, it.rhythm, it.windows, micGain[it.letter] ?: 1f) })
+        HLog.d("RANKING ($mode): " + ranks.joinToString(" | ") { "%s score=%.5f ev=%.2f rh=%s n=%d gain=%.2f".format(it.letter, it.score, it.evidence, it.rhythm, it.windows, gainOf(it.letter)) })
         HLog.d("BRIEF: $lastBrief")
         sessionLog.addRecord("ranking", mapOf(
             "mode" to mode.name,
@@ -1242,7 +1348,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val selfNoise = (inHush && now - hushStartMs < SELF_NOISE_MS) || now - lastChirpMs < 1500
         val quality = if (e.moving || selfNoise) 0f else 1f
         if (quality > 0f) {
-            val gain = micGain[e.sensorId] ?: 1f
+            val gain = gainOf(e.sensorId)
             val ev = evidence(e)
             l.score += maxOf(0f, e.rms - e.floor) / gain * ev
             if (ev > l.evidence) l.evidence = ev
@@ -1265,8 +1371,40 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         if (ranks.isEmpty()) return
         val sources = if (mode != Mode.VOICE) assignSources(ranks) else 0
         lastRanking = ranks
+        updateArrowTarget(ranks)
         lastBrief = "Live · " + briefFor(ranks, sources)
         listener?.onRanking(ranks, lastBrief)
+    }
+
+    /**
+     * The phone the arrows point at when no source is located: the loudest one, with hysteresis so the arrows do not
+     * flip between two similar phones. Another phone takes over only after being ≥ 3 dB (×1.41) above the current
+     * target's score for 2 consecutive seconds. Needs some human evidence (≥ 0.3), else the target is dropped.
+     */
+    @Volatile var arrowTarget: String? = null
+        private set
+    private var challenger: String? = null
+    private var challengerSeconds = 0
+
+    private fun updateArrowTarget(ranks: List<Rank>) {
+        val top = ranks.firstOrNull()?.takeIf { it.score > 0f && it.evidence >= 0.3f }
+        val cur = arrowTarget
+        if (top == null) {
+            if (cur != null) HLog.d("TARGET: none (no human signal), was $cur")
+            arrowTarget = null; challenger = null; challengerSeconds = 0; return
+        }
+        if (cur == null) { arrowTarget = top.letter; HLog.d("TARGET: ${top.letter} (score %.5f)".format(top.score)); return }
+        if (top.letter == cur) { challenger = null; challengerSeconds = 0; return }
+        val curScore = ranks.firstOrNull { it.letter == cur }?.score ?: 0f
+        if (top.score >= 1.41f * curScore) {
+            challengerSeconds = if (challenger == top.letter) challengerSeconds + 1 else 1
+            challenger = top.letter
+            if (challengerSeconds >= 2) {
+                HLog.d("TARGET: $cur -> ${top.letter} (%.5f vs %.5f, %.1f dB, %d s)".format(top.score, curScore,
+                    20f * kotlin.math.log10(top.score / curScore.coerceAtLeast(1e-9f)), challengerSeconds))
+                arrowTarget = top.letter; challenger = null; challengerSeconds = 0
+            }
+        } else { challenger = null; challengerSeconds = 0 }
     }
 
     private fun briefFor(ranks: List<Rank>, sources: Int): String {
@@ -1314,6 +1452,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         letter = if (newRole == ROLE_COMMANDER) "A" else "?"
         sessionLog = com.hush.log.SessionLog()
         HLog.d("Engine start role=$newRole name=$localName")
+        if (newRole == ROLE_COMMANDER) try { loadPrefs(context) } catch (e: Exception) { HLog.d("ERROR loading prefs: $e") }
 
         try {
             classifier = Classifier(context)
@@ -1353,7 +1492,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         placements.clear(); alignSource = ""; lastPlacementSentSteps = -1; stillSeconds = 0
         mapRotationDeg = null
         pointedHeading.clear()
-        receivedFix = null; receivedFixMs = 0L; lastFixSentMs = 0L
+        receivedFix = null; receivedFixMs = 0L; lastFixSentMs = 0L; lastFixKey = null
+        arrowTarget = null; challenger = null; challengerSeconds = 0
         frameB = null; frameC = null; lastAInFrame = null; alignSolutions.clear(); mapMetresPerUnit = null
         pendingHushSeconds = 0
         classifier?.close(); classifier = null
@@ -1400,7 +1540,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         HLog.d("HUSH pressed: $seconds s to ${peers.size} sensors")
         sessionLog.addRecord("hush", mapOf("seconds" to seconds, "sensors" to peers.size + 1, "mode" to mode.name))
         // One button: range first (chirps, ~8 s) so the map is fresh, then run the window.
-        if (peers.size >= 2 && !rangingInProgress) {
+        if (chirpCalibration && peers.size >= 2 && !rangingInProgress) {
             pendingHushSeconds = seconds
             listener?.onCountdown(99)   // screen shows "ranging…" until the real countdown starts
             autoPlace()
@@ -1561,7 +1701,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             label = label,
             accel = acc.spikes,
             accelMax = acc.maxHp,
-            moving = acc.moving,
+            moving = acc.moving && !agreed,   // a jolt within 100 ms of a heard onset is the knock (full weight); shaking without onsets stays "moving"
             battery = battery,
             tempoMs = rhythm.tempoMs,
             lat = gps?.fix?.latitude,
@@ -1664,6 +1804,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         // Give the sensor 3 s to start its responder side before we initiate.
         if (j.ble != null) { peerBleAddress[j.name] = j.ble; main.postDelayed({ startRadioTo(j.name, assigned) }, 3000) }
         if (inHush) link?.sendDown(Command(Command.HUSH, secondsLeft(), to = j.name).toJson())
+        if (layoutByName.containsKey(j.name.takeLast(4))) HLog.d("LAYOUT: " + applyLayout())
         listener?.onPeers(peers.values.toList())
     }
 

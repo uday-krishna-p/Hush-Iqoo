@@ -218,12 +218,13 @@ data class OnsetReport(val letter: String, val heading: Float, val moving: Boole
 data class Fix(
     val seq: Int, val x: Float, val y: Float, val radius: Float, val knocks: Int, val edge: Boolean,
     val rotation: Float?, val mirror: Boolean, val scale: Float?, val north: String,
-    val dots: Map<String, Pair<Float, Float>>
+    val dots: Map<String, Pair<Float, Float>>,
+    val near: String? = null     // set when the target is "the phone that hears it loudest" (no located source)
 ) {
     fun toJson(): String = JSONObject().put("rep", "fix").put("seq", seq)
         .put("x", r3(x)).put("y", r3(y)).put("r", r3(radius)).put("k", knocks).put("edge", edge)
         .apply { rotation?.let { put("rot", Math.round(it * 10.0) / 10.0) }; scale?.let { put("sc", r3(it)) } }
-        .put("mir", mirror).put("north", north)
+        .put("mir", mirror).put("north", north).apply { near?.let { put("near", it) } }
         .put("dots", JSONObject().apply { for ((l, p) in dots) put(l, JSONArray().put(r3(p.first)).put(r3(p.second))) })
         .toString()
 
@@ -236,7 +237,8 @@ data class Fix(
             Fix(o.getInt("seq"), o.getDouble("x").toFloat(), o.getDouble("y").toFloat(), o.optDouble("r", 0.0).toFloat(),
                 o.optInt("k", 0), o.optBoolean("edge", false),
                 if (o.has("rot")) o.getDouble("rot").toFloat() else null, o.optBoolean("mir", false),
-                if (o.has("sc")) o.getDouble("sc").toFloat() else null, o.optString("north", ""), dots)
+                if (o.has("sc")) o.getDouble("sc").toFloat() else null, o.optString("north", ""), dots,
+                o.optString("near").ifEmpty { null })
         } catch (e: Exception) {
             HLog.d("bad Fix json: $e"); null
         }

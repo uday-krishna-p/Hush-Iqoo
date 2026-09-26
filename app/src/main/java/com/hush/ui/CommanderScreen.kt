@@ -40,8 +40,8 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
     private val arrowTick = object : Runnable {
         override fun run() {
             val fix = Engine.sourceFix
-            val target = ranks.firstOrNull()?.takeIf { it.score > 0f }?.letter
-            val angle = target?.let { Engine.arrowAngleTo(it) }
+            val target = Engine.arrowTarget   // loudest phone, with hysteresis
+            val angle = target?.takeIf { it != "A" }?.let { Engine.arrowAngleTo(it) }
             val srcAngle = if (fix != null) Engine.arrowAngleToSource() else null
             if (fix != null && srcAngle != null) {
                 // A located source beats "the nearest sensor": point at the sound itself.
@@ -55,6 +55,8 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
                 arrow.active = false; arrow.label = activity.getString(R.string.arrow_walk_to_align)
             } else if (target == null) {
                 arrow.active = false; arrow.label = activity.getString(R.string.arrow_no_target)
+            } else if (target == "A") {
+                arrow.active = false; arrow.label = activity.getString(R.string.arrow_here)
             } else if (angle == null) {
                 arrow.active = false
                 arrow.label = if (Engine.mapDots.containsKey(target)) activity.getString(R.string.arrow_walk_to_align) else activity.getString(R.string.arrow_place_first, target)

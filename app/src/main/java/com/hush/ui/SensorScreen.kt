@@ -34,7 +34,10 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
         override fun run() {
             val v = sensorArrow ?: return
             val a = Engine.sensorArrow()
-            if (a == null) {
+            if (a != null && a.here) {
+                v.active = false; v.angleDeg = 0f
+                v.label = activity.getString(R.string.arrow_here)
+            } else if (a == null) {
                 v.active = false
                 v.label = activity.getString(if (Engine.receivedFix == null) R.string.sensor_arrow_wait else R.string.sensor_arrow_off_map)
             } else {
@@ -43,18 +46,19 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
                     a.metres != null -> " · %.1f m".format(a.metres)
                     else -> ""
                 }
+                val what = a.near?.let { " (Sensor $it, loudest)" } ?: ""
                 if (a.screenDeg != null) {
                     v.active = true; v.angleDeg = a.screenDeg
-                    v.label = activity.getString(R.string.sensor_arrow, dist, a.north.ifEmpty { "?" })
+                    v.label = activity.getString(R.string.sensor_arrow, what + dist, a.north.ifEmpty { "?" })
                 } else {
                     // No north yet: grey arrow drawn as if the phone's top were map-up.
                     v.active = false; v.angleDeg = a.mapBearing
-                    v.label = activity.getString(R.string.sensor_arrow_no_north, dist)
+                    v.label = activity.getString(R.string.sensor_arrow_no_north, what + dist)
                 }
             }
             if (++arrowTicks % 20 == 0 && a != null) {
-                com.hush.HLog.d("SENSOR ARROW mapBearing=%.0f° dist=%s heading=%.0f° screen=%s | north via %s".format(
-                    a.mapBearing, a.metres?.let { "%.2f m".format(it) } ?: "-", Engine.headingDeg,
+                com.hush.HLog.d("SENSOR ARROW target=%s mapBearing=%.0f° dist=%s heading=%.0f° screen=%s | north via %s".format(
+                    if (a.here) "HERE" else a.near?.let { "Sensor $it (loudest)" } ?: "located source", a.mapBearing, a.metres?.let { "%.2f m".format(it) } ?: "-", Engine.headingDeg,
                     a.screenDeg?.let { "%.0f°".format(it) } ?: "- (no north)", a.north.ifEmpty { "-" }))
             }
             v.postDelayed(this, 100)
