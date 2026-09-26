@@ -247,6 +247,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private var ble: com.hush.net.BleRanging? = null
     private var ownBleAddress: String? = null
     private val peerBleAddress = HashMap<String, String>()   // sensor name → address
+    private val radioShown = HashMap<String, String>()       // pair → text for the status line ("?" = low confidence)
     @Volatile var radioStatus: String = ""
         private set
 
@@ -254,8 +255,11 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         override fun onDistance(peerLetter: String, metres: Double, technology: String, confidence: Int) {
             main.post {
                 if (role == ROLE_COMMANDER) {
-                    radioDistance["A$peerLetter"] = metres
-                    radioStatus = radioDistance.entries.joinToString("  ") { "%s %.1f m".format(it.key, it.value) } + " ($technology)"
+                    // Signal-strength readings are shown but never trusted enough to overrule a chirp round
+                    // (measured 8–14 m for phones half a metre apart). Only Channel Sounding feeds the fusion.
+                    if (technology == "CS") radioDistance["A$peerLetter"] = metres else radioDistance.remove("A$peerLetter")
+                    radioShown["A$peerLetter"] = "%.1f m".format(metres) + if (technology == "CS") "" else "?"
+                    radioStatus = radioShown.entries.joinToString("  ") { "${it.key} ${it.value}" } + " ($technology)"
                     listener?.onLinkStatus(lastStatus)
                 }
             }

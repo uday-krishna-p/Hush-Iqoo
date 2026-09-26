@@ -179,16 +179,41 @@ class BleRanging(context: Context, private val listener: Listener) {
         open(letter, peerAddress, initiator = true, useCs = useCs)
     }
 
-    /** Sensor: answer the commander. Started as soon as the commander's address is known, before it initiates. */
-    fun rangeAsResponder(peerAddress: String, ownName: String, useCs: Boolean = csSupported) {
+    private var gattServer: android.bluetooth.BluetoothGattServer? = null
+    private var responderAddress: String? = null
+
+    /**
+     * Sensor: answer the commander. The commander connects from a rotating private address, so the responder
+     * must be started toward THAT address, which we only learn when its link arrives at our GATT server.
+     */
+    @android.annotation.SuppressLint("MissingPermission")
+    fun rangeAsResponder(peerIdentityAddress: String, ownName: String, useCs: Boolean = csSupported) {
         advertiseConnectable(ownName)
-        open("A", peerAddress, initiator = false, useCs = useCs)
+        try {
+            if (gattServer == null) {
+                gattServer = bt?.openGattServer(appContext, object : android.bluetooth.BluetoothGattServerCallback() {
+                    override fun onConnectionStateChange(device: android.bluetooth.BluetoothDevice, status: Int, newState: Int) {
+                        HLog.d("BleRanging: GATT server link from ${device.address} status=$status state=$newState")
+                        if (newState == android.bluetooth.BluetoothProfile.STATE_CONNECTED && responderAddress != device.address) {
+                            responderAddress = device.address
+                            HLog.d("BleRanging: commander's live address is ${device.address}, (re)starting responder toward it")
+                            open("A", device.address, initiator = false, useCs = useCs)
+                        }
+                    }
+                })
+                HLog.d("BleRanging: GATT server open=${gattServer != null}")
+            }
+        } catch (e: Throwable) { HLog.d("BleRanging: GATT server threw $e") }
+        // Also answer the identity address straight away, in case the stack resolves it.
+        open("A", peerIdentityAddress, initiator = false, useCs = useCs)
     }
 
     private fun open(letter: String, peerAddress: String, initiator: Boolean, useCs: Boolean) {
         val mgr = manager ?: return
         if (!csSupported && !rssiSupported) { HLog.d("BleRanging: nothing supported, skip"); return }
-        sessions.remove(letter)?.let { try { it.close() } catch (_: Exception) {} }
+        // A responder may hold one session per peer address; keep them under distinct keys.
+        val key = if (initiator) letter else "$letter@$peerAddress"
+        sessions.remove(key)?.let { try { it.close() } catch (_: Exception) {} }
         val tech = if (useCs) "CS" else "RSSI"
         try {
             val callback = object : RangingSession.Callback {
@@ -210,14 +235,14 @@ class BleRanging(context: Context, private val listener: Listener) {
                 override fun onStopped(device: RangingDevice, reason: Int) { HLog.d("BleRanging[$letter/$tech]: stopped reason=$reason (1=local 2=remote 3=unsupported 4=policy 5=no peers)") }
                 override fun onClosed(reason: Int) {
                     HLog.d("BleRanging[$letter/$tech]: closed reason=$reason")
-                    if (sessions[letter] === thisSession()) sessions.remove(letter)
+                    if (sessions[key] === thisSession()) sessions.remove(key)
                     // Channel Sounding refused (unsupported in this configuration): use signal strength instead.
                     if (useCs && rssiSupported && reason != RangingSession.Callback.REASON_LOCAL_REQUEST) {
                         HLog.d("BleRanging[$letter]: CS closed, falling back to RSSI ranging")
                         open(letter, peerAddress, initiator, useCs = false)
                     }
                 }
-                private fun thisSession(): RangingSession? = sessions[letter]
+                private fun thisSession(): RangingSession? = sessions[key]
             }
             val session = mgr.createRangingSession(executor, callback) ?: run { HLog.d("BleRanging[$letter/$tech]: createRangingSession returned null"); return }
             val config = if (initiator)
@@ -225,7 +250,7 @@ class BleRanging(context: Context, private val listener: Listener) {
             else
                 RawResponderRangingConfig.Builder().setRawRangingDevice(rawDevice(letter, peerAddress, useCs)).build()
             val pref = RangingPreference.Builder(if (initiator) RangingPreference.DEVICE_ROLE_INITIATOR else RangingPreference.DEVICE_ROLE_RESPONDER, config).build()
-            sessions[letter] = session
+            sessions[key] = session
             session.start(pref)
             HLog.d("BleRanging[$letter/$tech]: start requested as ${if (initiator) "initiator" else "responder"} toward $peerAddress")
         } catch (e: Throwable) {
@@ -243,6 +268,8 @@ class BleRanging(context: Context, private val listener: Listener) {
         try { advertiser?.stopAdvertising(advCallback) } catch (_: Exception) {}
         try { scanner?.stopScan(scanCallback) } catch (_: Exception) {}
         scanner = null; wanted.clear(); liveAddress.clear()
+        try { gattServer?.close() } catch (_: Exception) {}
+        gattServer = null; responderAddress = null
     }
 
     companion object {
