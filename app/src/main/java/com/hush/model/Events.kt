@@ -1,6 +1,7 @@
 package com.hush.model
 
 import com.hush.HLog
+import org.json.JSONArray
 import org.json.JSONObject
 
 /** One second of one sensor's hearing. This is the only thing that crosses the network. */
@@ -209,8 +210,41 @@ data class OnsetReport(val letter: String, val heading: Float, val moving: Boole
     }
 }
 
+/**
+ * Commander → every sensor (down the tree like a command): where the located source is, so each sensor can draw its own
+ * arrow. Positions are map fractions (x right, y down, the commander's map square); rotation is degrees to add to a
+ * map bearing to get a compass bearing (null until north is set); scale is metres per map unit (null if placed by hand).
+ */
+data class Fix(
+    val seq: Int, val x: Float, val y: Float, val radius: Float, val knocks: Int, val edge: Boolean,
+    val rotation: Float?, val mirror: Boolean, val scale: Float?, val north: String,
+    val dots: Map<String, Pair<Float, Float>>
+) {
+    fun toJson(): String = JSONObject().put("rep", "fix").put("seq", seq)
+        .put("x", r3(x)).put("y", r3(y)).put("r", r3(radius)).put("k", knocks).put("edge", edge)
+        .apply { rotation?.let { put("rot", Math.round(it * 10.0) / 10.0) }; scale?.let { put("sc", r3(it)) } }
+        .put("mir", mirror).put("north", north)
+        .put("dots", JSONObject().apply { for ((l, p) in dots) put(l, JSONArray().put(r3(p.first)).put(r3(p.second))) })
+        .toString()
+
+    companion object {
+        private fun r3(v: Float) = Math.round(v * 1000.0) / 1000.0
+        fun fromJson(o: JSONObject): Fix? = try {
+            val d = o.getJSONObject("dots")
+            val dots = LinkedHashMap<String, Pair<Float, Float>>()
+            for (k in d.keys()) { val a = d.getJSONArray(k); dots[k] = a.getDouble(0).toFloat() to a.getDouble(1).toFloat() }
+            Fix(o.getInt("seq"), o.getDouble("x").toFloat(), o.getDouble("y").toFloat(), o.optDouble("r", 0.0).toFloat(),
+                o.optInt("k", 0), o.optBoolean("edge", false),
+                if (o.has("rot")) o.getDouble("rot").toFloat() else null, o.optBoolean("mir", false),
+                if (o.has("sc")) o.getDouble("sc").toFloat() else null, o.optString("north", ""), dots)
+        } catch (e: Exception) {
+            HLog.d("bad Fix json: $e"); null
+        }
+    }
+}
+
 object Messages {
-    /** Returns a [SensorEvent], a [Command], a [ChirpReport], a [Placement], a [Join], an [OnsetReport], or null. */
+    /** Returns a [SensorEvent], a [Command], a [ChirpReport], a [Placement], a [Join], an [OnsetReport], a [Fix], or null. */
     fun parse(text: String): Any? = try {
         val o = JSONObject(text)
         when {
@@ -218,6 +252,7 @@ object Messages {
             o.optString("rep") == "chirp" -> ChirpReport.fromJson(o)
             o.optString("rep") == "place" -> Placement.fromJson(o)
             o.optString("rep") == "onsets" -> OnsetReport.fromJson(o)
+            o.optString("rep") == "fix" -> Fix.fromJson(o)
             o.optString("rep") == "join" || o.optString("rep") == "leave" -> Join.fromJson(o)
             else -> SensorEvent.fromJson(o)
         }

@@ -51,6 +51,10 @@
     <string name="arrow_target">→ Sensor %1$s</string>
     <string name="arrow_target_dist">→ Sensor %1$s · %2$.1f m</string>
     <string name="arrow_source">→ SOURCE · %1$.1f m ±%2$.1f · %3$d knocks</string>
+    <string name="sensor_arrow_wait">Arrow: waiting for the commander to locate knocking</string>
+    <string name="sensor_arrow_off_map">Arrow: this phone is not on the map yet (run ranging)</string>
+    <string name="sensor_arrow_no_north">→ SOURCE%1$s · north not set (Align on the commander)</string>
+    <string name="sensor_arrow">→ SOURCE%1$s · north via %2$s</string>
     <string name="arrow_source_far">→ SOURCE · ≥ %1$.0f m away · direction ±%2$.0f°</string>
     <string name="export_ok">Saved Downloads/%1$s</string>
     <string name="export_failed">Export failed, see log</string>

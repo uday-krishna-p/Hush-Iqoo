@@ -446,6 +446,61 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             }
             listener?.onLinkStatus(lastStatus)   // redraws the map with the source marker
         }
+        sendFixDown(changed, now)
+    }
+
+    // ---- Fix → sensors (27 Sep): every phone draws an arrow at the located source ----
+    private var fixSeq = 0
+    private var lastFixSentMs = 0L
+
+    /** Commander: send the source fix down the tree when it changed, and every 5 s while it exists (rotation may change). */
+    private fun sendFixDown(changed: Boolean, now: Long) {
+        if (role != ROLE_COMMANDER) return
+        val f = sourceFix ?: return
+        if (!changed && now - lastFixSentMs < 5000L) return
+        val src = sourceOnMap() ?: return
+        val msg = com.hush.model.Fix(++fixSeq, src.first, src.second, f.radius.toFloat(), f.knocks, f.edge,
+            mapRotationDeg, mirror, mapMetresPerUnit, alignSource, LinkedHashMap(mapDots))
+        lastFixSentMs = now
+        val l = link
+        if (l == null) { HLog.d("FIX not sent: no link"); return }
+        l.sendDown(msg.toJson())
+        HLog.d("FIX sent seq=%d src=(%.2f, %.2f) r=%.2f knocks=%d rot=%s mirror=%b scale=%s dots=%s north=%s%s".format(
+            msg.seq, msg.x, msg.y, msg.radius, msg.knocks, mapRotationDeg?.let { "%.0f°".format(it) } ?: "-", mirror,
+            mapMetresPerUnit?.let { "%.2f".format(it) } ?: "-",
+            msg.dots.entries.joinToString(" ") { "%s(%.2f,%.2f)".format(it.key, it.value.first, it.value.second) },
+            alignSource.ifEmpty { "-" }, if (changed) "" else " (repeat)"))
+    }
+
+    /** Sensor: the newest fix from the commander and when it arrived (elapsedRealtime). */
+    @Volatile var receivedFix: com.hush.model.Fix? = null
+        private set
+    @Volatile var receivedFixMs = 0L
+        private set
+
+    private fun onFix(f: com.hush.model.Fix) {
+        receivedFix = f; receivedFixMs = SystemClock.elapsedRealtime()
+        val a = sensorArrow()
+        HLog.d("FIX received seq=%d src=(%.2f, %.2f) knocks=%d rot=%s own dot=%s -> mapBearing=%s dist=%s heading=%.0f° screen=%s".format(
+            f.seq, f.x, f.y, f.knocks, f.rotation?.let { "%.0f°".format(it) } ?: "-",
+            f.dots[letter]?.let { "(%.2f,%.2f)".format(it.first, it.second) } ?: "none($letter)",
+            a?.mapBearing?.let { "%.0f°".format(it) } ?: "-", a?.metres?.let { "%.2f m".format(it) } ?: "-", headingDeg,
+            a?.screenDeg?.let { "%.0f°".format(it) } ?: "-"))
+    }
+
+    /** What a sensor's arrow shows: map bearing own dot → source, metres, and the screen angle (null until north is set). */
+    data class SensorArrow(val mapBearing: Float, val metres: Float?, val screenDeg: Float?, val north: String, val knocks: Int, val edge: Boolean)
+
+    /** Sensor: its arrow toward the commander's latest fix, or null (no fix, fix older than 60 s, or not on the map). */
+    fun sensorArrow(): SensorArrow? {
+        val f = receivedFix ?: return null
+        if (SystemClock.elapsedRealtime() - receivedFixMs > 60_000L) return null
+        val me = f.dots[letter] ?: return null
+        val dx = f.x - me.first; val dy = f.y - me.second   // map y grows downward
+        val bearing = ((Math.toDegrees(kotlin.math.atan2(dx.toDouble(), -dy.toDouble())).toFloat()) + 360f) % 360f
+        val metres = f.scale?.let { kotlin.math.hypot(dx.toDouble(), dy.toDouble()).toFloat() * it }
+        val screen = f.rotation?.let { ((bearing + it - headingDeg) + 720f) % 360f }
+        return SensorArrow(bearing, metres, screen, f.north, f.knocks, f.edge)
     }
 
     /** Distance from the commander's dot to the source fix, metres, or null. */
@@ -945,6 +1000,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private var walkHeadingSinY = 0.0
     private var walkSamples = 0
     private var movedSinceRanging = 0f          // seconds of movement since the last ranging
+    private var shakeNotWalkLogged = false
     private var alignSolutions = ArrayList<Pair<Float, Float>>()   // (rotation if not mirrored, rotation if mirrored)
 
     private var lastDrEast = 0f
@@ -973,7 +1029,14 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private fun trackWalking(acc: AccelChannel.Result) {
         if (role != ROLE_COMMANDER) return
         moveOwnDotByWalking()
-        if (acc.rmsHp > 0.25f) {
+        // Walking = the phone shakes AND the step detector counted a step in the last 2 s. Shaking alone is not
+        // walking: knuckle knocks on the table the commander lies on shake it too (27 Sep: that re-ranged every 8 s).
+        val stepMs = deadReckoning?.lastStepMs ?: 0L
+        val stepped = stepMs > 0L && SystemClock.elapsedRealtime() - stepMs < 2000L
+        if (acc.rmsHp > 0.25f && !stepped && deadReckoning?.available == true) {
+            if (!shakeNotWalkLogged) { HLog.d("Walk: commander shaking without steps (knocks on its table?), not counted as walking"); shakeNotWalkLogged = true }
+        }
+        if (acc.rmsHp > 0.25f && (stepped || deadReckoning?.available != true)) {
             movedSinceRanging += 1f
             val h = Math.toRadians(headingDeg.toDouble())
             walkHeadingSinX += kotlin.math.cos(h); walkHeadingSinY += kotlin.math.sin(h); walkSamples++
@@ -1290,6 +1353,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         placements.clear(); alignSource = ""; lastPlacementSentSteps = -1; stillSeconds = 0
         mapRotationDeg = null
         pointedHeading.clear()
+        receivedFix = null; receivedFixMs = 0L; lastFixSentMs = 0L
         frameB = null; frameC = null; lastAInFrame = null; alignSolutions.clear(); mapMetresPerUnit = null
         pendingHushSeconds = 0
         classifier?.close(); classifier = null
@@ -1636,6 +1700,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             is com.hush.model.Join -> onJoin(msg, endpointId)
             is com.hush.model.ChirpReport -> onChirpReport(msg)
             is com.hush.model.Placement -> onPlacement(msg)
+            is com.hush.model.Fix -> {
+                if (role == ROLE_SENSOR) { link?.sendDown(text); onFix(msg) }
+            }
             is com.hush.model.OnsetReport -> {
                 if (peers.values.none { it.letter == msg.letter }) { HLog.d("Onsets from unassigned sensor '${msg.letter}' ignored"); return }
                 peerHeading[msg.letter] = msg.heading; locator.addReport(msg)
