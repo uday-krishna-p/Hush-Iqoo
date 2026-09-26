@@ -40,6 +40,8 @@ class MapView(context: Context, attrs: AttributeSet? = null) : View(context, att
     /** True when the source is beyond the map: drawn hollow at the edge, direction only. */
     var sourceFar: Boolean = false
         set(value) { field = value; invalidate() }
+    /** letter → (map angle clockwise from up, mirror twin or null): the direction each phone hears the knocking (27 Sep). */
+    val bearings = LinkedHashMap<String, Pair<Float, Float?>>()
 
     var onPlaced: ((String) -> Unit)? = null
 
@@ -55,6 +57,8 @@ class MapView(context: Context, attrs: AttributeSet? = null) : View(context, att
     private val sourceArea = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(45, 200, 30, 30); style = Paint.Style.FILL }
     private val sourceArrow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(200, 30, 30); style = Paint.Style.STROKE; strokeWidth = 14f; strokeCap = Paint.Cap.ROUND }
     private val sourceArrowHead = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(200, 30, 30); style = Paint.Style.FILL }
+    private val bearingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(210, 20, 120, 140); style = Paint.Style.STROKE; strokeWidth = 8f; strokeCap = Paint.Cap.ROUND }
+    private val bearingTwinPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(70, 20, 120, 140); style = Paint.Style.STROKE; strokeWidth = 8f; strokeCap = Paint.Cap.ROUND }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
@@ -115,6 +119,18 @@ class MapView(context: Context, attrs: AttributeSet? = null) : View(context, att
             if (sourceFar) canvas.drawText("beyond the map", sx, sy - k * 1.9f, hintPaint)
         }
 
+        // Each phone's own two-mic bearing: a line from its dot (faint twin while left/right is unresolved).
+        for ((letter, b) in bearings) {
+            val p = dots[letter] ?: continue
+            val cx = p.first * w; val cy = p.second * w
+            val len = w * 0.35f
+            b.second?.let { t ->
+                val a = Math.toRadians(t.toDouble())
+                canvas.drawLine(cx, cy, cx + (sin(a) * len).toFloat(), cy - (cos(a) * len).toFloat(), bearingTwinPaint)
+            }
+            val a = Math.toRadians(b.first.toDouble())
+            canvas.drawLine(cx, cy, cx + (sin(a) * len).toFloat(), cy - (cos(a) * len).toFloat(), bearingPaint)
+        }
         for ((letter, p) in dots) {
             val cx = p.first * w; val cy = p.second * w
             val paint = when {

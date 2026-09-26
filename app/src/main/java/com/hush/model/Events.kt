@@ -29,7 +29,10 @@ data class SensorEvent(
     val gpsAcc: Float? = null,   // metres
     val chirpTs: Long? = null,
     val micDelay: Float? = null, // samples, mic 1 minus mic 0, over this whole second (voice direction of arrival)
-    val micQ: Float? = null      // 0..1 how well the two mics agreed on that delay
+    val micQ: Float? = null,     // 0..1 how well the two mics agreed on that delay
+    val bearing: Float? = null,  // compass degrees: where this phone's own two-mic arrow points (only while it shows)
+    val bearingQ: Float? = null, // 0..1 confidence of that bearing (about 0.35 while left/right is still open)
+    val bearingTwin: Float? = null // the mirror candidate, present until the phone was turned to resolve it
 ) {
     fun toJson(): String = JSONObject().apply {
         put("id", sensorId)
@@ -54,6 +57,9 @@ data class SensorEvent(
         chirpTs?.let { put("chirp", it) }
         micDelay?.let { put("dl", Math.round(it * 100.0) / 100.0) }
         micQ?.let { put("dq", r(it)) }
+        bearing?.let { put("br", Math.round(it * 10.0) / 10.0) }
+        bearingQ?.let { put("bq", r(it)) }
+        bearingTwin?.let { put("br2", Math.round(it * 10.0) / 10.0) }
     }.toString()
 
     companion object {
@@ -84,7 +90,10 @@ data class SensorEvent(
                 rhythm = o.optString("rh").ifEmpty { null },
                 chirpTs = if (o.has("chirp")) o.getLong("chirp") else null,
                 micDelay = if (o.has("dl")) o.getDouble("dl").toFloat() else null,
-                micQ = if (o.has("dq")) o.getDouble("dq").toFloat() else null
+                micQ = if (o.has("dq")) o.getDouble("dq").toFloat() else null,
+                bearing = if (o.has("br")) o.getDouble("br").toFloat() else null,
+                bearingQ = if (o.has("bq")) o.getDouble("bq").toFloat() else null,
+                bearingTwin = if (o.has("br2")) o.getDouble("br2").toFloat() else null
             )
         } catch (e: Exception) {
             HLog.d("bad SensorEvent json: $e")

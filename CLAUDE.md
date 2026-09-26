@@ -144,6 +144,22 @@ knocks (phones on the same slab) arrive faster than through air: onsets tagged "
 
 ## Status (27 Sep 00:00)
 
+**Compass plan, step 2 built 27 Sep 01:50 (bearings on the map, crossing):** each phone's own arrow now rides in
+its once-a-second event (`br` compass bearing, `bq` confidence, `br2` the mirror twin while unresolved; only
+while the arrow shows). The commander draws a teal line from every dot in the direction that phone reports (faint
+twin while mirrored) and crosses the fresh lines (< 5 s old) of the phones on the map into a least-squares point
+(`Crossing.kt`): accepted when some two lines meet at ≥ 20°, the point is in front of every phone and within
+3× the array size + 2 m. A mirrored phone contributes both candidates; every combination is tried and the one
+with the smallest residual wins if it wins clearly (with two lines every combination fits exactly, so those stay
+ambiguous until a phone is turned or a third phone hears it; the in-front rule alone settles many). Radius =
+max(residual, range × tan 12°, 0.3 m). The crossing is the red cross-hair on the map when the locator has no fix,
+goes down to the sensors as the existing Fix message (their arrows point at it when their own arrow is off), and
+the commander's arrow shows "→ CROSSING · ~N m ±r · the arrows of k phones cross here" when its own arrow is off,
+or appends "~N m where the arrows cross" to its own arrow when the two agree within 30°. Needs positions and north
+(hand layout + Align today, GPS in step 3). Log: `CROSS: source at (x, y) m ±r from A→…° B→…° (lines meet at
+≥ …°, residual …)`, `CROSS: no point from N lines (…)`; export record `cross`. `CrossingTest` (6) passes;
+installed on all three phones; not yet tried with real knocks.
+
 **Compass plan, step 1 built 27 Sep 01:20 (`docs/PLAN-compass.md`; team decision: approximate direction is the
 goal, no audible chirps in the demo path):** every phone now draws its OWN arrow at the knocking from its two
 microphones, with no chirps, no positions and no clock sync (`audio/KnockBearing.kt`). Each knock's two-mic delay
@@ -466,7 +482,8 @@ data class SensorEvent(          // every phone, once a second
     val battery: Int, val tempoMs: Int,
     val lat: Double?, val lon: Double?, val gpsAcc: Float?,
     val chirpTs: Long? = null,
-    val micDelay: Float? = null, val micQ: Float? = null   // two-mic delay over the second, voice only
+    val micDelay: Float? = null, val micQ: Float? = null,  // two-mic delay over the second, voice only
+    val bearing: Float? = null, val bearingQ: Float? = null, val bearingTwin: Float? = null   // the phone's own knock arrow (compass °), only while it shows
 )
 // Bluetooth (not JSON): probe advertisement = service UUID 0xA5A7 + 4-char commander suffix; Hush tag = service data
 // under 0xA5A5 = 4-char suffix + flags byte (1 = woken by probe, 2 = SOS) + battery byte.
@@ -493,6 +510,7 @@ app/src/main/java/com/hush/
   HLog.kt                  // logcat + private file logger (the phones drop logcat)
   Ranging.kt               // two-way acoustic distance maths, triangle
   Locator.kt               // WHERE the sound is: clock offsets from chirps, mic axes, onset matching, grid fusion
+  Crossing.kt              // where the phones' own-arrow bearing lines cross (least squares, mirror combinations, in-front rule)
   audio/AudioCapture.kt    // stereo AudioRecord loop, 1 s windows, ring buffers, debug WAV
   audio/Dsp.kt             // band-pass, RMS, downsample
   audio/Classifier.kt      // YAMNet + buckets
@@ -513,6 +531,7 @@ app/src/main/java/com/hush/
 app/src/main/assets/yamnet.tflite, yamnet_class_map.csv
 app/src/test/java/com/hush/LocatorTest.kt   // laptop-only synthetic test of the locator (JUnit 4.13.2)
 app/src/test/java/com/hush/KnockBearingTest.kt   // the own arrow: mirror resolved by turning, expiry, junk delays
+app/src/test/java/com/hush/CrossingTest.kt       // bearing lines → point: three lines, a mirrored phone, ambiguity, parallel, behind, range
 docs/PLAN-compass.md                        // the compass plan (own arrow → bearings on the map → GPS → silent chirps)
 .github/workflows/build.yml
 ```

@@ -490,6 +490,91 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         sendFixDown(changed, now)
     }
 
+    // ---- Bearings from every phone → lines on the map → crossing (compass plan step 2, 27 Sep) ----
+
+    /** Commander: what each phone's own two-mic arrow says (compass degrees), its mirror twin, confidence, when. */
+    private class PeerBearing(val bearing: Float, val twin: Float?, val q: Float, val atMs: Long)
+    private val peerBearing = HashMap<String, PeerBearing>()
+    /** Where the phones' bearing lines cross, metres in the map frame (see posMetres), or null. */
+    @Volatile var crossFix: Crossing.Result? = null
+        private set
+    @Volatile private var crossFixMs = 0L
+    private var crossNoneLoggedMs = 0L
+    /** A phone's bearing counts this long after its last event. */
+    private const val CROSS_FRESH_MS = 5_000L
+    /** The crossing stays this long after the last solution. */
+    private const val CROSS_HOLD_MS = 10_000L
+
+    /** Compass bearing → map bearing (clockwise from map-up). Like arrowAngleTo, the mirror flag is ignored. */
+    private fun compassToMap(compass: Float): Double {
+        val rot = mapRotationDeg ?: return compass.toDouble()
+        return (((compass - rot) % 360f + 360f) % 360f).toDouble()
+    }
+
+    /** Commander, once a second: cross the fresh bearing lines of the phones that are on the map. */
+    private fun crossBearings(now: Long) {
+        val lines = ArrayList<Crossing.Line>()
+        if (mapRotationDeg != null && mapMetresPerUnit != null) {
+            for ((l, b) in peerBearing) {
+                if (now - b.atMs > CROSS_FRESH_MS) continue
+                val p = posMetres(l) ?: continue
+                lines.add(Crossing.Line(l, p.first, p.second, listOfNotNull(compassToMap(b.bearing), b.twin?.let { compassToMap(it) })))
+            }
+        }
+        var maxSide = 0.0
+        val pts = mapDots.keys.mapNotNull { posMetres(it) }
+        for (a in pts) for (c in pts) maxSide = maxOf(maxSide, kotlin.math.hypot(a.first - c.first, a.second - c.second))
+        val r = if (lines.size >= 2) try { Crossing.solve(lines, 3.0 * maxSide + 2.0) } catch (e: Exception) { HLog.d("ERROR in crossing: $e"); null } else null
+        if (r != null) {
+            crossFix = r; crossFixMs = now
+            HLog.d("CROSS: source at (%.2f, %.2f) m ±%.1f from %s (lines meet at ≥ %.0f°, residual %.2f m)".format(
+                r.x, r.y, r.radius, r.chosen.entries.joinToString(" ") { "%s→%.0f°".format(it.key, it.value) }, r.spreadDeg, r.residual))
+            sessionLog.addRecord("cross", mapOf("x" to r.x, "y" to r.y, "radius" to r.radius, "phones" to r.chosen.keys.joinToString(""), "residual" to r.residual))
+            listener?.onLinkStatus(lastStatus)   // redraws the map
+        } else {
+            if (crossFix != null && now - crossFixMs > CROSS_HOLD_MS) {
+                crossFix = null
+                HLog.d("CROSS: no crossing for ${CROSS_HOLD_MS / 1000} s, cleared")
+                listener?.onLinkStatus(lastStatus)
+            }
+            if (lines.isNotEmpty() && now - crossNoneLoggedMs > 5000L) {
+                crossNoneLoggedMs = now
+                HLog.d("CROSS: no point from %d line%s (%s)%s".format(lines.size, if (lines.size == 1) "" else "s",
+                    lines.joinToString(" ") { l -> "%s→%s".format(l.letter, l.bearingsDeg.joinToString("/") { "%.0f°".format(it) }) },
+                    if (lines.size < 2) ": need two phones on the map hearing it" else ": ambiguous, parallel, behind a phone or too far"))
+            }
+        }
+    }
+
+    /** letter → (map angle, mirror twin) of each phone's fresh knock bearing, for the map's lines. Commander, main thread. */
+    fun bearingLines(): Map<String, Pair<Float, Float?>> {
+        if (mapRotationDeg == null) return emptyMap()
+        val now = SystemClock.elapsedRealtime()
+        val out = LinkedHashMap<String, Pair<Float, Float?>>()
+        for ((l, b) in peerBearing) if (now - b.atMs <= CROSS_FRESH_MS && mapDots.containsKey(l))
+            out[l] = compassToMap(b.bearing).toFloat() to b.twin?.let { compassToMap(it).toFloat() }
+        return out
+    }
+
+    /** The crossing as map fractions, or null. */
+    fun crossingOnMap(): Pair<Float, Float>? =
+        crossFix?.takeIf { SystemClock.elapsedRealtime() - crossFixMs <= CROSS_HOLD_MS }?.let { metresToMap(it.x, it.y) }
+    /** The crossing's radius as a fraction of the map, for the disc. */
+    fun crossingRadiusOnMap(): Float = crossFix?.let { c -> mapMetresPerUnit?.let { (c.radius / it).toFloat() } } ?: 0f
+
+    data class CrossArrow(val screenDeg: Float, val metres: Float, val radius: Float, val phones: Int)
+
+    /** Commander: the arrow from A to the crossing (screen angle clockwise from the phone's top), or null. */
+    fun crossingArrow(): CrossArrow? {
+        val c = crossFix ?: return null
+        if (SystemClock.elapsedRealtime() - crossFixMs > CROSS_HOLD_MS) return null
+        val a = posMetres("A") ?: return null
+        val rot = mapRotationDeg ?: return null
+        val mb = Crossing.bearing(a.first, a.second, c.x, c.y)
+        val screen = ((mb + rot - headingDeg) + 720.0) % 360.0
+        return CrossArrow(screen.toFloat(), kotlin.math.hypot(c.x - a.first, c.y - a.second).toFloat(), c.radius.toFloat(), c.chosen.size)
+    }
+
     // ---- Fix → sensors (27 Sep): every phone draws an arrow at the located source ----
     private var fixSeq = 0
     private var lastFixSentMs = 0L
@@ -500,21 +585,22 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private fun sendFixDown(changedFix: Boolean, now: Long) {
         if (role != ROLE_COMMANDER) return
         val f = sourceFix
-        val near = if (f == null) arrowTarget else null
-        if (f == null && near == null) return
-        val key = if (f != null) "fix" else "near $near"
+        val cross = if (f == null) crossFix?.takeIf { now - crossFixMs <= CROSS_HOLD_MS } else null
+        val near = if (f == null && cross == null) arrowTarget else null
+        if (f == null && cross == null && near == null) return
+        val key = if (f != null) "fix" else if (cross != null) "cross %.0f,%.0f".format(cross.x * 2, cross.y * 2) else "near $near"
         val changed = changedFix || key != lastFixKey
         if (!changed && now - lastFixSentMs < 5000L) return
-        val src = (if (f != null) sourceOnMap() else mapDots[near]) ?: return
+        val src = (if (f != null) sourceOnMap() else if (cross != null) metresToMap(cross.x, cross.y) else mapDots[near]) ?: return
         lastFixKey = key
-        val msg = com.hush.model.Fix(++fixSeq, src.first, src.second, f?.radius?.toFloat() ?: 0f, f?.knocks ?: 0, f?.edge ?: false,
+        val msg = com.hush.model.Fix(++fixSeq, src.first, src.second, (f?.radius ?: cross?.radius)?.toFloat() ?: 0f, f?.knocks ?: (cross?.chosen?.size ?: 0), f?.edge ?: false,
             mapRotationDeg, mirror, mapMetresPerUnit, alignSource, LinkedHashMap(mapDots), near)
         lastFixSentMs = now
         val l = link
         if (l == null) { HLog.d("FIX not sent: no link"); return }
         l.sendDown(msg.toJson())
         HLog.d("FIX sent seq=%d target=%s src=(%.2f, %.2f) r=%.2f knocks=%d rot=%s mirror=%b scale=%s dots=%s north=%s%s".format(
-            msg.seq, near?.let { "loudest $it" } ?: "located source", msg.x, msg.y, msg.radius, msg.knocks, mapRotationDeg?.let { "%.0f°".format(it) } ?: "-", mirror,
+            msg.seq, if (f != null) "located source" else if (cross != null) "crossing of ${cross.chosen.keys.joinToString("")}" else "loudest $near", msg.x, msg.y, msg.radius, msg.knocks, mapRotationDeg?.let { "%.0f°".format(it) } ?: "-", mirror,
             mapMetresPerUnit?.let { "%.2f".format(it) } ?: "-",
             msg.dots.entries.joinToString(" ") { "%s(%.2f,%.2f)".format(it.key, it.value.first, it.value.second) },
             alignSource.ifEmpty { "-" }, if (changed) "" else " (repeat)"))
@@ -1273,6 +1359,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private fun recordEvent(e: SensorEvent) {
         sessionLog.add(e.toJson())
         updateLive(e)
+        val nowB = SystemClock.elapsedRealtime()
+        if (e.bearing != null) peerBearing[e.sensorId] = PeerBearing(e.bearing, e.bearingTwin, e.bearingQ ?: 0f, nowB) else peerBearing.remove(e.sensorId)
+        if (e.sensorId == "A") crossBearings(nowB)
         if (e.human >= 0.3f) {
             locator.addVoice(e.sensorId, maxOf(0f, e.rms - e.floor) / gainOf(e.sensorId), e.micDelay, e.micQ,
                 if (e.sensorId == "A") headingDeg else (peerHeading[e.sensorId] ?: 0f), e.moving, SystemClock.elapsedRealtime())
@@ -1543,6 +1632,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         radioDistance.clear(); peerBleAddress.clear(); radioStatus = ""
         locator.reset(); peerHeading.clear(); doaAll.clear()
         com.hush.audio.KnockBearing.reset(); ownArrowUntilMs = 0L
+        peerBearing.clear(); crossFix = null; crossFixMs = 0L; crossNoneLoggedMs = 0L
         sightings.clear(); probeStatus = ""; activatedByProbe = false
         main.removeCallbacks(passiveWatchdog); main.removeCallbacks(tagRefresh); main.removeCallbacksAndMessages(probeToken)
         com.hush.net.Probe.stop()
@@ -1714,6 +1804,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             HLog.d("KNOCK ARROW shown=%b screen=%.0f° twin=%s bearing=%.0f° conf=%.2f knocks=%d felt=%d resolved=%b turned=%.0f° heading=%.0f°".format(
                 now <= ownArrowUntilMs, a.screenDeg, a.twinDeg?.let { "%.0f°".format(it) } ?: "-", a.bearingDeg, a.confidence, a.knocks, a.felt, a.resolved, a.turnedDeg, headingDeg))
         }
+        val own = ownArrow()   // null unless this phone hears deliberate tapping; goes to the commander in the event
         // Part 2, voices: the two-mic delay over the whole second (no sharp onset to time).
         var voiceDelay: Float? = null; var voiceQ: Float? = null
         if (!selfNoise && !acc.moving && (cls?.human ?: 0f) >= 0.3f && rms > floor * 1.5f) {
@@ -1757,7 +1848,10 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             lon = gps?.fix?.longitude,
             gpsAcc = gps?.fix?.accuracy,
             micDelay = voiceDelay,
-            micQ = voiceQ
+            micQ = voiceQ,
+            bearing = own?.bearingDeg,
+            bearingQ = own?.confidence,
+            bearingTwin = own?.twinBearingDeg
         )
         val w = Window(rms, event.floor, classifier?.lastGain ?: 1f, tap, rhythm, acc, structure, cls, event)
         HLog.d("window id=$letter hush=$inHush label=$label rms=%.4f floor=%.4f taps=%d rej=%d peak=x%.0f acc=%d accMax=%.3f accRms=%.3f struct=%b rhythm=%.1f/%s(%d) voice=%.2f impact=%.2f machine=%.2f | %s".format(

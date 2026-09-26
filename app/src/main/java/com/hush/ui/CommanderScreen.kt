@@ -44,12 +44,22 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
             val angle = target?.takeIf { it != "A" }?.let { Engine.arrowAngleTo(it) }
             val srcAngle = if (fix != null) Engine.arrowAngleToSource() else null
             val own = Engine.ownArrow()
+            val cross = Engine.crossingArrow()
             arrow.twinAngleDeg = own?.twinDeg
+            val lines = Engine.bearingLines()
+            if (lines != map.bearings) { map.bearings.clear(); map.bearings.putAll(lines); map.invalidate() }
             if (own != null) {
                 // The commander's own two mics hear the knocking: first claim on the arrow (no chirps, no map needed).
                 arrow.active = true
                 arrow.angleDeg = own.screenDeg
-                arrow.label = ownArrowLabel(activity, own)
+                var label = ownArrowLabel(activity, own)
+                if (cross != null && angDiff(cross.screenDeg, own.screenDeg) <= 30f) label += activity.getString(R.string.arrow_cross_dist, cross.metres, cross.radius)
+                arrow.label = label
+            } else if (cross != null) {
+                // Two or more phones' arrows cross on the map: point there, with the distance.
+                arrow.active = true
+                arrow.angleDeg = cross.screenDeg
+                arrow.label = activity.getString(R.string.arrow_cross, cross.metres, cross.radius, cross.phones)
             } else if (fix != null && srcAngle != null) {
                 // A located source beats "the nearest sensor": point at the sound itself.
                 arrow.active = true
@@ -79,6 +89,8 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
         }
     }
     private var ticks = 0
+
+    private fun angDiff(a: Float, b: Float): Float { val d = kotlin.math.abs(((a - b) % 360f + 360f) % 360f); return if (d > 180f) 360f - d else d }
 
     /**
      * Once a second: what the arrow points at and why, so its direction can be judged from the log (27 Sep):
@@ -181,8 +193,9 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
 
     private fun renderSource() {
         val fix = Engine.sourceFix
-        map.source = Engine.sourceOnMap()
-        map.sourceRadius = if (fix != null && Engine.mapMetresPerUnit != null) (fix.radius / Engine.mapMetresPerUnit!!).toFloat() else 0f
+        val cross = if (fix == null) Engine.crossingOnMap() else null   // where the phones' bearing lines meet
+        map.source = Engine.sourceOnMap() ?: cross
+        map.sourceRadius = if (fix != null && Engine.mapMetresPerUnit != null) (fix.radius / Engine.mapMetresPerUnit!!).toFloat() else if (cross != null) Engine.crossingRadiusOnMap() else 0f
         map.sourceFar = fix?.edge == true || (map.source?.let { it.first < 0f || it.first > 1f || it.second < 0f || it.second > 1f } == true)
     }
 

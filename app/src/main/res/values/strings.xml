@@ -60,6 +60,8 @@
     <string name="arrow_knock_unresolved">→ KNOCKING · %1$d knocks · left or right? turn the phone to confirm</string>
     <string name="arrow_knock">→ KNOCKING · %1$d knocks · confirmed by turning</string>
     <string name="arrow_knock_table">" · felt through the table: put cloth under the phone"</string>
+    <string name="arrow_cross_dist">" · ~%1$.1f m ±%2$.1f where the arrows cross"</string>
+    <string name="arrow_cross">→ CROSSING · ~%1$.1f m ±%2$.1f · the arrows of %3$d phones cross here</string>
     <string name="export_ok">Saved Downloads/%1$s</string>
     <string name="export_failed">Export failed, see log</string>
     <string name="hush_running">HUSH RUNNING</string>
