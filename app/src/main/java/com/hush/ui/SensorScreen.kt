@@ -27,24 +27,45 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
     private val topClass: TextView = activity.findViewById(R.id.topClass)
     private val top5: TextView = activity.findViewById(R.id.top5)
 
-    /** Only on the sensor screen: an arrow at the source the commander located (Engine.sensorArrow). */
+    /** Only on a sensor: the arrow (fused bearing, own two mics, or the commander's fix). The commander draws its own. */
     private val sensorArrow: ArrowView? = activity.findViewById(R.id.sensorArrow)
+        ?: if (Engine.role != Engine.ROLE_COMMANDER) activity.findViewById(R.id.arrow) else null
     private var arrowTicks = 0
     private val sensorArrowTick = object : Runnable {
         override fun run() {
             val v = sensorArrow ?: return
             val own = Engine.ownArrow()
-            val shared = if (own == null) Engine.sharedArrow() else null
+            val sharedRaw = Engine.sharedArrow()
+            val shared = if (Engine.preferShared(sharedRaw, own)) sharedRaw else null
             val a = Engine.sensorArrow()
-            v.twinAngleDeg = own?.twinDeg ?: shared?.twinDeg
-            if (own != null) {
-                // This phone hears knocking: its own two mics say where. First claim on the arrow, no commander needed.
+            v.twinAngleDeg = null   // one arrow only (team, 27 Sep 03:30); the mirror shows as low confidence instead
+            v.confidence = shared?.confidence ?: own?.confidence ?: 1f
+            val point = a?.takeIf { !it.here && it.near == null && it.screenDeg != null }
+            val loc = Engine.localSourceArrow()
+            if (loc?.screenDeg != null) {
+                // Step 3: this phone's own locator (every phone's knock timings, clocks from the inaudible chirps).
+                v.active = true; v.angleDeg = loc.screenDeg
+                v.label = activity.getString(R.string.arrow_located, loc.metres, loc.radius, loc.knocks)
+            } else if (loc != null && own == null) {
+                v.active = false
+                v.label = activity.getString(R.string.arrow_located_no_north, loc.metres, loc.radius)
+            } else if (own != null && Engine.ownHeardWell(own)) {
+                // This phone hears it: its own mics point from where it lies; the others only settled left/right.
+                v.active = true; v.angleDeg = own.screenDeg
+                v.label = activity.getString(R.string.arrow_heard_here, own.knocks, own.resolvedBy ?: "turning")
+            } else if (point != null) {
+                // The commander has a point (crossing of the phones' bearing lines, or a located source): aim at it.
+                v.active = true; v.angleDeg = point.screenDeg!!
+                v.label = activity.getString(R.string.sensor_arrow, if (point.edge) " · far" else point.metres?.let { " · %.1f m".format(it) } ?: "", point.north.ifEmpty { "?" })
+            } else if (shared != null) {
+                // Only a direction: the one the hearing phones agree on, drawn through this phone's heading.
+                v.active = true; v.angleDeg = shared.screenDeg
+                v.label = activity.getString(if (shared.twinDeg == null) R.string.arrow_shared else R.string.arrow_shared_unresolved, shared.phones, (shared.confidence * 100).toInt()) +
+                    if (shared.others) activity.getString(R.string.arrow_parallel) else ""
+            } else if (own != null) {
+                // No fusion yet (or this phone is the only one hearing it): its own two mics.
                 v.active = true; v.angleDeg = own.screenDeg
                 v.label = ownArrowLabel(activity, own)
-            } else if (shared != null) {
-                // Other phones hear it: their fused bearing, turned to this screen by this phone's compass.
-                v.active = true; v.angleDeg = shared.screenDeg
-                v.label = activity.getString(if (shared.twinDeg == null) R.string.arrow_shared else R.string.arrow_shared_unresolved, shared.phones)
             } else if (a != null && a.here) {
                 v.active = false; v.angleDeg = 0f
                 v.label = activity.getString(R.string.arrow_here)
@@ -133,7 +154,8 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
             e.resolved -> activity.getString(R.string.arrow_knock, e.knocks)
             else -> activity.getString(R.string.arrow_knock_unresolved, e.knocks)
         }
-        return if (e.felt * 2 > e.knocks) base + activity.getString(R.string.arrow_knock_table) else base
+        val withConf = base + activity.getString(R.string.arrow_conf, (e.confidence * 100).toInt())
+        return if (e.felt * 2 > e.knocks) withConf + activity.getString(R.string.arrow_knock_table) else withConf
     }
 
     /** Maps RMS to a 0..100 bar on a decibel scale. Phone mics sit around -70 dB in a quiet room: -85 dB → 0, -15 dB → 100. */

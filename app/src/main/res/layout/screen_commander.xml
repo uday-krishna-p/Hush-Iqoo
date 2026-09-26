@@ -10,6 +10,7 @@
         android:padding="24dp">
 
         <TextView
+            android:id="@+id/screenTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/role_commander"
@@ -127,6 +128,18 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp" />
 
+        <Button
+            android:id="@+id/btnSyncCompass"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/sync_compass" />
+
+        <TextView
+            android:id="@+id/compassText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="14sp" />
 
         <com.hush.ui.MapView
             android:id="@+id/map"

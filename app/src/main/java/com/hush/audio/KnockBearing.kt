@@ -31,14 +31,14 @@ object KnockBearing {
     /** True when recording channel 1 is the mic at the TOP of the phone (near the camera). */
     @Volatile var mic1IsTop = true
 
-    /** Older knocks weigh less: the weight halves every TAU × ln 2 ≈ 10 s. */
-    @Volatile var TAU_MS = 15_000.0
+    /** Older knocks weigh less: the weight halves every TAU × ln 2 ≈ 5.5 s (was 15 s; 27 Sep 03:00, team: the arrow followed a moving knocker too slowly). */
+    @Volatile var TAU_MS = 8_000.0
     /** The arrow shows while at least [MIN_KNOCKS] usable knocks were heard in the last [ACTIVE_MS]. */
     @Volatile var ACTIVE_MS = 15_000L
     @Volatile var MIN_KNOCKS = 3
     // The three above are settable (with these rescue defaults) because the HOME role's walk-to-triangulate listens
     // for slow noises (a smoke-alarm chirp every 30–60 s) and holds a spot's knocks for longer; see Engine.setWalkTuning.
-    fun rescueTuning() { TAU_MS = 15_000.0; ACTIVE_MS = 15_000L; MIN_KNOCKS = 3 }
+    fun rescueTuning() { TAU_MS = 8_000.0; ACTIVE_MS = 15_000L; MIN_KNOCKS = 3 }
     /** Two-mic correlation quality below this: the delay is noise. */
     const val MIN_Q = 0.4f   // 0.5 dropped most table-felt knocks (q 0.4–0.7 on 27 Sep 01:56); their delays agreed with the good ones
     /** A knock that also shook the phone came through the table (wrong delay): it counts this much. */
@@ -49,8 +49,9 @@ object KnockBearing {
     const val SIGMA_DEG = 12.0
     /** The best peak must be this many times the second peak (≥ 30° away) to count as resolved. */
     const val RESOLVE_RATIO = 1.5
-    /** While the second peak is at least this share of the best, the previous choice stays the solid arrow. */
-    const val STICKY_RATIO = 0.8
+    /** While the second peak is within this share of the best, the previous choice stays the solid arrow (only a
+     *  near tie: at 0.8 the solid arrow sat on the weaker mirror while the light twin tracked the knock, 27 Sep 03:00). */
+    const val STICKY_RATIO = 0.92
     const val BINS = 72   // 5° each
 
     data class Estimate(
@@ -96,11 +97,13 @@ object KnockBearing {
     /**
      * One knock heard now. Returns true if it was usable. Audio thread. [ratio] is the onset's peak over the
      * background: knuckle knocks measure ×11–28, room noises ×2–6, so a knock outweighs a noise 3–5× here.
+     * [rhythm] is this phone's rhythm score this second (0.2 nothing, 0.5 three onsets, 0.9 steady, 1.0 a pattern):
+     * a knock that is part of deliberate tapping counts up to twice a stray one (27 Sep 03:15, team: rhythm over class).
      */
-    fun add(delaySamples: Float?, quality: Float?, ratio: Float, felt: Boolean, headingDeg: Float, nowMs: Long): Boolean {
+    fun add(delaySamples: Float?, quality: Float?, ratio: Float, rhythm: Float, felt: Boolean, headingDeg: Float, nowMs: Long): Boolean {
         if (delaySamples == null || quality == null || quality < MIN_Q) return false
         val theta = thetaFromDelay(delaySamples) ?: return false
-        val weight = quality.toDouble() * (ratio / 10.0).coerceIn(0.3, 3.0) * (if (felt) FELT_WEIGHT else 1.0)
+        val weight = quality.toDouble() * (ratio / 10.0).coerceIn(0.3, 3.0) * (0.5 + rhythm.coerceIn(0f, 1f)) * (if (felt) FELT_WEIGHT else 1.0)
         synchronized(lock) {
             knocks.addLast(Knock(nowMs, theta, headingDeg, weight, felt))
             while (knocks.isNotEmpty() && nowMs - knocks.first().tMs > ACTIVE_MS) knocks.removeFirst()

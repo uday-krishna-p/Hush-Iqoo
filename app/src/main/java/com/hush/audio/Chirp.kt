@@ -14,18 +14,22 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * The ranging chirp: an 80 ms linear sweep 2–6 kHz with a Hann window, and the matched filter that finds it
- * in a recorded stretch of audio to the sample. Same template on every phone.
+ * The ranging chirp: a 120 ms linear sweep 19–21.5 kHz with a Hann window (inaudible to nearly everyone), and the
+ * matched filter that finds it in a recorded stretch of audio to the sample. Same template on every phone.
+ *
+ * 27 Sep 04:16, team: "make it at such high frequencies that humans cant hear". Measured on 6a46 playing a tone
+ * test to its own mics (VOICE_RECOGNITION source): 19 kHz 47/31 dB above the background (mic 0 / mic 1), 20 kHz
+ * 39/24, 21 kHz 33/17, 22 kHz 21/15, 23 kHz nothing (the capture filter). Was 2–6 kHz, 80 ms, audible.
  */
 object Chirp {
     const val SAMPLE_RATE = 48_000
-    const val DURATION_MS = 80               // was 40: twice the length = +3 dB of matched-filter gain in noise
-    const val F_START = 2000.0
-    const val F_END = 6000.0
+    const val DURATION_MS = 120              // time × bandwidth = 300: ~25 dB of matched-filter gain
+    const val F_START = 19000.0
+    const val F_END = 21500.0
     /** Centre of the sweep: the carrier of the matched-filter output. */
     const val F_CENTRE = (F_START + F_END) / 2
     const val SPEED_OF_SOUND = 343f          // m/s at ~20 °C
-    const val VOLUME_FRACTION = 0.4f         // of max alarm volume: 0.7 → 0.9 for range, 0.4 on 26 Sep 23:15 at the team's request (loud on a table); raise again for a hall
+    const val VOLUME_FRACTION = 0.8f         // of max alarm volume. Inaudible now, so loud; was 0.4 while it was an audible 2–6 kHz sweep
 
     val template: FloatArray by lazy {
         val n = SAMPLE_RATE * DURATION_MS / 1000
@@ -58,15 +62,15 @@ object Chirp {
         q
     }
 
-    /** Coarse search runs at 48 kHz / DECIMATE = 16 kHz: the 2–6 kHz chirp fits below its 8 kHz limit. */
-    private const val DECIMATE = 3
+    /** Coarse search at 48 kHz / DECIMATE. 1 since the chirp moved above 19 kHz (a 16 kHz copy cannot hold it). */
+    private const val DECIMATE = 1
     /** The 48 kHz refinement looks this many samples either side of the coarse pick. */
     private const val REFINE = 12
 
-    /** The template averaged in threes, matching how the audio is decimated for the coarse search. */
+    /** The template averaged in groups of DECIMATE, matching how the audio is decimated for the coarse search. */
     private val template16: FloatArray by lazy {
         val t = template
-        FloatArray(t.size / DECIMATE) { k -> (t[DECIMATE * k] + t[DECIMATE * k + 1] + t[DECIMATE * k + 2]) / DECIMATE }
+        FloatArray(t.size / DECIMATE) { k -> var s = 0f; for (j in 0 until DECIMATE) s += t[DECIMATE * k + j]; s / DECIMATE }
     }
 
     /** Plays the chirp on the alarm channel. Returns immediately. */
@@ -194,7 +198,8 @@ object Chirp {
         val im = DoubleArray(size)
         for (i in 0 until n16) {
             val j = DECIMATE * i
-            re[i] = (audio[j] + audio[j + 1] + audio[j + 2]) / (DECIMATE * 32768.0)
+            var s = 0.0; for (k in 0 until DECIMATE) s += audio[j + k]
+            re[i] = s / (DECIMATE * 32768.0)
         }
         fft(re, im, p, false)
         // Multiply by the template's conjugate spectrum and keep positive frequencies only (×2), so the inverse

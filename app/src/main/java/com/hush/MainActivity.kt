@@ -34,6 +34,7 @@ import com.hush.ui.SensorScreen
  *   adb shell am start -n com.hush/.MainActivity --es layout clear                      (commander: drop the stored hand layout and pointing, so GPS may place the phones)
  *   adb shell am start -n com.hush/.MainActivity --es mic1top false                     (any role: recording channel 1 is the BOTTOM mic)
  *   adb shell am start -n com.hush/.MainActivity --ef micspacing 0.14                   (any role: distance between the two mics, metres)
+ *   adb shell am start -n com.hush/.MainActivity --ez sync true                         (any role: SYNC COMPASS, phones lying parallel)
  */
 class MainActivity : AppCompatActivity() {
 
@@ -50,6 +51,7 @@ class MainActivity : AppCompatActivity() {
         const val EXTRA_MIC1TOP = "mic1top"
         const val EXTRA_MICSPACING = "micspacing"
         const val EXTRA_ALERTTEST = "alerttest"
+        const val EXTRA_SYNC = "sync"
     }
 
     private var role: String? = null
@@ -127,6 +129,10 @@ class MainActivity : AppCompatActivity() {
             HLog.d("Hook: mic geometry mic1top=$top spacing=$spacing")
             HLog.d("Hook: " + Engine.setMicGeometry(top, spacing))
         }
+        if (intent.getBooleanExtra(EXTRA_SYNC, false)) {
+            HLog.d("Hook: sync compasses")
+            HLog.d("Hook: sync result: " + Engine.syncCompasses())
+        }
         intent.getStringExtra(EXTRA_PLAY)?.let { name ->
             val fraction = intent.getFloatExtra(EXTRA_PLAY_LEVEL, 0.5f)
             HLog.d("Hook: play $name at $fraction")
@@ -134,7 +140,7 @@ class MainActivity : AppCompatActivity() {
         }
         intent.removeExtra(EXTRA_ROLE); intent.removeExtra(EXTRA_PROBE); intent.removeExtra(EXTRA_HUSH)
         intent.removeExtra(EXTRA_RANGE); intent.removeExtra(EXTRA_PLAY); intent.removeExtra(EXTRA_PLAY_LEVEL); intent.removeExtra(EXTRA_ALIGN); intent.removeExtra(EXTRA_LAYOUT)
-        intent.removeExtra(EXTRA_MIC1TOP); intent.removeExtra(EXTRA_MICSPACING); intent.removeExtra(EXTRA_ALERTTEST)
+        intent.removeExtra(EXTRA_MIC1TOP); intent.removeExtra(EXTRA_MICSPACING); intent.removeExtra(EXTRA_ALERTTEST); intent.removeExtra(EXTRA_SYNC)
     }
 
     private fun showRolePicker() {
@@ -283,18 +289,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun showRoleScreen() {
         val name = role ?: return
-        screen = if (name == Engine.ROLE_COMMANDER) {
-            setContentView(R.layout.screen_commander)
-            CommanderScreen(this)
-        } else if (name == Engine.ROLE_ALERT) {
+        screen = if (name == Engine.ROLE_ALERT) {
             setContentView(R.layout.screen_alert)
             com.hush.ui.AlertScreen(this)
         } else if (name == Engine.ROLE_HOME) {
             setContentView(R.layout.screen_home)
             com.hush.ui.HomeScreen(this)
         } else {
-            setContentView(R.layout.screen_sensor)
-            SensorScreen(this, getString(R.string.role_sensor))
+            // Every rescue phone shows the same screen (27 Sep, team); on a sensor its data comes from the commander.
+            setContentView(R.layout.screen_commander)
+            CommanderScreen(this)
         }
         Engine.listener = screen
     }

@@ -72,10 +72,11 @@ class ChirpTest {
             val m1 = audio(0.002, listOf(at + delay to 0.03, at + delay + 90 to 0.045))
             val det = Chirp.detect(m0, m0.size)
             val md = Chirp.micDelay(m0, m1, m0.size, det.offset)
-            // The value is right, but even this clean copy wins over the neighbouring 4 kHz cycle by only ~0.1:
-            // the 2–6 kHz chirp cannot say WHICH cycle on real, reverberant audio (Engine gates on margin 0.15).
+            // Since the chirp moved to 19–21.5 kHz (27 Sep) one carrier cycle is only 2.4 samples, so WHICH cycle is
+            // right is usually unclear even on clean audio. What must hold: a delay the Engine would accept
+            // (margin ≥ 0.15, its gate) is the right one; an ambiguous one is refused, never used wrong.
             assertTrue("delay $delay: got $md", md != null && md.similarity > 0.95)
-            assertEquals(delay, md!!.samples, 0.5)
+            if (md!!.margin >= 0.15) assertEquals(delay, md.samples, 0.5)
         }
     }
 
