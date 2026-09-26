@@ -98,4 +98,14 @@
     <string name="alert_sensitivity_high">High sensitivity (more alerts, more false ones)</string>
     <string name="alert_hearing">now: %1$s · loudness ×%2$.1f above the room · %3$s</string>
     <string name="alert_hearing_quiet">quiet</string>
+    <string name="role_home">HOME · count cooker whistles</string>
+    <string name="home_count_title">Whistle counter</string>
+    <string name="home_status">Listening for the cooker · a whistle is loud, steady and tonal (a kettle counts too)</string>
+    <string name="home_target">Whistles wanted</string>
+    <string name="home_count_idle">no whistle yet</string>
+    <string name="home_count_of">of %2$d whistles (%1$d heard)</string>
+    <string name="home_count_done">%1$d WHISTLES · DONE · turn the stove off</string>
+    <string name="home_count_stale">no whistle for 15 min: check the cooker</string>
+    <string name="home_reset">RESET · new dish</string>
+    <string name="home_timers_heading">Kitchen timers and alarms heard</string>
 </resources>

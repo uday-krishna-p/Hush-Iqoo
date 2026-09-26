@@ -65,6 +65,7 @@ class AlertScreen(private val activity: Activity) : Engine.Listener {
     private fun buildCategoryRows() {
         categories.removeAllViews()
         for (c in SoundAlerts.Category.values()) {
+            if (!c.listens) continue
             val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, 6, 0, 6) }
             val swatch = View(activity).apply { setBackgroundColor(c.colour) }
             row.addView(swatch, LinearLayout.LayoutParams(36, 36).apply { rightMargin = 16 })

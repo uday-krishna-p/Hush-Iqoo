@@ -32,10 +32,13 @@ object KnockBearing {
     @Volatile var mic1IsTop = true
 
     /** Older knocks weigh less: the weight halves every TAU × ln 2 ≈ 10 s. */
-    const val TAU_MS = 15_000.0
+    @Volatile var TAU_MS = 15_000.0
     /** The arrow shows while at least [MIN_KNOCKS] usable knocks were heard in the last [ACTIVE_MS]. */
-    const val ACTIVE_MS = 15_000L
-    const val MIN_KNOCKS = 3
+    @Volatile var ACTIVE_MS = 15_000L
+    @Volatile var MIN_KNOCKS = 3
+    // The three above are settable (with these rescue defaults) because the HOME role's walk-to-triangulate listens
+    // for slow noises (a smoke-alarm chirp every 30–60 s) and holds a spot's knocks for longer; see Engine.setWalkTuning.
+    fun rescueTuning() { TAU_MS = 15_000.0; ACTIVE_MS = 15_000L; MIN_KNOCKS = 3 }
     /** Two-mic correlation quality below this: the delay is noise. */
     const val MIN_Q = 0.4f   // 0.5 dropped most table-felt knocks (q 0.4–0.7 on 27 Sep 01:56); their delays agreed with the good ones
     /** A knock that also shook the phone came through the table (wrong delay): it counts this much. */

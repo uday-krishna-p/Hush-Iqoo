@@ -37,6 +37,16 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     /** Persona C's category detector; its `enabled` set and `sensitivity` are the ALERT screen's settings. */
     val soundAlerts = com.hush.audio.SoundAlerts()
+    /** Persona B's whistle counter (HOME role); `target` is the screen's setting. */
+    val whistles = com.hush.audio.WhistleCounter()
+    /** HOME role also hears kitchen timers and alarms, with its own switch set (TIMER + ALARM only). */
+    private val homeAlerts = com.hush.audio.SoundAlerts().also {
+        it.enabled.clear(); it.enabled.add(com.hush.audio.SoundAlerts.Category.TIMER); it.enabled.add(com.hush.audio.SoundAlerts.Category.ALARM)
+    }
+    /** The DONE beeps: the cook is in another room, so these are loud (fraction of the alarm volume). */
+    private const val DONE_BEEP_FRACTION = 0.6f
+
+    fun resetWhistles() { whistles.reset(); HLog.d("WHISTLE counter reset") }
     /** How many seconds the classifier was skipped as too quiet (household roles), for the battery note in the log. */
     private var classifierSkipped = 0L
     private var classifierRun = 0L
@@ -131,6 +141,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         fun onDiscovered(phones: List<Discovered>) {}
         /** ALERT role: a household sound was recognised (the phone has already buzzed and posted the notification). */
         fun onAlert(alert: com.hush.audio.SoundAlerts.Alert) {}
+        /** HOME role: a cooker whistle was counted, the target reached, or the cooker has gone quiet for too long. */
+        fun onWhistle(event: com.hush.audio.WhistleCounter.Event) {}
     }
 
     // ---- Probe / discovered phones (PRD 2.1) ----
@@ -1796,7 +1808,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         }
         if (household) {
             classifierSkipped = 0; classifierRun = 0
-            soundAlerts.reset()
+            soundAlerts.reset(); homeAlerts.reset(); whistles.reset()
             Alerting.init(context)
             return   // no mesh, no Bluetooth tag, no chirps: one phone on its own
         }
@@ -1835,6 +1847,34 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         listener?.onAlert(a)
     }
 
+    /** Main thread, HOME role: the whistle counter, plus kitchen timers and alarms. [tonal] is null on quiet seconds. */
+    private fun homeSecond(w: Window, tonal: com.hush.audio.Tonality.Result?, selfNoise: Boolean, now: Long) {
+        val ctx = appContext ?: return
+        val loud = if (w.floor > 0f) w.rms / w.floor else 0f
+        val ws = com.hush.audio.WhistleCounter.Second(now, w.cls?.sum(com.hush.audio.WhistleCounter.CLASSES) ?: 0f, loud,
+            tonal?.peakToMedian ?: 0f, tonal?.peakHz ?: 0f, selfNoise)
+        whistles.onSecond(ws)?.let { e ->
+            HLog.d("WHISTLE ${e.kind} #${e.count} of ${e.target}: ${e.detail}")
+            when (e.kind) {
+                com.hush.audio.WhistleCounter.Kind.WHISTLE -> com.hush.audio.Haptics.vibrate(ctx, longArrayOf(0, 250), "Whistle buzz")
+                com.hush.audio.WhistleCounter.Kind.DONE -> {
+                    val c = com.hush.audio.SoundAlerts.Category.COOKER
+                    Alerting.fire(com.hush.audio.SoundAlerts.Alert(c, "${e.count} WHISTLES · DONE", e.detail, 1f, c.pattern, false, now, false), listener != null)
+                    // Beeps too: unlike rescue, noise is the point here. Three double beeps at a level the next room hears.
+                    com.hush.audio.Ping.play(ctx, listOf(2000 to 250, 0 to 150, 2000 to 250, 0 to 500, 2000 to 250, 0 to 150, 2000 to 250, 0 to 500, 2000 to 250, 0 to 150, 2000 to 250), DONE_BEEP_FRACTION)
+                }
+                com.hush.audio.WhistleCounter.Kind.STALE -> {
+                    val c = com.hush.audio.SoundAlerts.Category.COOKER
+                    Alerting.fire(com.hush.audio.SoundAlerts.Alert(c, "CHECK THE COOKER", e.detail, 1f, longArrayOf(0, 400, 200, 400), false, now, false), listener != null)
+                }
+            }
+            listener?.onWhistle(e)
+        }
+        // Timers and alarms, with the HOME switch set.
+        val second = com.hush.audio.SoundAlerts.Second(now, w.rms, w.floor, w.accel.moving, selfNoise, w.cls?.scores ?: emptyMap(), w.cls?.topClass ?: "-", emptyList())
+        homeAlerts.onSecond(second)?.let { a -> Alerting.fire(a, listener != null); listener?.onAlert(a) }
+    }
+
     fun stop() {
         if (role == null) { HLog.d("Engine stop: already stopped"); return }
         HLog.d("Engine stop")
@@ -1856,7 +1896,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         radioDistance.clear(); peerBleAddress.clear(); radioStatus = ""
         locator.reset(); peerHeading.clear(); doaAll.clear()
         com.hush.audio.KnockBearing.reset(); ownArrowUntilMs = 0L
-        soundAlerts.reset(); classifierRun = 0; classifierSkipped = 0
+        soundAlerts.reset(); homeAlerts.reset(); whistles.reset(); classifierRun = 0; classifierSkipped = 0
         peerBearing.clear(); crossFix = null; crossFixMs = 0L; crossNoneLoggedMs = 0L
         sharedBearing = null; sharedBearingMs = 0L; sharedLogged = ""; synchronized(loudOnsetMs) { loudOnsetMs.clear() }
         gpsSamples.clear(); gpsLayoutActive = false; gpsLayoutCheckMs = 0L; gpsLayoutReason = ""
@@ -2034,6 +2074,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             if ((classifierRun + classifierSkipped) % 600 == 0L) HLog.d("Household classifier: ran $classifierRun s, skipped $classifierSkipped s (quiet)")
         }
         val label = fuseLabel(rhythm, cls)
+        // HOME: how tonal is this second (a whistle is one strong line; frying is not)? Only for loud seconds.
+        val tonal = if (role == ROLE_HOME && (floor <= 0f || rms >= floor * 2f)) try { com.hush.audio.Tonality.measure(pcm16k, n16) } catch (e: Exception) { HLog.d("ERROR in tonality: $e"); null } else null
         main.post { trackWalking(acc); trackPlacement(acc) }
         // Source location, part 1 (every phone): each knock timed to the sample, its loudness, and the
         // two-mic delay that says which side of this phone it came from. Sent to the commander.
@@ -2114,6 +2156,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 }
                 ROLE_COMMANDER -> { onsetReport?.let { locator.addReport(it) }; recordEvent(event); listener?.onEvent(event, localName) }
                 ROLE_ALERT -> try { alertSecond(w, selfNoise, now) } catch (e: Exception) { HLog.d("ERROR in household alerts: $e") }
+                ROLE_HOME -> try { homeSecond(w, tonal, selfNoise, now) } catch (e: Exception) { HLog.d("ERROR in whistle counter: $e") }
             }
         }
     }

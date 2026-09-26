@@ -51,9 +51,9 @@ object Ping {
     const val VOLUME_FRACTION = 0.10f
 
     /** [pattern]: list of (frequencyHz, durationMs). 0 Hz = silence. */
-    fun play(context: Context, pattern: List<Pair<Int, Int>>) {
+    fun play(context: Context, pattern: List<Pair<Int, Int>>, fraction: Float = VOLUME_FRACTION) {
         val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        AlarmVolume.raise(am, VOLUME_FRACTION)
+        AlarmVolume.raise(am, fraction)
         try {
             val total = pattern.sumOf { it.second } * SAMPLE_RATE / 1000
             val buf = ShortArray(total)

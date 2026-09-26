@@ -53,6 +53,16 @@
         android:textColor="#FFFFFF"
         android:textSize="18sp" />
 
+    <Button
+        android:id="@+id/btnHome"
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:layout_marginTop="8dp"
+        android:backgroundTint="#2E7D32"
+        android:text="@string/role_home"
+        android:textColor="#FFFFFF"
+        android:textSize="18sp" />
+
     <TextView
         android:id="@+id/status"
         android:layout_width="match_parent"

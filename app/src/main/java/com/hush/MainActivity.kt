@@ -142,6 +142,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnCommander).setOnClickListener { pickRole(Engine.ROLE_COMMANDER) }
         findViewById<Button>(R.id.btnSensor).setOnClickListener { pickRole(Engine.ROLE_SENSOR) }
         findViewById<Button>(R.id.btnAlerts).setOnClickListener { pickRole(Engine.ROLE_ALERT) }
+        findViewById<Button>(R.id.btnHome).setOnClickListener { pickRole(Engine.ROLE_HOME) }
         findViewById<Button>(R.id.btnBackground).setOnClickListener { askBackgroundAllowance(force = true) }
         findViewById<TextView>(R.id.status).text = getString(R.string.pick_role)
     }
@@ -288,6 +289,9 @@ class MainActivity : AppCompatActivity() {
         } else if (name == Engine.ROLE_ALERT) {
             setContentView(R.layout.screen_alert)
             com.hush.ui.AlertScreen(this)
+        } else if (name == Engine.ROLE_HOME) {
+            setContentView(R.layout.screen_home)
+            com.hush.ui.HomeScreen(this)
         } else {
             setContentView(R.layout.screen_sensor)
             SensorScreen(this, getString(R.string.role_sensor))

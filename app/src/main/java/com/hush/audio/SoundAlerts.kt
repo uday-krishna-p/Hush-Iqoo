@@ -61,7 +61,12 @@ class SoundAlerts {
             0.3f, 3, 2f, 0, longArrayOf(0, 200), defaultOn = false),
         SPEECH("SOMEONE CALLING", 0xFF546E7A.toInt(),
             setOf("Speech", "Child speech, kid speaking", "Conversation", "Narration, monologue"),
-            0.5f, 3, 8f, 0, longArrayOf(0, 300, 200, 300), defaultOn = false);
+            0.5f, 3, 8f, 0, longArrayOf(0, 300, 200, 300), defaultOn = false),
+        /** Not a sound category: the whistle counter's DONE / "check the cooker" use this colour and pattern (no classes, never fires by itself). */
+        COOKER("WHISTLES DONE", 0xFF2E7D32.toInt(), emptySet(), 9f, 9, 9f, 8, longArrayOf(0, 600, 200, 600, 200, 600, 600, 600, 200, 600, 200, 600), defaultOn = false);
+
+        /** Categories the person can switch on the ALERT screen (the ones that listen for something). */
+        val listens: Boolean get() = classes.isNotEmpty()
     }
 
     /** One knock-like onset the tap detector found: when, and how far above the background it stood. */
