@@ -52,7 +52,7 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
         tapText.text = activity.getString(R.string.tap_value, w.tap.taps, w.tap.peakRatio, w.tap.score, w.tap.intervalsMs.joinToString(" "))
         topClass.text = activity.getString(R.string.top_class_value, w.cls?.topClass ?: "…", w.event.human, w.event.impact, w.event.machine)
         top5.text = w.cls?.top5?.joinToString("\n") { (name, score) -> "%5.2f  %s".format(score, name) } ?: ""
-        sourceLabel.text = activity.getString(R.string.mic_source_letter, Engine.letter)
+        sourceLabel.text = activity.getString(R.string.mic_source_letter, "${Engine.letter}  ·  phone ${Engine.name.takeLast(4)}")
     }
 
     override fun onLinkStatus(text: String) {

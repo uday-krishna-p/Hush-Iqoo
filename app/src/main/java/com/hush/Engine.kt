@@ -364,13 +364,25 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     // ---- Hush window ----
 
     /** Commander: start a Hush window on every phone including this one. */
-    fun hush(seconds: Int = 20) {
-        if (role != ROLE_COMMANDER) return
+    fun hush(seconds: Int = 20): Boolean {
+        if (role != ROLE_COMMANDER) return false
+        if (peers.isEmpty() && !allowSoloHush) {
+            HLog.d("HUSH refused: no sensors connected")
+            setRangingStatus("No sensors connected yet. Wait for them, or long-press HUSH to run alone.")
+            return false
+        }
         HLog.d("HUSH pressed: $seconds s to ${peers.size} sensors")
         sessionLog.addRecord("hush", mapOf("seconds" to seconds, "sensors" to peers.size + 1, "mode" to mode.name))
         link?.broadcast(Command(Command.HUSH, seconds).toJson())
         startHushLocal(seconds)
+        return true
     }
+
+    /** Set by a long press on HUSH: run a window with only this phone (single-phone testing). */
+    @Volatile var allowSoloHush = false
+
+    /** The advertised name of this phone, e.g. "I2501-6a46". Shown next to the letter so people can match phones. */
+    val name: String get() = localName
 
     private fun startHushLocal(seconds: Int) {
         floor = if (recentRms.isEmpty()) 0f else recentRms.average().toFloat()

@@ -52,7 +52,8 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
     }
 
     init {
-        btnHush.setOnClickListener { Engine.hush(20) }
+        btnHush.setOnClickListener { Engine.allowSoloHush = false; Engine.hush(20) }
+        btnHush.setOnLongClickListener { Engine.allowSoloHush = true; Engine.hush(20); true }
         activity.findViewById<Button>(R.id.btnExport).setOnClickListener {
             val name = Engine.exportLog()
             val msg = if (name != null) activity.getString(R.string.export_ok, name) else activity.getString(R.string.export_failed)
@@ -131,7 +132,7 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
         for (l in letters) {
             val e = latest[l]
             val r = rankByLetter[l]
-            val name = if (l == "A") activity.getString(R.string.this_phone) else names[l] ?: activity.getString(R.string.offline)
+            val name = if (l == "A") "${activity.getString(R.string.this_phone)} ${Engine.name.takeLast(4)}" else names[l]?.takeLast(4) ?: activity.getString(R.string.offline)
             val start = sb.length
             sb.append(if (l == strongest) "★ " else "   ").append(l).append("  ").append(name)
             if (r != null) sb.append("   score %.4f  evidence %.0f%%".format(r.score, r.evidence * 100))
