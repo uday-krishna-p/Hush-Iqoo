@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.hush"
-    compileSdk = 35
+    compileSdk = 36   // Android 16: needed for the Ranging API (Bluetooth Channel Sounding); approved 26 Sep
 
     defaultConfig {
         applicationId = "com.hush"

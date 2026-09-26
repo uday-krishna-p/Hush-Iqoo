@@ -30,7 +30,7 @@ messages (class, confidence, RMS, noise floor, rhythm, timestamps) are shared.
 
 ## Hard rules
 
-- **Ask before touching build files**: `build.gradle.kts`, `settings.gradle.kts`, `gradle/libs.versions.toml`, `gradle-wrapper.properties`, `AndroidManifest.xml`. Propose the exact diff, then wait. **Exception, agreed 26 Sep:** the initial project scaffold (all Gradle files, the permissions file, and the skeleton app) is proposed and approved **once, as a single block**. After that the rule applies per change.
+- **Build files no longer need approval (lifted 26 Sep 17:45 by the team).** `build.gradle.kts`, `settings.gradle.kts`, `gradle/libs.versions.toml`, `gradle-wrapper.properties` and `AndroidManifest.xml` may be changed directly; say what changed and why in the commit message and in the reply. Dependencies still get a stated reason and version.
 - **Never add a dependency without saying why and which version.** Prefer what is already in the project.
 - **Never send raw audio over the network.** Only the event data class below. **Debug exception (26 Sep):** the sensor screen writes the raw 48 kHz stream to the app's private `files/debug.wav` (capped at 90 s) so it can be pulled over USB with `adb shell run-as com.hush cat files/debug.wav > debug.wav` and compared against `files/hush.log`. It never leaves the phone by any other route. Remove before the demo build.
 - **No cloud, no HTTP, no analytics, no Firebase.** The demo runs with cellular and Wi-Fi internet off.
@@ -44,7 +44,7 @@ messages (class, confidence, RMS, noise floor, rhythm, timestamps) are shared.
 | Concern | Decision |
 |---|---|
 | Language / UI | Kotlin, XML layouts (View system), single `MainActivity` + a `SensorService` foreground service |
-| Min / target SDK | minSdk 29, targetSdk 35 |
+| Min / target / compile SDK | minSdk 29, targetSdk 35, **compileSdk 36** (Android 16 Ranging API; platform 36 installed on the laptop 26 Sep) |
 | Networking | Google **Nearby Connections API** (`com.google.android.gms:play-services-nearby`), strategy `P2P_STAR`. Commander advertises, sensors discover and connect. |
 | Roles | **The commander is also a sensor** (it is always Sensor A). It runs the same mic + classifier code and appears in its own ranked list. |
 | Sensor letters | Assigned by the commander on connect, **keyed by the phone's advertised device name**. A sensor that drops and reconnects gets the **same letter and the same map dot**. New phones get the next free letter (A, B, C, D, …). |
