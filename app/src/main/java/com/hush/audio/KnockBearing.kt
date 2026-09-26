@@ -37,7 +37,7 @@ object KnockBearing {
     const val ACTIVE_MS = 15_000L
     const val MIN_KNOCKS = 3
     /** Two-mic correlation quality below this: the delay is noise. */
-    const val MIN_Q = 0.5f
+    const val MIN_Q = 0.4f   // 0.5 dropped most table-felt knocks (q 0.4–0.7 on 27 Sep 01:56); their delays agreed with the good ones
     /** A knock that also shook the phone came through the table (wrong delay): it counts this much. */
     const val FELT_WEIGHT = 0.3
     /** Delays beyond this × the end-fire delay are reflections, not a knock direction. */
@@ -46,7 +46,7 @@ object KnockBearing {
     const val SIGMA_DEG = 12.0
     /** The best peak must be this many times the second peak (≥ 30° away) to count as resolved. */
     const val RESOLVE_RATIO = 1.5
-    private const val BINS = 72   // 5° each
+    const val BINS = 72   // 5° each
 
     data class Estimate(
         val screenDeg: Float,        // clockwise from the phone's top: where to draw the arrow now
@@ -57,7 +57,8 @@ object KnockBearing {
         val knocks: Int,             // usable knocks in the last ACTIVE_MS
         val felt: Int,               // of which came through the table
         val resolved: Boolean,
-        val turnedDeg: Float         // how far the phone has turned across those knocks (0 = never turned)
+        val turnedDeg: Float,        // how far the phone has turned across those knocks (0 = never turned)
+        val resolvedBy: String? = null   // set when the other phones' fused bearing settled the twin (Engine.ownArrow)
     )
 
     private class Knock(val tMs: Long, val thetaDeg: Double, val headingDeg: Float, val weight: Double, val felt: Boolean)
@@ -141,7 +142,7 @@ object KnockBearing {
         )
     }
 
-    private fun vote(hist: DoubleArray, bearingDeg: Double, w: Double) {
+    fun vote(hist: DoubleArray, bearingDeg: Double, w: Double) {
         val centre = ((bearingDeg % 360.0) + 360.0) % 360.0
         for (b in 0 until BINS) {
             val d = angDiff(centre, b * 360.0 / BINS)
@@ -150,7 +151,7 @@ object KnockBearing {
     }
 
     /** Highest bin, ignoring bins within 30° of [exclude] (so the second peak is a different direction). */
-    private fun peakBin(hist: DoubleArray, exclude: Int): Int {
+    fun peakBin(hist: DoubleArray, exclude: Int): Int {
         var best = -1
         for (b in 0 until BINS) {
             if (exclude >= 0 && angDiff(exclude * 360.0 / BINS, b * 360.0 / BINS) < 30.0) continue
@@ -160,14 +161,14 @@ object KnockBearing {
     }
 
     /** Peak bin → degrees, with a parabola through the neighbours for a smooth value. */
-    private fun refine(hist: DoubleArray, b: Int): Double {
+    fun refine(hist: DoubleArray, b: Int): Double {
         val y0 = hist[(b + BINS - 1) % BINS]; val y1 = hist[b]; val y2 = hist[(b + 1) % BINS]
         val denom = y0 - 2 * y1 + y2
         val frac = if (denom < 0) (0.5 * (y0 - y2) / denom).coerceIn(-0.5, 0.5) else 0.0
         return (((b + frac) * 360.0 / BINS) % 360.0 + 360.0) % 360.0
     }
 
-    private fun angDiff(a: Double, b: Double): Double {
+    fun angDiff(a: Double, b: Double): Double {
         val d = abs(((a - b) % 360.0 + 360.0) % 360.0)
         return if (d > 180.0) 360.0 - d else d
     }

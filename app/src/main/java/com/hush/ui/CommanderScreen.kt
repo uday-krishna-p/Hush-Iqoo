@@ -44,8 +44,9 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
             val angle = target?.takeIf { it != "A" }?.let { Engine.arrowAngleTo(it) }
             val srcAngle = if (fix != null) Engine.arrowAngleToSource() else null
             val own = Engine.ownArrow()
+            val shared = if (own == null) Engine.sharedArrow() else null
             val cross = Engine.crossingArrow()
-            arrow.twinAngleDeg = own?.twinDeg
+            arrow.twinAngleDeg = own?.twinDeg ?: shared?.twinDeg
             val lines = Engine.bearingLines()
             if (lines != map.bearings) { map.bearings.clear(); map.bearings.putAll(lines); map.invalidate() }
             if (own != null) {
@@ -54,6 +55,13 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
                 arrow.angleDeg = own.screenDeg
                 var label = ownArrowLabel(activity, own)
                 if (cross != null && angDiff(cross.screenDeg, own.screenDeg) <= 30f) label += activity.getString(R.string.arrow_cross_dist, cross.metres, cross.radius)
+                arrow.label = label
+            } else if (shared != null) {
+                // The sensors hear it and the commander does not: their fused bearing through the commander's compass.
+                arrow.active = true
+                arrow.angleDeg = shared.screenDeg
+                var label = activity.getString(if (shared.twinDeg == null) R.string.arrow_shared else R.string.arrow_shared_unresolved, shared.phones)
+                if (cross != null && angDiff(cross.screenDeg, shared.screenDeg) <= 30f) label += activity.getString(R.string.arrow_cross_dist, cross.metres, cross.radius)
                 arrow.label = label
             } else if (cross != null) {
                 // Two or more phones' arrows cross on the map: point there, with the distance.

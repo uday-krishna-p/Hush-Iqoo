@@ -62,6 +62,9 @@
     <string name="arrow_knock_table">" · felt through the table: put cloth under the phone"</string>
     <string name="arrow_cross_dist">" · ~%1$.1f m ±%2$.1f where the arrows cross"</string>
     <string name="arrow_cross">→ CROSSING · ~%1$.1f m ±%2$.1f · the arrows of %3$d phones cross here</string>
+    <string name="arrow_shared">→ KNOCKING · heard by %1$s · this phone hears nothing yet</string>
+    <string name="arrow_shared_unresolved">→ KNOCKING · heard by %1$s · left or right? turn a phone that hears it</string>
+    <string name="arrow_knock_by">→ KNOCKING · %1$d knocks · confirmed by %2$s</string>
     <string name="export_ok">Saved Downloads/%1$s</string>
     <string name="export_failed">Export failed, see log</string>
     <string name="hush_running">HUSH RUNNING</string>

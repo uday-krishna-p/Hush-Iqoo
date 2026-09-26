@@ -134,7 +134,7 @@ knocks (phones on the same slab) arrive faster than through air: onsets tagged "
 | Map frame | B origin, C on +x, A (commander) moves inside; scale fixed at first ranging (1.6 × the largest side). A's dot moves by step counting between rangings. A settled sensor (moved, then still 3 s) triggers a re-ranging. |
 | North | Ranging alone cannot know rotation. Sources, best first: (1) **two-mic direction of arrival** of B's and C's chirps at the commander (sub-sample inter-mic delay; mic spacing solved against the triangle's known angle, then held as a median; skipped when phones < 0.8 m apart; rotation smoothed over 5 rounds); (2) the commander's walk (A's shift on the map vs compass bearing walked; moves > 10 m ignored); (3) placement walk (step detector + compass on carried-out sensors); (4) manual Place buttons. First DoA run: spacing 0.10 m, angles 44°/8° vs true 38°, spread 1°. Physical direction test still failing at 50 cm spacing (near field) — needs ≥ 1 m. |
 | Compass arrow | `ArrowView` + rotation-vector `Compass`; angle = mapBearing(A→target) + rotation − heading. Target = the located source when there is a fix < 60 s old, else the strongest sensor. |
-| Own knock arrow (27 Sep) | `KnockBearing.kt`, every phone, first claim on the arrow: the two-mic delay of each knock → angle from the phone's top (spacing 0.155 m, mic 1 = top mic), both mirror bearings voted into a decaying histogram (τ 15 s, 5° bins, σ 12°); faint twin arrow until turning the phone resolves it (best peak ≥ 1.5× the second). Gates q ≥ 0.5, |delay| ≤ 30 samples, felt knocks × 0.3, weight × loudness over background (×10 → 1, clamped 0.3–3); shown only while own rhythm ≥ 0.9 or a Hush window runs (held 8 s). Constants changeable with `--es mic1top` / `--ef micspacing`, kept in preferences. |
+| Own knock arrow (27 Sep) | `KnockBearing.kt`, every phone, first claim on the arrow: the two-mic delay of each knock → angle from the phone's top (spacing 0.155 m, mic 1 = top mic), both mirror bearings voted into a decaying histogram (τ 15 s, 5° bins, σ 12°); faint twin arrow until turning the phone resolves it (best peak ≥ 1.5× the second). Gates q ≥ 0.4, |delay| ≤ 33 samples, felt knocks × 0.3, weight × loudness over background (×10 → 1, clamped 0.3–3); shown while own rhythm ≥ 0.9, a Hush window runs, or 3 knocks ≥ ×8 in 8 s (held 8 s). Measured 27 Sep 02:00: spacing 0.17 m, channel 1 = top mic. When the phone hears nothing it draws the commander's fused bearing of the phones that do (`SHARED:`), and an open twin is settled by it. Constants changeable with `--es mic1top` / `--ef micspacing`, kept in preferences. |
 | Passive port / probe | `Probe.kt`: victim side = PendingIntent BLE scan, filter on 16-bit UUID 0xA5A7, `SCAN_MODE_LOW_POWER`, re-armed at boot (+10 s), app update (+3 s), every 15 min (inexact alarm) and whenever the app opens; a re-registration waits 2.5 s between stop and start. Commander side = 30 s non-connectable advertisement of 0xA5A7 with its name suffix, high power. Woken phone: notification (channel "rescue", full-screen intent) → `BeaconActivity` → `SensorService` (byProbe) → Nearby SENSOR; tag flags bit 0 = woken by probe; back to passive after 10 min without a commander. Commander shows "Discovered phones" from tag sightings: median RSSI, "~N m?" (−59 dBm at 1 m, exponent 2.7), warmer/colder trend, battery, letter once joined. |
 | Source locator | `Locator.kt`, see "How the source is located". Constants: cell 0.25 m, σ_t 0.5 ms, σ_amp 6 dB (weight 0.5), σ_doa 12° (voice 20°), decay 25 s, hold 3.5 s for late reports, mic spacing = median solved by the chirp rounds else 0.10 m. `LOCATE knock #n heard by A,B,C: A:+0.0ms B:+3.1ms …` and `LOCATE fix: peak (x, y) region … radius … nearest … spread …` in the log. Export gets a `locate` record per update. |
 | Radio ranging | `BleRanging` (Android 16 `RangingManager`). Capabilities on the I2501: CS enabled, RSSI enabled, UWB/RTT absent; own address read from the capabilities object's `toString`. Sensors advertise a connectable BLE tag (service UUID `0000A5A5-…`, data = name suffix); the commander scans for the tag to learn the sensor's **live** (rotating) address, opens a GATT link, then initiates; the sensor learns the commander's live address from its GATT server and answers it. **Result so far: CS opens, starts and closes with reason 3 (UNSUPPORTED) within 1 ms every time**, even over an open link with the responder ready; RSSI ranging then runs continuously but reads 6–14 m for phones 0.5 m apart. RSSI is displayed with "?" and never used to drop a chirp round. Latest build requests a one-time pairing and retries CS once bonded (untested). |
@@ -143,6 +143,29 @@ knocks (phones on the same slab) arrive faster than through air: onsets tagged "
 | Permissions (declared, requested at role pick) | RECORD_AUDIO, BLUETOOTH_SCAN/ADVERTISE/CONNECT, NEARBY_WIFI_DEVICES, ACCESS_FINE/COARSE_LOCATION, ACTIVITY_RECOGNITION, RANGING (API 36), VIBRATE, FOREGROUND_SERVICE(+MICROPHONE), ACCESS/CHANGE_WIFI_STATE, legacy BLUETOOTH/ADMIN. |
 
 ## Status (27 Sep 00:00)
+
+**Calibration in a tight space and the shared bearing, 27 Sep 02:00–02:25 (team: the phones cannot be more than
+0.5 m apart):** knuckle-knock rounds 0.5 m from the phones, all three on one table, nearly every knock "felt":
+end-fire delays +22..+28 samples on all three phones → `micSpacingM = 0.17` (23.8 samples), set on all phones with
+`--ef micspacing 0.17` and kept in preferences. The round beyond the USB-cable (bottom) end of 6a46 read +17..+25
+with the arrow drawn at 148–176° on screen ("downish", team), so **channel 1 is the top mic: `mic1IsTop = true`
+stays.** Table-felt knocks keep consistent delays (MAD 1–2 samples) but low correlation quality (0.4–0.7), so
+`KnockBearing.MIN_Q` is 0.4 now. The arrow showed on every phone during the rounds; the turn test resolved the twin
+several times, but with the phone in hand the compass heading jumped 60–180° between knocks, so left/right by
+turning is only as good as the compass while handling. **Sensitivity** ("too low", team): the arrow now also
+shows after 3 usable knocks ≥ ×8 the background within 8 s (irregular loud knocks), not only on a steady rhythm;
+`KNOCK ARROW shown=… loud=N` logs the count. **Shared bearing** (the team's idea: one phone hears it and points
+right, the others should point too): the commander fuses the compass bearings of every phone whose own arrow shows
+(a resolved phone one vote, an unresolved one half a vote per candidate, 5° histogram; `SHARED: bearing … from A,B,
+conf …` in the log) and sends it down in the Fix (`sb`, `sb2`, `sbq`, `sby`; a Fix with no map point says
+`pt=false`). A phone that hears nothing draws that bearing through its own compass ("→ KNOCKING · heard by B · this
+phone hears nothing yet"); a hearing phone with an open left/right twin takes the candidate within 40° of the shared
+bearing ("confirmed by B"). Phones lying at different angles have different mirrors, so two unresolved phones at
+different angles resolve each other without anyone turning; parallel phones do not (lay them at different angles).
+This is right only because the phones are within 0.5 m of each other and the knock is farther away (parallax
+< 30° at 1 m); at wider spacings the crossing takes over. Precedence on every screen: own arrow > shared bearing >
+crossing (commander) > located source / loudest phone / commander's fix. Each phone votes with its RAW estimate, never
+with the choice it was given, so the fusion cannot feed on itself.
 
 **Compass plan, step 3 built 27 Sep 02:05 (positions from GPS, outdoors):** the commander keeps the last 5 GPS
 fixes of every phone (they were already in every event) and every 5 s tries to place all phones from them

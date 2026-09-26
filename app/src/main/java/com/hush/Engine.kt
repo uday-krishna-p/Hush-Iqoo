@@ -254,16 +254,60 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private const val OWN_ARROW_HOLD_MS = 8_000L
     /** Own rhythm score from which a second counts as deliberate tapping: 0.9 = steady, 1.0 = a pattern (0.5 is any 3 onsets). */
     private const val OWN_ARROW_RHYTHM = 0.9f
+    /** Or (27 Sep 02:10, "sensitivity too low"): this many usable knocks ≥ LOUD_KNOCK_RATIO × the background within 8 s.
+     *  Knuckle knocks measured ×11–28 (×5–169 in the tight-space rounds), room noise ×2–6, so irregular loud knocks count too. */
+    private const val LOUD_KNOCK_RATIO = 8f
+    private const val LOUD_KNOCKS = 3
+    private val loudOnsetMs = ArrayDeque<Long>()
     @Volatile private var ownArrowUntilMs = 0L
 
-    /**
-     * Where this phone hears the knocking, from its own two mics, or null: no knocking lately, or no tapping
-     * evidence (room noises are onsets too and steered the arrow at once in the first laptop run).
-     */
-    fun ownArrow(): com.hush.audio.KnockBearing.Estimate? {
+    /** This phone's own estimate (its two mics alone), or null: no knocking lately, or no tapping evidence. */
+    fun ownArrowRaw(): com.hush.audio.KnockBearing.Estimate? {
         val now = SystemClock.elapsedRealtime()
         if (now > ownArrowUntilMs) return null
         return com.hush.audio.KnockBearing.estimate(now, headingDeg)
+    }
+
+    /**
+     * The own arrow for the screen: the raw estimate, with its left/right twin settled by the OTHER phones when the
+     * commander's fused bearing (sharedBearing here, the Fix on a sensor) is resolved and lies within 40° of one
+     * candidate. The event and the fusion use the raw estimate, so a phone never votes with a choice it was given.
+     */
+    fun ownArrow(): com.hush.audio.KnockBearing.Estimate? {
+        val e = ownArrowRaw() ?: return null
+        if (e.resolved) return e
+        val s = currentShared() ?: return e
+        if (s.twinDeg != null) return e
+        val twinBearing = e.twinBearingDeg ?: return e
+        val dBest = angDiffF(s.bearingDeg, e.bearingDeg); val dTwin = angDiffF(s.bearingDeg, twinBearing)
+        return when {
+            dBest <= 40f && dBest <= dTwin -> e.copy(twinDeg = null, twinBearingDeg = null, resolved = true, resolvedBy = s.phones)
+            dTwin <= 40f -> e.copy(screenDeg = ((twinBearing - headingDeg) + 720f) % 360f, bearingDeg = twinBearing,
+                                   twinDeg = null, twinBearingDeg = null, resolved = true, resolvedBy = s.phones)
+            else -> e
+        }
+    }
+
+    private fun angDiffF(a: Float, b: Float): Float { val d = kotlin.math.abs(((a - b) % 360f + 360f) % 360f); return if (d > 180f) 360f - d else d }
+
+    /** The bearing the hearing phones agree on, as seen from THIS phone through its own compass. */
+    data class SharedArrow(val screenDeg: Float, val twinDeg: Float?, val phones: String, val confidence: Float)
+
+    /** For a phone that hears nothing: the other phones' fused bearing on its own screen, or null. */
+    fun sharedArrow(): SharedArrow? {
+        val s = currentShared() ?: return null
+        fun screen(b: Float) = ((b - headingDeg) + 720f) % 360f
+        return SharedArrow(screen(s.bearingDeg), s.twinDeg?.let { screen(it) }, s.phones, s.confidence)
+    }
+
+    /** Commander: its own fusion (< 10 s old); sensor: the fusion carried by the latest Fix (< 15 s old). */
+    private fun currentShared(): Shared? {
+        val now = SystemClock.elapsedRealtime()
+        if (role == ROLE_COMMANDER) return sharedBearing?.takeIf { now - sharedBearingMs <= CROSS_HOLD_MS }
+        val f = receivedFix ?: return null
+        if (now - receivedFixMs > 15_000L) return null
+        val b = f.sharedBearing ?: return null
+        return Shared(b, f.sharedTwin, f.sharedQ ?: 0f, f.sharedBy ?: "")
     }
 
     /** Which channel is the top mic and how far apart the mics are: laptop hooks, kept in preferences. */
@@ -630,6 +674,55 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         return CrossArrow(screen.toFloat(), kotlin.math.hypot(c.x - a.first, c.y - a.second).toFloat(), c.radius.toFloat(), c.chosen.size)
     }
 
+    // ---- Fused bearing: what the phones that hear it agree on, for the phones that do not (27 Sep 02:10) ----
+
+    /** World bearing the hearing phones agree on, its mirror twin while ambiguous, confidence, which phones ("A,B"). */
+    data class Shared(val bearingDeg: Float, val twinDeg: Float?, val confidence: Float, val phones: String)
+    @Volatile var sharedBearing: Shared? = null
+        private set
+    @Volatile private var sharedBearingMs = 0L
+    private var sharedLogged = ""
+
+    /**
+     * Commander, once a second. Every phone whose own arrow shows votes with its compass bearing in a 5° histogram:
+     * a resolved phone one vote, an unresolved one half a vote for each candidate. The peak is the shared bearing.
+     * Phones lying at different angles have different mirrors, so the true candidates pile up and the mirrors do
+     * not: that settles left/right without anyone turning a phone. Within half a metre of each other the phones see
+     * a knock a metre away in nearly the same direction, so the phones that hear nothing draw this bearing through
+     * their own compass, and a hearing phone with an open twin takes the candidate nearer to it (ownArrow).
+     */
+    private fun fuseBearings(now: Long) {
+        val fresh = peerBearing.filter { now - it.value.atMs <= CROSS_FRESH_MS }
+        if (fresh.isEmpty()) {
+            if (sharedBearing != null && now - sharedBearingMs > CROSS_HOLD_MS) { sharedBearing = null; sharedLogged = ""; HLog.d("SHARED: nobody hears it any more, cleared") }
+            return
+        }
+        val kb = com.hush.audio.KnockBearing
+        val hist = DoubleArray(kb.BINS)
+        for ((_, b) in fresh) {
+            val w = b.q.coerceAtLeast(0.2f).toDouble()
+            if (b.twin == null) kb.vote(hist, b.bearing.toDouble(), w)
+            else { kb.vote(hist, b.bearing.toDouble(), w / 2); kb.vote(hist, b.twin.toDouble(), w / 2) }
+        }
+        val best = kb.peakBin(hist, -1)
+        val second = kb.peakBin(hist, best)
+        val bearing = kb.refine(hist, best).toFloat()
+        val twin = kb.refine(hist, second).toFloat()
+        val resolved = hist[second] * kb.RESOLVE_RATIO <= hist[best]
+        val all = hist.sum().coerceAtLeast(1e-9)
+        var near = 0.0
+        for (i in hist.indices) if (kb.angDiff(bearing.toDouble(), i * 360.0 / kb.BINS) <= 24.0) near += hist[i]
+        val phones = fresh.keys.sorted().joinToString(",")
+        sharedBearing = Shared(bearing, if (resolved) null else twin, (near / all).toFloat(), phones)
+        sharedBearingMs = now
+        val keyText = "%.0f %s %b".format(bearing / 10f, phones, resolved)
+        if (keyText != sharedLogged) {
+            sharedLogged = keyText
+            HLog.d("SHARED: bearing %.0f°%s from %s, conf %.2f (%s)".format(bearing, if (resolved) "" else " or %.0f°".format(twin), phones, near / all,
+                fresh.entries.joinToString(" ") { "%s=%.0f°%s".format(it.key, it.value.bearing, it.value.twin?.let { t -> "/%.0f°".format(t) } ?: "") }))
+        }
+    }
+
     // ---- Fix → sensors (27 Sep): every phone draws an arrow at the located source ----
     private var fixSeq = 0
     private var lastFixSentMs = 0L
@@ -642,14 +735,19 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val f = sourceFix
         val cross = if (f == null) crossFix?.takeIf { now - crossFixMs <= CROSS_HOLD_MS } else null
         val near = if (f == null && cross == null) arrowTarget else null
-        if (f == null && cross == null && near == null) return
-        val key = if (f != null) "fix" else if (cross != null) "cross %.0f,%.0f".format(cross.x * 2, cross.y * 2) else "near $near"
+        val shared = sharedBearing?.takeIf { now - sharedBearingMs <= CROSS_HOLD_MS }
+        if (f == null && cross == null && near == null && shared == null) return
+        val key = (if (f != null) "fix" else if (cross != null) "cross %.0f,%.0f".format(cross.x * 2, cross.y * 2) else if (near != null) "near $near" else "none") +
+            (shared?.let { " shared %.0f %s %b".format(it.bearingDeg / 5f, it.phones, it.twinDeg == null) } ?: "")
         val changed = changedFix || key != lastFixKey
         if (!changed && now - lastFixSentMs < 5000L) return
-        val src = (if (f != null) sourceOnMap() else if (cross != null) metresToMap(cross.x, cross.y) else mapDots[near]) ?: return
+        val point = if (f != null) sourceOnMap() else if (cross != null) metresToMap(cross.x, cross.y) else if (near != null) mapDots[near] else null
+        if (point == null && shared == null) return
+        val src = point ?: (0.5f to 0.5f)   // no map point: only the shared bearing travels (hasPoint = false)
         lastFixKey = key
         val msg = com.hush.model.Fix(++fixSeq, src.first, src.second, (f?.radius ?: cross?.radius)?.toFloat() ?: 0f, f?.knocks ?: (cross?.chosen?.size ?: 0), f?.edge ?: false,
-            mapRotationDeg, mirror, mapMetresPerUnit, alignSource, LinkedHashMap(mapDots), near)
+            mapRotationDeg, mirror, mapMetresPerUnit, alignSource, LinkedHashMap(mapDots), if (point != null) near else null,
+            hasPoint = point != null, sharedBearing = shared?.bearingDeg, sharedTwin = shared?.twinDeg, sharedQ = shared?.confidence, sharedBy = shared?.phones)
         lastFixSentMs = now
         val l = link
         if (l == null) { HLog.d("FIX not sent: no link"); return }
@@ -658,7 +756,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             msg.seq, if (f != null) "located source" else if (cross != null) "crossing of ${cross.chosen.keys.joinToString("")}" else "loudest $near", msg.x, msg.y, msg.radius, msg.knocks, mapRotationDeg?.let { "%.0f°".format(it) } ?: "-", mirror,
             mapMetresPerUnit?.let { "%.2f".format(it) } ?: "-",
             msg.dots.entries.joinToString(" ") { "%s(%.2f,%.2f)".format(it.key, it.value.first, it.value.second) },
-            alignSource.ifEmpty { "-" }, if (changed) "" else " (repeat)"))
+            alignSource.ifEmpty { "-" }, if (changed) "" else " (repeat)") +
+            (shared?.let { " shared=%.0f°%s by %s".format(it.bearingDeg, it.twinDeg?.let { t -> "/%.0f°".format(t) } ?: "", it.phones) } ?: "") +
+            (if (point == null) " (no map point)" else ""))
     }
 
     /** Sensor: the newest fix from the commander and when it arrived (elapsedRealtime). */
@@ -686,6 +786,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val f = receivedFix ?: return null
         if (SystemClock.elapsedRealtime() - receivedFixMs > 60_000L) return null
         if (f.near != null && f.near == letter) return SensorArrow(0f, 0f, null, f.north, 0, false, f.near, here = true)
+        if (!f.hasPoint) return null
         val me = f.dots[letter] ?: return null
         val dx = f.x - me.first; val dy = f.y - me.second   // map y grows downward
         val bearing = ((Math.toDegrees(kotlin.math.atan2(dx.toDouble(), -dy.toDouble())).toFloat()) + 360f) % 360f
@@ -1423,7 +1524,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val nowB = SystemClock.elapsedRealtime()
         if (e.bearing != null) peerBearing[e.sensorId] = PeerBearing(e.bearing, e.bearingTwin, e.bearingQ ?: 0f, nowB) else peerBearing.remove(e.sensorId)
         recordGps(e, nowB)
-        if (e.sensorId == "A") { applyGpsLayout(nowB); crossBearings(nowB) }
+        if (e.sensorId == "A") { applyGpsLayout(nowB); fuseBearings(nowB); crossBearings(nowB) }
         if (e.human >= 0.3f) {
             locator.addVoice(e.sensorId, maxOf(0f, e.rms - e.floor) / gainOf(e.sensorId), e.micDelay, e.micQ,
                 if (e.sensorId == "A") headingDeg else (peerHeading[e.sensorId] ?: 0f), e.moving, SystemClock.elapsedRealtime())
@@ -1695,6 +1796,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         locator.reset(); peerHeading.clear(); doaAll.clear()
         com.hush.audio.KnockBearing.reset(); ownArrowUntilMs = 0L
         peerBearing.clear(); crossFix = null; crossFixMs = 0L; crossNoneLoggedMs = 0L
+        sharedBearing = null; sharedBearingMs = 0L; sharedLogged = ""; synchronized(loudOnsetMs) { loudOnsetMs.clear() }
         gpsSamples.clear(); gpsLayoutActive = false; gpsLayoutCheckMs = 0L; gpsLayoutReason = ""
         sightings.clear(); probeStatus = ""; activatedByProbe = false
         main.removeCallbacks(passiveWatchdog); main.removeCallbacks(tagRefresh); main.removeCallbacksAndMessages(probeToken)
@@ -1856,18 +1958,22 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val rhythm = synchronized(audioLock) { rhythmTracker.evaluate(now) }
         val cls = classifier?.classify(pcm16k, n16)
         val label = fuseLabel(rhythm, cls)
-        // The own arrow is shown only while this phone hears deliberate tapping (or a Hush window runs); the
-        // knock votes accumulate regardless, so the arrow is ready the moment the tapping is recognised.
-        if (inHush || rhythm.score >= OWN_ARROW_RHYTHM || label == LABEL_TAPPING) ownArrowUntilMs = now + OWN_ARROW_HOLD_MS
         main.post { trackWalking(acc); trackPlacement(acc) }
         // Source location, part 1 (every phone): each knock timed to the sample, its loudness, and the
         // two-mic delay that says which side of this phone it came from. Sent to the commander.
         val onsetReport = if (!selfNoise && tap.onsets.isNotEmpty()) buildOnsetReport(tap, startSample, now - 1000, acc) else null
-        com.hush.audio.KnockBearing.estimate(now, headingDeg)?.let { a ->
-            HLog.d("KNOCK ARROW shown=%b screen=%.0f° twin=%s bearing=%.0f° conf=%.2f knocks=%d felt=%d resolved=%b turned=%.0f° heading=%.0f°".format(
-                now <= ownArrowUntilMs, a.screenDeg, a.twinDeg?.let { "%.0f°".format(it) } ?: "-", a.bearingDeg, a.confidence, a.knocks, a.felt, a.resolved, a.turnedDeg, headingDeg))
+        // The own arrow is shown only while this phone hears deliberate tapping: steady/patterned rhythm, a Hush
+        // window, or a few LOUD knocks lately. The knock votes accumulate regardless, so it is ready at once.
+        val loudCount = synchronized(loudOnsetMs) {
+            while (loudOnsetMs.isNotEmpty() && now - loudOnsetMs.first() > 8000L) loudOnsetMs.removeFirst()
+            loudOnsetMs.size
         }
-        val own = ownArrow()   // null unless this phone hears deliberate tapping; goes to the commander in the event
+        if (inHush || rhythm.score >= OWN_ARROW_RHYTHM || label == LABEL_TAPPING || loudCount >= LOUD_KNOCKS) ownArrowUntilMs = now + OWN_ARROW_HOLD_MS
+        com.hush.audio.KnockBearing.estimate(now, headingDeg)?.let { a ->
+            HLog.d("KNOCK ARROW shown=%b loud=%d screen=%.0f° twin=%s bearing=%.0f° conf=%.2f knocks=%d felt=%d resolved=%b turned=%.0f° heading=%.0f°".format(
+                now <= ownArrowUntilMs, loudCount, a.screenDeg, a.twinDeg?.let { "%.0f°".format(it) } ?: "-", a.bearingDeg, a.confidence, a.knocks, a.felt, a.resolved, a.turnedDeg, headingDeg))
+        }
+        val own = ownArrowRaw()   // this phone's own estimate (not the shared choice); goes to the commander in the event
         // Part 2, voices: the two-mic delay over the whole second (no sharp onset to time).
         var voiceDelay: Float? = null; var voiceQ: Float? = null
         if (!selfNoise && !acc.moving && (cls?.human ?: 0f) >= 0.3f && rms > floor * 1.5f) {
@@ -1960,6 +2066,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             val felt = acc.spikeTimesMs.any { kotlin.math.abs(it - ms) <= RhythmTracker.MERGE_MS }
             // The phone's own arrow (compass plan step 1): this knock's two-mic delay votes for a direction.
             val used = com.hush.audio.KnockBearing.add(delay, q, o.ratio, felt, headingDeg, ms)
+            if (used && o.ratio >= LOUD_KNOCK_RATIO) synchronized(loudOnsetMs) { loudOnsetMs.addLast(ms) }
             out.add(com.hush.model.Onset(abs, o.peak, o.ratio, delay, q, felt))
             HLog.d("Onset @%d (+%d ms) peak=%.3f x%.0f rise=%d dl=%s q=%s%s heading=%.0f%s".format(abs, o.sampleInWindow / 48, o.peak, o.ratio, o.riseSamples,
                 delay?.let { "%.2f".format(it) } ?: "-", q?.let { "%.2f".format(it) } ?: "-", if (felt) " felt" else "", headingDeg, if (used) " arrow" else ""))

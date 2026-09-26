@@ -34,12 +34,17 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
         override fun run() {
             val v = sensorArrow ?: return
             val own = Engine.ownArrow()
+            val shared = if (own == null) Engine.sharedArrow() else null
             val a = Engine.sensorArrow()
-            v.twinAngleDeg = own?.twinDeg
+            v.twinAngleDeg = own?.twinDeg ?: shared?.twinDeg
             if (own != null) {
                 // This phone hears knocking: its own two mics say where. First claim on the arrow, no commander needed.
                 v.active = true; v.angleDeg = own.screenDeg
                 v.label = ownArrowLabel(activity, own)
+            } else if (shared != null) {
+                // Other phones hear it: their fused bearing, turned to this screen by this phone's compass.
+                v.active = true; v.angleDeg = shared.screenDeg
+                v.label = activity.getString(if (shared.twinDeg == null) R.string.arrow_shared else R.string.arrow_shared_unresolved, shared.phones)
             } else if (a != null && a.here) {
                 v.active = false; v.angleDeg = 0f
                 v.label = activity.getString(R.string.arrow_here)
@@ -122,8 +127,11 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
 
     /** Label under the phone's own two-mic arrow (shared with the commander screen). */
     protected fun ownArrowLabel(activity: Activity, e: com.hush.audio.KnockBearing.Estimate): String {
-        val base = if (e.resolved) activity.getString(R.string.arrow_knock, e.knocks)
-                   else activity.getString(R.string.arrow_knock_unresolved, e.knocks)
+        val base = when {
+            e.resolvedBy != null -> activity.getString(R.string.arrow_knock_by, e.knocks, e.resolvedBy)
+            e.resolved -> activity.getString(R.string.arrow_knock, e.knocks)
+            else -> activity.getString(R.string.arrow_knock_unresolved, e.knocks)
+        }
         return if (e.felt * 2 > e.knocks) base + activity.getString(R.string.arrow_knock_table) else base
     }
 
