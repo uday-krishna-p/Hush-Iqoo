@@ -31,8 +31,8 @@ object KnockBearing {
     /** True when recording channel 1 is the mic at the TOP of the phone (near the camera). */
     @Volatile var mic1IsTop = true
 
-    /** Older knocks weigh less: the weight halves every TAU × ln 2 ≈ 10 s. */
-    const val TAU_MS = 15_000.0
+    /** Older knocks weigh less: the weight halves every TAU × ln 2 ≈ 5.5 s (was 15 s; 27 Sep 03:00, team: the arrow followed a moving knocker too slowly). */
+    const val TAU_MS = 8_000.0
     /** The arrow shows while at least [MIN_KNOCKS] usable knocks were heard in the last [ACTIVE_MS]. */
     const val ACTIVE_MS = 15_000L
     const val MIN_KNOCKS = 3
@@ -46,8 +46,9 @@ object KnockBearing {
     const val SIGMA_DEG = 12.0
     /** The best peak must be this many times the second peak (≥ 30° away) to count as resolved. */
     const val RESOLVE_RATIO = 1.5
-    /** While the second peak is at least this share of the best, the previous choice stays the solid arrow. */
-    const val STICKY_RATIO = 0.8
+    /** While the second peak is within this share of the best, the previous choice stays the solid arrow (only a
+     *  near tie: at 0.8 the solid arrow sat on the weaker mirror while the light twin tracked the knock, 27 Sep 03:00). */
+    const val STICKY_RATIO = 0.92
     const val BINS = 72   // 5° each
 
     data class Estimate(
