@@ -67,12 +67,12 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
                     v.label = activity.getString(R.string.sensor_arrow_no_north, what + dist)
                 }
             }
-            if (++arrowTicks % 20 == 0 && a != null) {
+            if (++arrowTicks % 40 == 0 && a != null) {
                 com.hush.HLog.d("SENSOR ARROW target=%s mapBearing=%.0f° dist=%s heading=%.0f° screen=%s | north via %s".format(
                     if (a.here) "HERE" else a.near?.let { "Sensor $it (loudest)" } ?: "located source", a.mapBearing, a.metres?.let { "%.2f m".format(it) } ?: "-", Engine.headingDeg,
                     a.screenDeg?.let { "%.0f°".format(it) } ?: "- (no north)", a.north.ifEmpty { "-" }))
             }
-            v.postDelayed(this, 100)
+            v.postDelayed(this, 50)
         }
     }
 

@@ -22,7 +22,8 @@ class Compass(context: Context) : SensorEventListener {
 
     fun start() {
         if (sensor == null) { HLog.d("Compass: no rotation vector sensor"); return }
-        available = manager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_UI)
+        // GAME rate (~50 Hz) with the 0.25 smoothing below: a turn shows within ~80 ms (UI rate lagged ~250 ms, 27 Sep team: "not fast enough").
+        available = manager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME)
         HLog.d("Compass: started=$available")
     }
 

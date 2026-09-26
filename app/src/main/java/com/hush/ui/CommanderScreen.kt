@@ -92,8 +92,8 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
                 val base = if (d != null) activity.getString(R.string.arrow_target_dist, target, d) else activity.getString(R.string.arrow_target, target)
                 arrow.label = if (Engine.alignSource.isNotEmpty()) "$base · north via ${Engine.alignSource}" else base
             }
-            if (++ticks % 10 == 0) logArrow(fix, target, angle, srcAngle)
-            arrow.postDelayed(this, 100)
+            if (++ticks % 20 == 0) logArrow(fix, target, angle, srcAngle)
+            arrow.postDelayed(this, 50)
         }
     }
     private var ticks = 0
