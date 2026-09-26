@@ -27,7 +27,7 @@ class AudioCapture(private val context: Context, private val listener: Listener)
         const val SAMPLE_RATE = 48_000
         const val WINDOW = 48_000          // one second
         private const val CHUNK = 4_800    // 100 ms per read
-        const val DEBUG_WAV_MAX_SECONDS = 90
+        const val DEBUG_WAV_MAX_SECONDS = 300   // was 90; 27 Sep 02:30: long enough for a rotation test after a restart (58 MB stereo, private files)
         const val RING_SECONDS = 8
     }
 
