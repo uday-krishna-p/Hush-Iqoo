@@ -296,7 +296,12 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                         }
                     }
                 }
-                val report = com.hush.model.ChirpReport(this.letter, letter, at, det.ratio, micDelay, headingDeg)
+                // Received level of the chirp itself (RMS over the template length at the detected start).
+                var level = 0.0
+                val m = com.hush.audio.Chirp.template.size
+                for (i in det.offset until minOf(det.offset + m, count)) { val v = audio[i] / 32768.0; level += v * v }
+                val rmsLevel = kotlin.math.sqrt(level / m).toFloat()
+                val report = com.hush.model.ChirpReport(this.letter, letter, at, det.ratio, micDelay, headingDeg, rmsLevel)
                 main.post {
                     if (role == ROLE_COMMANDER) onChirpReport(report) else link?.sendUp(report.toJson())
                 }
@@ -306,11 +311,50 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     /** Commander's own two-mic delays this round: chirping letter → (delay samples, heading). */
     private val doaThisRound = HashMap<String, Pair<Float, Float>>()
+    /** level[hearer][from] = received chirp RMS this round, for mic calibration. */
+    private val chirpLevel = HashMap<String, HashMap<String, Float>>()
+    /** Mic gain of each sensor relative to the commander (1.0 = same). Loudness is divided by this. */
+    val micGain = HashMap<String, Float>()
 
     private fun onChirpReport(r: com.hush.model.ChirpReport) {
         heard.getOrPut(r.hearer) { HashMap() }[r.from] = r.sample
-        HLog.d("Chirp report: ${r.hearer} heard ${r.from} at ${r.sample} ratio=%.1f".format(r.ratio))
+        if (r.level != null) chirpLevel.getOrPut(r.hearer) { HashMap() }[r.from] = r.level
+        HLog.d("Chirp report: ${r.hearer} heard ${r.from} at ${r.sample} ratio=%.1f level=%s".format(r.ratio, r.level?.let { "%.5f".format(it) } ?: "-"))
         if (r.hearer == "A" && r.micDelay != null && r.heading != null) doaThisRound[r.from] = r.micDelay to r.heading
+    }
+
+    /**
+     * Mic calibration from the chirps: for one chirp source j, received level × distance should be the same
+     * on every phone. The ratio to the commander's value is that phone's gain. Median over sources and rounds.
+     */
+    private val gainHistory = HashMap<String, ArrayList<Float>>()
+
+    private fun computeMicGains(letters: List<String>, dist: Map<String, Double>) {
+        fun d(i: String, j: String): Double? = dist["$i$j"] ?: dist["$j$i"]
+        for (i in letters) {
+            if (i == "A") continue
+            val samples = ArrayList<Float>()
+            for (j in letters) {
+                if (j == i || j == "A") continue
+                val li = chirpLevel[i]?.get(j) ?: continue
+                val la = chirpLevel["A"]?.get(j) ?: continue
+                val di = d(i, j) ?: continue
+                val da = d("A", j) ?: continue
+                if (li <= 0f || la <= 0f || di <= 0.05 || da <= 0.05) continue
+                samples.add(((li * di) / (la * da)).toFloat())
+            }
+            // Also use the commander's chirp heard at i versus the commander hearing i's chirp (reciprocal path).
+            val lia = chirpLevel[i]?.get("A"); val lai = chirpLevel["A"]?.get(i)
+            if (lia != null && lai != null && lia > 0f && lai > 0f) samples.add(lia / lai)
+            if (samples.isEmpty()) continue
+            val h = gainHistory.getOrPut(i) { ArrayList() }
+            h.addAll(samples)
+            while (h.size > 12) h.removeAt(0)
+            val g = h.sorted()[h.size / 2].coerceIn(0.2f, 5f)
+            micGain[i] = g
+            HLog.d("Mic gain: sensor $i = %.2f× commander (from %d samples)".format(g, h.size))
+        }
+        chirpLevel.clear()
     }
 
     /**
@@ -399,7 +443,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             val t0 = byFrom[letters[0]] ?: continue
             val bad = byFrom.filter { (from, t) ->
                 val k = letters.indexOf(from)
-                k > 0 && kotlin.math.abs((t - t0) - k * CHIRP_GAP_MS * fs / 1000) > 0.7 * fs
+                k > 0 && kotlin.math.abs((t - t0) - k * CHIRP_GAP_MS * fs / 1000) > 0.35 * fs
             }.keys
             if (bad.isNotEmpty()) { HLog.d("Ranging: $hearer had wrong peaks for $bad, dropped"); bad.forEach { byFrom.remove(it) } }
         }
@@ -411,11 +455,18 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val text = dist.entries.joinToString("  ") { "%s %.2f m".format(it.key, it.value) }
         HLog.d("RANGING result: $text  (heard=$heard)")
         sessionLog.addRecord("ranging", mapOf("distances" to text))
+        computeMicGains(letters, dist)
         var placed = false
         if (letters.size >= 3) {
             val a = letters[0]; val b = letters[1]; val c = letters[2]
             val dAB = dist["$a$b"]; val dAC = dist["$a$c"]; val dBC = dist["$b$c"]
-            if (dAB != null && dAC != null && dBC != null && dBC > 0.05) {
+            // A round is only usable if the three distances make a real triangle and are plausible.
+            val sane = dAB != null && dAC != null && dBC != null && dBC > 0.05 &&
+                maxOf(dAB, dAC, dBC) <= 30.0 &&
+                dAB <= dAC + dBC + 0.15 && dAC <= dAB + dBC + 0.15 && dBC <= dAB + dAC + 0.15
+            if (dAB != null && dAC != null && dBC != null && !sane) HLog.d("Ranging: impossible triangle, round discarded")
+            if (sane) {
+                dAB!!; dAC!!; dBC!!
                 // A in the B–C frame: B=(0,0), C=(dBC,0).
                 val x = (dAB * dAB - dAC * dAC + dBC * dBC) / (2 * dBC)
                 val y2 = dAB * dAB - x * x
@@ -479,7 +530,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         if (prev != null && walkBearing != null) {
             val dx = aPos.first - prev.first; val dy = aPos.second - prev.second
             val moved = kotlin.math.hypot(dx, dy)
-            if (moved >= 0.5) {
+            if (moved > 10.0) HLog.d("Auto-align: implausible move %.1f m between rounds, ignored".format(moved))
+            if (moved in 0.5..10.0) {
                 // Bearing of the move in the map frame (x right, y up): clockwise from up.
                 val mapBearingNoMirror = ((Math.toDegrees(kotlin.math.atan2(dx, dy)) + 360.0) % 360.0).toFloat()
                 val mapBearingMirror = ((Math.toDegrees(kotlin.math.atan2(dx, -dy)) + 360.0) % 360.0).toFloat()
@@ -550,7 +602,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     private fun computeRanking() {
         val ranks = hushEvents.map { (letter, events) ->
-            val scores = events.map { maxOf(0f, it.rms - it.floor) * evidence(it) }.sortedDescending()
+            val gain = micGain[letter] ?: 1f
+            val scores = events.map { maxOf(0f, it.rms - it.floor) / gain * evidence(it) }.sortedDescending()
             val best = scores.take(5)
             val rhythm = events.mapNotNull { it.rhythm }.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key
             val tempos = events.filter { it.tempoMs > 0 && it.rhythmScore >= 0.9f }.map { it.tempoMs }
@@ -585,7 +638,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             top.score > 0f -> "Weak signal · ${(top.evidence * 100).toInt()}% · loudest at Sensor ${top.letter}"
             else -> "No human signal detected"
         }
-        HLog.d("RANKING ($mode): " + ranks.joinToString(" | ") { "%s score=%.5f ev=%.2f rh=%s n=%d".format(it.letter, it.score, it.evidence, it.rhythm, it.windows) })
+        HLog.d("RANKING ($mode): " + ranks.joinToString(" | ") { "%s score=%.5f ev=%.2f rh=%s n=%d gain=%.2f".format(it.letter, it.score, it.evidence, it.rhythm, it.windows, micGain[it.letter] ?: 1f) })
         HLog.d("BRIEF: $lastBrief")
         sessionLog.addRecord("ranking", mapOf(
             "mode" to mode.name,
@@ -839,7 +892,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val battery = try {
             (appContext?.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
         } catch (_: Exception) { -1 }
-        if (!inHush) {
+        // Noise floor: only quiet seconds count. Chirp seconds inflated it once and zeroed two sensors' scores.
+        if (!inHush && !rangingInProgress && now - lastChirpMs > 1500) {
             recentRms.addLast(rms)
             while (recentRms.size > FLOOR_SECONDS) recentRms.removeFirst()
         }

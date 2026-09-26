@@ -114,15 +114,17 @@ data class Command(val type: String, val seconds: Int = 20, val letter: String? 
 data class ChirpReport(
     val hearer: String, val from: String, val sample: Long, val ratio: Float,
     val micDelay: Float? = null,   // samples, mic 1 minus mic 0, for direction of arrival
-    val heading: Float? = null     // hearer's compass heading at that moment
+    val heading: Float? = null,    // hearer's compass heading at that moment
+    val level: Float? = null       // RMS of the received chirp, for mic gain calibration
 ) {
     fun toJson(): String = JSONObject().put("rep", "chirp").put("hearer", hearer).put("from", from).put("sample", sample).put("ratio", ratio.toDouble())
-        .apply { micDelay?.let { put("dl", it.toDouble()) }; heading?.let { put("hd", it.toDouble()) } }.toString()
+        .apply { micDelay?.let { put("dl", it.toDouble()) }; heading?.let { put("hd", it.toDouble()) }; level?.let { put("lv", it.toDouble()) } }.toString()
 
     companion object {
         fun fromJson(o: JSONObject): ChirpReport? = try {
             ChirpReport(o.getString("hearer"), o.getString("from"), o.getLong("sample"), o.optDouble("ratio", 0.0).toFloat(),
-                if (o.has("dl")) o.getDouble("dl").toFloat() else null, if (o.has("hd")) o.getDouble("hd").toFloat() else null)
+                if (o.has("dl")) o.getDouble("dl").toFloat() else null, if (o.has("hd")) o.getDouble("hd").toFloat() else null,
+                if (o.has("lv")) o.getDouble("lv").toFloat() else null)
         } catch (e: Exception) {
             HLog.d("bad ChirpReport json: $e"); null
         }
