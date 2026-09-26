@@ -23,7 +23,7 @@ object Chirp {
     const val F_START = 2000.0
     const val F_END = 6000.0
     const val SPEED_OF_SOUND = 343f          // m/s at ~20 °C
-    const val VOLUME_FRACTION = 0.9f         // of max alarm volume (was 0.7)
+    const val VOLUME_FRACTION = 0.4f         // of max alarm volume: 0.7 → 0.9 for range, 0.4 on 26 Sep 23:15 at the team's request (loud on a table); raise again for a hall
 
     val template: FloatArray by lazy {
         val n = SAMPLE_RATE * DURATION_MS / 1000
@@ -66,7 +66,12 @@ object Chirp {
         }
     }
 
-    data class Detection(val offset: Int, val peak: Float, val ratio: Float, val fine: Double = offset.toDouble())
+    data class Detection(val offset: Int, val peak: Float, val ratio: Float, val fine: Double = offset.toDouble(), val firstArrivalShift: Int = 0)
+
+    /** A later, stronger correlation peak within this many samples is taken to be a reflection of an earlier one (30 ms ≈ 10 m of path). */
+    const val FIRST_ARRIVAL_WINDOW = 1440
+    /** An earlier peak must be at least this fraction of the strongest to count as the direct arrival. */
+    const val FIRST_ARRIVAL_FRACTION = 0.6f
 
     /**
      * Matched filter over [audio]: returns the sample offset where the chirp starts, the peak correlation,
@@ -95,13 +100,23 @@ object Chirp {
             if (a > best) { best = a; bestAt = i }
         }
         val mean = (sumAbs / (n - m)).toFloat().coerceAtLeast(1e-9f)
+        // Direct path first: on a table the strongest peak was sometimes an echo ~40 ms late (7.8 m instead of
+        // 1.2 m on 26 Sep 23:13). Walk back from the strongest peak and take the earliest local peak that is
+        // still a large fraction of it.
+        val strongestAt = bestAt
+        var i = bestAt - 1
+        val floorVal = best * FIRST_ARRIVAL_FRACTION
+        while (i > 0 && bestAt - i <= FIRST_ARRIVAL_WINDOW) {
+            if (out[i] >= floorVal && out[i] >= out[i - 1] && out[i] >= out[i + 1]) bestAt = i
+            i--
+        }
         var fine = bestAt.toDouble()
         if (bestAt in 1 until out.size - 1) {
             val y0 = out[bestAt - 1].toDouble(); val y1 = out[bestAt].toDouble(); val y2 = out[bestAt + 1].toDouble()
             val denom = y0 - 2 * y1 + y2
             if (denom < 0) fine = bestAt + 0.5 * (y0 - y2) / denom
         }
-        return Detection(bestAt, best, best / mean, fine)
+        return Detection(bestAt, out[bestAt], out[bestAt] / mean, fine, strongestAt - bestAt)
     }
 
     fun samplesToMetres(samples: Double): Double = samples / SAMPLE_RATE * SPEED_OF_SOUND

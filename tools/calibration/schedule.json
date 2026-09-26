@@ -1,0 +1,317 @@
+{
+ "fs": 48000,
+ "total_ms": 78000,
+ "knocks": [
+  {
+   "ms": 8000,
+   "phase": "steady"
+  },
+  {
+   "ms": 9000,
+   "phase": "steady"
+  },
+  {
+   "ms": 10000,
+   "phase": "steady"
+  },
+  {
+   "ms": 11000,
+   "phase": "steady"
+  },
+  {
+   "ms": 12000,
+   "phase": "steady"
+  },
+  {
+   "ms": 13000,
+   "phase": "steady"
+  },
+  {
+   "ms": 14000,
+   "phase": "steady"
+  },
+  {
+   "ms": 15000,
+   "phase": "steady"
+  },
+  {
+   "ms": 16000,
+   "phase": "steady"
+  },
+  {
+   "ms": 17000,
+   "phase": "steady"
+  },
+  {
+   "ms": 18000,
+   "phase": "steady"
+  },
+  {
+   "ms": 19000,
+   "phase": "steady"
+  },
+  {
+   "ms": 20000,
+   "phase": "steady"
+  },
+  {
+   "ms": 21000,
+   "phase": "steady"
+  },
+  {
+   "ms": 22000,
+   "phase": "steady"
+  },
+  {
+   "ms": 23000,
+   "phase": "steady"
+  },
+  {
+   "ms": 24000,
+   "phase": "steady"
+  },
+  {
+   "ms": 25000,
+   "phase": "steady"
+  },
+  {
+   "ms": 26000,
+   "phase": "steady"
+  },
+  {
+   "ms": 27000,
+   "phase": "steady"
+  },
+  {
+   "ms": 33000,
+   "phase": "3-2"
+  },
+  {
+   "ms": 33250,
+   "phase": "3-2"
+  },
+  {
+   "ms": 33500,
+   "phase": "3-2"
+  },
+  {
+   "ms": 34200,
+   "phase": "3-2"
+  },
+  {
+   "ms": 34450,
+   "phase": "3-2"
+  },
+  {
+   "ms": 37000,
+   "phase": "3-2"
+  },
+  {
+   "ms": 37250,
+   "phase": "3-2"
+  },
+  {
+   "ms": 37500,
+   "phase": "3-2"
+  },
+  {
+   "ms": 38200,
+   "phase": "3-2"
+  },
+  {
+   "ms": 38450,
+   "phase": "3-2"
+  },
+  {
+   "ms": 41000,
+   "phase": "3-2"
+  },
+  {
+   "ms": 41250,
+   "phase": "3-2"
+  },
+  {
+   "ms": 41500,
+   "phase": "3-2"
+  },
+  {
+   "ms": 42200,
+   "phase": "3-2"
+  },
+  {
+   "ms": 42450,
+   "phase": "3-2"
+  },
+  {
+   "ms": 45000,
+   "phase": "3-2"
+  },
+  {
+   "ms": 45250,
+   "phase": "3-2"
+  },
+  {
+   "ms": 45500,
+   "phase": "3-2"
+  },
+  {
+   "ms": 46200,
+   "phase": "3-2"
+  },
+  {
+   "ms": 46450,
+   "phase": "3-2"
+  },
+  {
+   "ms": 49000,
+   "phase": "3-2"
+  },
+  {
+   "ms": 49250,
+   "phase": "3-2"
+  },
+  {
+   "ms": 49500,
+   "phase": "3-2"
+  },
+  {
+   "ms": 50200,
+   "phase": "3-2"
+  },
+  {
+   "ms": 50450,
+   "phase": "3-2"
+  },
+  {
+   "ms": 53000,
+   "phase": "3-2"
+  },
+  {
+   "ms": 53250,
+   "phase": "3-2"
+  },
+  {
+   "ms": 53500,
+   "phase": "3-2"
+  },
+  {
+   "ms": 54200,
+   "phase": "3-2"
+  },
+  {
+   "ms": 54450,
+   "phase": "3-2"
+  },
+  {
+   "ms": 62000,
+   "phase": "fast"
+  },
+  {
+   "ms": 62400,
+   "phase": "fast"
+  },
+  {
+   "ms": 62800,
+   "phase": "fast"
+  },
+  {
+   "ms": 63200,
+   "phase": "fast"
+  },
+  {
+   "ms": 63600,
+   "phase": "fast"
+  },
+  {
+   "ms": 64000,
+   "phase": "fast"
+  },
+  {
+   "ms": 64400,
+   "phase": "fast"
+  },
+  {
+   "ms": 64800,
+   "phase": "fast"
+  },
+  {
+   "ms": 65200,
+   "phase": "fast"
+  },
+  {
+   "ms": 65600,
+   "phase": "fast"
+  },
+  {
+   "ms": 66000,
+   "phase": "fast"
+  },
+  {
+   "ms": 66400,
+   "phase": "fast"
+  },
+  {
+   "ms": 66800,
+   "phase": "fast"
+  },
+  {
+   "ms": 67200,
+   "phase": "fast"
+  },
+  {
+   "ms": 67600,
+   "phase": "fast"
+  },
+  {
+   "ms": 68000,
+   "phase": "fast"
+  },
+  {
+   "ms": 68400,
+   "phase": "fast"
+  },
+  {
+   "ms": 68800,
+   "phase": "fast"
+  },
+  {
+   "ms": 69200,
+   "phase": "fast"
+  },
+  {
+   "ms": 69600,
+   "phase": "fast"
+  },
+  {
+   "ms": 70000,
+   "phase": "fast"
+  },
+  {
+   "ms": 70400,
+   "phase": "fast"
+  },
+  {
+   "ms": 70800,
+   "phase": "fast"
+  },
+  {
+   "ms": 71200,
+   "phase": "fast"
+  },
+  {
+   "ms": 71600,
+   "phase": "fast"
+  }
+ ],
+ "clips": [
+  "1-101336-A-30.wav",
+  "1-103995-A-30.wav",
+  "1-103999-A-30.wav",
+  "1-26188-A-30.wav",
+  "1-52290-A-30.wav",
+  "1-81001-A-30.wav",
+  "1-81001-B-30.wav",
+  "1-82817-A-30.wav"
+ ],
+ "single_knocks": 7
+}

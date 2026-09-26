@@ -464,7 +464,8 @@ class Locator {
         if (nearest > 1e8) nearest = 0.0
         val radius = sqrt(sumSq / maxOf(count, 1))
         val spread = if (ai >= 0 && count > 0) Math.toDegrees(sqrt(-2 * ln((hypot(sx, sy) / count).coerceIn(1e-9, 1.0)))) else 180.0
-        val detail = "peak (%.1f, %.1f) region %d cells radius %.1f m nearest %.1f m spread ±%.0f° knocks %d voice %d%s".format(bx, by, count, radius, nearest, spread, knocks, voiceSeconds, if (edge) " EDGE" else "")
+        val toPhones = letters.indices.joinToString(" ") { "→%s %.1f m".format(letters[it], hypot(bx - px[it], by - py[it])) }
+        val detail = "peak (%.1f, %.1f) region %d cells radius %.1f m nearest %.1f m spread ±%.0f° knocks %d voice %d%s | %s".format(bx, by, count, radius, nearest, spread, knocks, voiceSeconds, if (edge) " EDGE" else "", toPhones)
         HLog.d("LOCATE fix: $detail")
         return Fix(bx, by, radius, spread.coerceAtMost(180.0), nearest, knocks, voiceSeconds, nowMs, edge, detail)
     }

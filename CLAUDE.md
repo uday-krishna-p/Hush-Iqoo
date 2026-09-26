@@ -170,6 +170,22 @@ mesh code as before; suspects are Nearby's Bluetooth→Wi-Fi upgrade attempt in 
 woken phone's screen being off. Measure: `Command received` time minus `Hush window started` on the commander, on
 a sensor that has been connected for > 2 min, screen on and off.
 
+**Calibration with played knocks, 26 Sep 23:00–23:25 (`tools/calibration/`, three phones, real ESC-50 door knocks
+played by phone 991e as a sensor):** (1) Command latency over the mesh: 0.6 s constant to 991e, 1.4–20 s and
+erratic to ef39, same code, so ranging was made SERIAL (one letter chirps, everyone reports or a timeout, then the
+next) with a ±2.5 s search window; the matched filter over 5 s takes 1.2–5.6 s on the phone, longer than the 7 s
+timeout allows once network latency is added, so the round still lost pairs: speed up `Chirp.detect` (coarse
+search at 16 kHz, refine at 48 kHz) or lengthen the timeout. (2) `Chirp.detect` now takes the first strong
+arrival, not the strongest: the strongest was an echo 44 ms late once (7.8 m instead of 1.2 m); `firstArrivalShift`
+in the log shows how far it moved (11–2102 samples seen). (3) A cross-hearer sanity check replaced the
+schedule-based one. (4) Knock clicks from a phone speaker reach the other phones at peak 0.007–0.017, the same
+as this room's ambient transients (0.007–0.019, 60–140 onsets per 78 s on each phone with people around), so the
+tap detector fired constantly; the rhythm tracker still labelled the 1/s phase "steady" on 8–15 of 17 s per phone,
+never recognised the 3-2 pattern (too many of its knocks missed, suspect the ring-down check on real, ringing
+knocks: watch `rej=` in the window lines), and the locator fused nothing because no ranging round completed.
+(5) The locator now fuses knocks only while some phone reports rhythm ≥ 0.9 or a window runs, so room noises are
+not located. (6) The chirp is at 40 % of alarm volume at the team's request; raise for a hall.
+
 **Earlier (18:30):**
 
 **Verified from the laptop (adb-driven, phones on the table):** roles → mesh join → HUSH → chirps → ranging →

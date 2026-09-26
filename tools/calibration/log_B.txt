@@ -1,0 +1,377 @@
+23:21:00.779 ---- HLog started ----
+23:21:00.782 ProbeReceiver: android.intent.action.BOOT_COMPLETED, arming in 10 s
+23:21:00.794 MainActivity created on vivo I2501, Android API 36
+23:21:00.813 Hook: role SENSOR
+23:21:00.813 Role picked: SENSOR
+23:21:00.850 SensorService onStartCommand role=SENSOR byProbe=false intent=true
+23:21:00.854 Engine start role=SENSOR name=I2501-ef39
+23:21:00.862 Loaded 521 YAMNet labels
+23:21:00.874 YAMNet input shape [15600]
+23:21:00.875 YAMNet output 0 shape [1, 521]
+23:21:00.875 Classifier ready: scores from output 0, 1 frame(s)
+23:21:00.877 Accel: started ok=true, lsm6dsvx Accelerometer Non-wakeup, minDelay=5000us
+23:21:00.878 Compass: started=true
+23:21:00.879 DeadReckoning: started=true
+23:21:00.880 GPS: requested updates
+23:21:01.472 stereo probe: TWO DISTINCT MICS  L=0.00062 R=0.00062 diff=0.00056
+23:21:01.473 BleRanging: availability={0=0, 1=3, 2=0, 3=3, 4=0, 5=0} (technology → 3=enabled)
+23:21:01.473 AudioCapture start requested
+23:21:01.474 UNPROCESSED mic source supported: true
+23:21:01.475 BleRanging: CS=true RSSI=true ownAddress=04:1F:B8:89:03:38
+23:21:01.475 Radio ranging: Channel Sounding
+23:21:01.478 AudioRecord opened with source VOICE_RECOGNITION, channels=2, buffer 192000 bytes
+23:21:01.482 debug wav started: /data/user/0/com.hush/files/debug.wav
+23:21:01.506 Nearby: discovering
+23:21:01.752 Nearby: found C|I2501-6a46 (UHER) parsed=(C, I2501-6a46, 0) routed=false
+23:21:01.979 BleRanging: tag advertising as ef39 flags=0 battery=100
+23:21:01.989 BleRanging: connectable advertising started
+23:21:02.543 classifier peak=0.00504 gain=20.0
+23:21:02.549 Onset @39754 (+828 ms) peak=0.005 x8 rise=132 dl=0.38 q=0.97 heading=228
+23:21:02.550 window id=? hush=false label=quiet rms=0.0003 floor=0.0003 taps=1 rej=0 peak=x5 acc=0 accMax=0.031 accRms=0.007 struct=false rhythm=0.0/null(1) voice=0.05 impact=0.03 machine=0.12 | Snoring 0.08, Animal 0.08, Breathing 0.06, Wild animals 0.06, Mechanisms 0.06
+23:21:02.552 No letter assigned yet: events held back
+23:21:03.167 Nearby: connection initiated with C|I2501-6a46 (UHER), accepting
+23:21:03.245 Nearby: ROUTE UP via I2501-6a46, hops=1
+23:21:03.249 Route up with 1 hops, announcing (ble=04:1F:B8:89:03:38)
+23:21:03.320 Probe port armed (app opened): low-power scan for A5A7, offloaded filter=true
+23:21:03.322 Armed check: scan=true notifications=true fullScreen=true backgroundAllowed=true
+23:21:03.578 window id=? hush=false label=HUMAN VOICE rms=0.0004 floor=0.0004 taps=0 rej=0 peak=x3 acc=0 accMax=0.022 accRms=0.007 struct=false rhythm=0.0/null(1) voice=0.80 impact=0.00 machine=0.00 | Speech 0.80, Inside, large room or hall 0.01, Narration, monologue 0.00, Animal 0.00, Hiss 0.00
+23:21:04.439 Nearby: advertising as S|I2501-ef39|1
+23:21:04.565 window id=? hush=false label=HUMAN VOICE rms=0.0005 floor=0.0004 taps=0 rej=0 peak=x3 acc=0 accMax=0.024 accRms=0.008 struct=false rhythm=0.0/null(1) voice=0.67 impact=0.00 machine=0.00 | Speech 0.67, Outside, urban or manmade 0.02, Walk, footsteps 0.01, Animal 0.01, Inside, large room or hall 0.01
+23:21:04.837 Command received: ASSIGN sec=20 letter=B to=I2501-ef39
+23:21:04.840 Commander radio address 04:1F:B8:89:A5:F0, answering as responder
+23:21:04.844 BleRanging: tag advertising as ef39 flags=0 battery=100
+23:21:04.848 BleRanging: GATT server open=true
+23:21:04.852 BleRanging[A/CS]: start requested as responder toward 04:1F:B8:89:A5:F0
+23:21:04.860 BleRanging: connectable advertising started
+23:21:05.612 Voice DoA: delay=-2.61 q=0.42 heading=228
+23:21:05.615 window id=B hush=false label=HUMAN VOICE rms=0.0008 floor=0.0005 taps=0 rej=0 peak=x3 acc=0 accMax=0.027 accRms=0.008 struct=false rhythm=0.0/null(1) voice=0.74 impact=0.01 machine=0.00 | Speech 0.74, Inside, large room or hall 0.02, Animal 0.01, Horse 0.01, Clip-clop 0.01
+23:21:05.855 BleRanging: tag advertising as ef39 flags=0 battery=100
+23:21:05.872 BleRanging: connectable advertising started
+23:21:06.132 Command received: CHIRP sec=20 letter=A to=null
+23:21:06.553 window id=B hush=false label=quiet rms=0.0010 floor=0.0005 taps=1 rej=0 peak=x7 acc=0 accMax=0.025 accRms=0.007 struct=false rhythm=0.0/null(1) voice=0.15 impact=0.00 machine=0.00 | Animal 0.20, Wild animals 0.20, Speech 0.15, Bird 0.15, Bird vocalization, bird call, bird song 0.08
+23:21:07.547 window id=B hush=false label=HUMAN VOICE rms=0.0004 floor=0.0005 taps=0 rej=0 peak=x3 acc=0 accMax=0.024 accRms=0.008 struct=false rhythm=0.0/null(1) voice=0.59 impact=0.02 machine=0.00 | Speech 0.59, Inside, small room 0.03, Inside, large room or hall 0.02, Animal 0.01, Child speech, kid speaking 0.00
+23:21:08.042 BleRanging: GATT server link from 6D:A2:AE:BC:4F:72 status=0 state=2
+23:21:08.043 BleRanging: commander's live address is 6D:A2:AE:BC:4F:72, (re)starting responder toward it
+23:21:08.046 BleRanging[A/CS]: start requested as responder toward 6D:A2:AE:BC:4F:72
+23:21:08.547 window id=B hush=false label=HUMAN VOICE rms=0.0005 floor=0.0005 taps=0 rej=0 peak=x3 acc=0 accMax=0.026 accRms=0.009 struct=false rhythm=0.0/null(1) voice=0.67 impact=0.00 machine=0.00 | Speech 0.67, Inside, large room or hall 0.02, Inside, small room 0.01, Shuffle 0.00, Walk, footsteps 0.00
+23:21:09.545 window id=B hush=false label=HUMAN VOICE rms=0.0006 floor=0.0005 taps=0 rej=0 peak=x3 acc=0 accMax=0.023 accRms=0.008 struct=false rhythm=0.0/null(1) voice=0.86 impact=0.00 machine=0.00 | Speech 0.85, Inside, large room or hall 0.03, Conversation 0.00, Narration, monologue 0.00, Walk, footsteps 0.00
+23:21:10.544 window id=B hush=false label=HUMAN VOICE rms=0.0008 floor=0.0005 taps=0 rej=0 peak=x5 acc=0 accMax=0.024 accRms=0.009 struct=false rhythm=0.0/null(0) voice=0.96 impact=0.00 machine=0.00 | Speech 0.96, Inside, small room 0.01, Inside, large room or hall 0.01, Narration, monologue 0.00, Animal 0.00
+23:21:11.531 Onset @475858 (+913 ms) peak=0.008 x9 rise=226 dl=0.42 q=0.95 heading=228
+23:21:11.532 window id=B hush=false label=HUMAN VOICE rms=0.0005 floor=0.0005 taps=1 rej=0 peak=x5 acc=0 accMax=0.040 accRms=0.009 struct=false rhythm=0.0/null(1) voice=0.68 impact=0.02 machine=0.00 | Speech 0.67, Inside, large room or hall 0.04, Door 0.02, Sliding door 0.02, Drawer open or close 0.01
+23:21:12.526 classifier peak=0.01072 gain=20.0
+23:21:12.531 Onset @496518 (+344 ms) peak=0.010 x7 rise=99 dl=-0.08 q=0.88 heading=228
+23:21:12.542 Voice DoA: delay=-5.58 q=0.45 heading=228
+23:21:12.544 window id=B hush=false label=HUMAN VOICE rms=0.0010 floor=0.0005 taps=1 rej=0 peak=x3 acc=0 accMax=0.025 accRms=0.007 struct=false rhythm=0.2/null(2) voice=0.42 impact=0.02 machine=0.00 | Speech 0.41, Tambourine 0.02, Music 0.02, Inside, large room or hall 0.02, Shuffle 0.01
+23:21:12.897 Chirp from A heard by B: offset=125242 sample=226042 peak=2.00 ratio=162.1 firstArrivalShift=16 (4133 ms)
+23:21:13.295 Probe port armed (android.intent.action.BOOT_COMPLETED): low-power scan for A5A7, offloaded filter=true
+23:21:13.534 window id=B hush=false label=HUMAN VOICE rms=0.0004 floor=0.0005 taps=0 rej=0 peak=x4 acc=0 accMax=0.023 accRms=0.007 struct=false rhythm=0.2/null(2) voice=0.59 impact=0.03 machine=0.00 | Speech 0.59, Inside, small room 0.04, Drawer open or close 0.02, Inside, large room or hall 0.02, Dishes, pots, and pans 0.02
+23:21:14.549 window id=B hush=false label=HUMAN VOICE rms=0.0007 floor=0.0005 taps=0 rej=0 peak=x4 acc=0 accMax=0.019 accRms=0.007 struct=false rhythm=0.2/null(2) voice=0.90 impact=0.00 machine=0.00 | Speech 0.89, Inside, small room 0.01, Narration, monologue 0.01, Inside, large room or hall 0.00, Outside, rural or natural 0.00
+23:21:15.535 window id=B hush=false label=HUMAN VOICE rms=0.0008 floor=0.0006 taps=0 rej=0 peak=x3 acc=0 accMax=0.020 accRms=0.008 struct=false rhythm=0.2/null(2) voice=0.99 impact=0.00 machine=0.00 | Speech 0.97, Inside, large room or hall 0.02, Narration, monologue 0.02, Inside, small room 0.01, Conversation 0.00
+23:21:16.537 Voice DoA: delay=7.00 q=0.56 heading=228
+23:21:16.538 window id=B hush=false label=HUMAN VOICE rms=0.0009 floor=0.0006 taps=0 rej=0 peak=x3 acc=0 accMax=0.021 accRms=0.008 struct=false rhythm=0.2/null(2) voice=0.94 impact=0.00 machine=0.00 | Speech 0.92, Narration, monologue 0.02, Inside, large room or hall 0.02, Inside, small room 0.01, Conversation 0.00
+23:21:17.534 window id=B hush=false label=HUMAN VOICE rms=0.0005 floor=0.0006 taps=0 rej=0 peak=x3 acc=0 accMax=0.020 accRms=0.007 struct=false rhythm=0.2/null(2) voice=0.96 impact=0.00 machine=0.00 | Speech 0.96, Inside, small room 0.02, Inside, large room or hall 0.01, Narration, monologue 0.01, Child speech, kid speaking 0.00
+23:21:18.547 window id=B hush=false label=HUMAN VOICE rms=0.0005 floor=0.0005 taps=0 rej=0 peak=x4 acc=0 accMax=0.021 accRms=0.007 struct=false rhythm=0.2/null(2) voice=0.80 impact=0.01 machine=0.00 | Speech 0.80, Inside, small room 0.02, Inside, large room or hall 0.01, Narration, monologue 0.00, Animal 0.00
+23:21:19.529 Onset @825402 (+195 ms) peak=0.004 x5 rise=0 dl=0.12 q=0.92 heading=228
+23:21:19.532 window id=B hush=false label=HUMAN VOICE rms=0.0003 floor=0.0005 taps=1 rej=1 peak=x4 acc=0 accMax=0.020 accRms=0.007 struct=false rhythm=0.2/null(2) voice=0.85 impact=0.00 machine=0.00 | Speech 0.85, Inside, large room or hall 0.02, Animal 0.01, Snake 0.01, Domestic animals, pets 0.00
+23:21:20.532 Onset @867443 (+71 ms) peak=0.006 x6 rise=0 dl=-0.08 q=0.98 heading=228
+23:21:20.533 Onset @872791 (+183 ms) peak=0.007 x7 rise=281 dl=0.33 q=0.99 heading=228
+23:21:20.536 window id=B hush=false label=HUMAN VOICE rms=0.0004 floor=0.0005 taps=2 rej=0 peak=x6 acc=0 accMax=0.022 accRms=0.007 struct=false rhythm=0.5/null(3) voice=0.59 impact=0.00 machine=0.00 | Speech 0.59, Animal 0.03, Inside, large room or hall 0.03, Wild animals 0.02, Pigeon, dove 0.02
+23:21:21.532 Onset @940938 (+602 ms) peak=0.019 x22 rise=821 dl=-23.22 q=0.79 heading=228
+23:21:21.535 window id=B hush=false label=quiet rms=0.0009 floor=0.0005 taps=1 rej=0 peak=x9 acc=0 accMax=0.028 accRms=0.008 struct=false rhythm=0.5/null(4) voice=0.03 impact=0.00 machine=0.00 | Animal 0.50, Wild animals 0.50, Bird 0.50, Bird vocalization, bird call, bird song 0.33, Chirp, tweet 0.33
+23:21:22.529 classifier peak=0.00807 gain=20.0
+23:21:22.533 window id=B hush=false label=HUMAN TAPPING rms=0.0007 floor=0.0005 taps=0 rej=0 peak=x4 acc=0 accMax=0.025 accRms=0.007 struct=false rhythm=0.9/steady(4) voice=0.80 impact=0.01 machine=0.00 | Speech 0.80, Inside, large room or hall 0.02, Animal 0.01, Inside, small room 0.01, Domestic animals, pets 0.01
+23:21:23.528 Onset @1031437 (+488 ms) peak=0.009 x7 rise=16 dl=0.30 q=0.98 heading=228
+23:21:23.531 window id=B hush=false label=HUMAN TAPPING rms=0.0009 floor=0.0006 taps=1 rej=0 peak=x4 acc=0 accMax=0.023 accRms=0.007 struct=false rhythm=0.9/steady(5) voice=0.15 impact=0.00 machine=0.00 | Roaring cats (lions, tigers) 0.20, Speech 0.15, Animal 0.08, Roar 0.08, Wild animals 0.04
+23:21:24.532 window id=B hush=false label=HUMAN TAPPING rms=0.0005 floor=0.0005 taps=0 rej=0 peak=x3 acc=0 accMax=0.026 accRms=0.008 struct=false rhythm=0.9/steady(5) voice=0.33 impact=0.00 machine=0.00 | Speech 0.33, Animal 0.02, Horse 0.02, Clip-clop 0.02, Inside, small room 0.02
+23:21:25.532 Onset @1139887 (+747 ms) peak=0.008 x5 rise=0 dl=0.11 q=0.99 heading=228
+23:21:25.535 window id=B hush=false label=HUMAN TAPPING rms=0.0007 floor=0.0006 taps=1 rej=0 peak=x3 acc=0 accMax=0.024 accRms=0.008 struct=false rhythm=0.9/steady(6) voice=0.59 impact=0.01 machine=0.00 | Speech 0.59, Inside, small room 0.03, Inside, large room or hall 0.01, Animal 0.00, Rodents, rats, mice 0.00
+23:21:26.530 Onset @1153109 (+23 ms) peak=0.005 x6 rise=0 dl=6.15 q=0.91 heading=228
+23:21:26.533 window id=B hush=false label=HUMAN TAPPING rms=0.0005 floor=0.0005 taps=1 rej=0 peak=x3 acc=0 accMax=0.020 accRms=0.007 struct=false rhythm=0.9/steady(7) voice=0.80 impact=0.00 machine=0.00 | Speech 0.80, Inside, small room 0.02, Inside, large room or hall 0.02, Animal 0.01, Outside, rural or natural 0.01
+23:21:27.531 window id=B hush=false label=HUMAN TAPPING rms=0.0005 floor=0.0005 taps=0 rej=0 peak=x3 acc=0 accMax=0.022 accRms=0.008 struct=false rhythm=0.9/steady(6) voice=0.92 impact=0.00 machine=0.00 | Speech 0.92, Inside, large room or hall 0.02, Narration, monologue 0.00, Inside, small room 0.00, Inside, public space 0.00
+23:21:28.532 window id=B hush=false label=HUMAN TAPPING rms=0.0004 floor=0.0005 taps=0 rej=0 peak=x3 acc=0 accMax=0.023 accRms=0.007 struct=false rhythm=0.9/steady(4) voice=0.33 impact=0.00 machine=0.00 | Speech 0.33, Animal 0.06, Wild animals 0.04, Bird 0.02, Outside, rural or natural 0.02
+23:21:29.529 Onset @1296477 (+9 ms) peak=0.019 x18 rise=449 dl=-1.14 q=0.76 heading=228
+23:21:29.532 window id=B hush=false label=HUMAN TAPPING rms=0.0008 floor=0.0005 taps=1 rej=0 peak=x7 acc=0 accMax=0.024 accRms=0.008 struct=false rhythm=0.9/steady(4) voice=0.94 impact=0.00 machine=0.00 | Speech 0.92, Inside, large room or hall 0.02, Narration, monologue 0.01, Animal 0.01, Wild animals 0.01
+23:21:30.528 Onset @1391402 (+987 ms) peak=0.006 x9 rise=77 dl=-6.86 q=0.96 heading=228
+23:21:30.535 window id=B hush=false label=HUMAN TAPPING rms=0.0003 floor=0.0005 taps=1 rej=0 peak=x4 acc=0 accMax=0.023 accRms=0.007 struct=false rhythm=0.9/steady(5) voice=0.67 impact=0.00 machine=0.00 | Speech 0.67, Inside, large room or hall 0.03, Shuffle 0.00, Animal 0.00, Snake 0.00
+23:21:31.529 Onset @1405565 (+282 ms) peak=0.004 x6 rise=0 dl=0.03 q=0.91 heading=228
+23:21:31.529 Onset @1420004 (+583 ms) peak=0.005 x7 rise=89 dl=2.68 q=0.98 heading=228
+23:21:31.531 window id=B hush=false label=HUMAN VOICE rms=0.0004 floor=0.0005 taps=2 rej=0 peak=x4 acc=0 accMax=0.024 accRms=0.008 struct=false rhythm=0.5/null(6) voice=0.50 impact=0.00 machine=0.00 | Speech 0.50, Inside, small room 0.04, Animal 0.02, Wild animals 0.02, Insect 0.02
+23:21:32.526 classifier peak=0.00675 gain=20.0
+23:21:32.531 window id=B hush=false label=HUMAN TAPPING rms=0.0006 floor=0.0005 taps=0 rej=0 peak=x3 acc=0 accMax=0.024 accRms=0.008 struct=false rhythm=0.9/steady(6) voice=0.68 impact=0.02 machine=0.00 | Speech 0.67, Inside, large room or hall 0.02, Dishes, pots, and pans 0.02, Inside, small room 0.02, Animal 0.01
+23:21:33.531 window id=B hush=false label=HUMAN TAPPING rms=0.0005 floor=0.0005 taps=0 rej=0 peak=x4 acc=0 accMax=0.058 accRms=0.011 struct=false rhythm=0.9/steady(5) voice=0.42 impact=0.00 machine=0.00 | Speech 0.41, Animal 0.02, Inside, small room 0.02, Inside, large room or hall 0.02, Horse 0.01
+23:21:34.532 window id=B hush=false label=HUMAN VOICE rms=0.0005 floor=0.0005 taps=0 rej=0 peak=x3 acc=0 accMax=0.026 accRms=0.008 struct=false rhythm=0.5/null(4) voice=0.74 impact=0.00 machine=0.00 | Speech 0.74, Clip-clop 0.06, Horse 0.04, Animal 0.02, Inside, large room or hall 0.02
+23:21:35.532 window id=B hush=false label=quiet rms=0.0005 floor=0.0005 taps=0 rej=0 peak=x3 acc=0 accMax=0.026 accRms=0.007 struct=false rhythm=0.5/null(4) voice=0.11 impact=0.00 machine=0.09 | Snoring 0.15, Speech 0.11, Breathing 0.11, Vehicle 0.03, Car 0.03
+23:21:36.531 window id=B hush=false label=HUMAN VOICE rms=0.0005 floor=0.0005 taps=0 rej=0 peak=x8 acc=0 accMax=0.023 accRms=0.007 struct=false rhythm=0.5/null(4) voice=0.86 impact=0.00 machine=0.00 | Speech 0.85, Inside, large room or hall 0.03, Narration, monologue 0.01, Inside, public space 0.01, Conversation 0.00
+23:21:37.529 Onset @1703316 (+485 ms) peak=0.006 x6 rise=0 dl=-0.32 q=0.96 heading=228
+23:21:37.529 Onset @1708763 (+599 ms) peak=0.007 x7 rise=7 dl=-0.22 q=0.89 heading=228
+23:21:37.537 Voice DoA: delay=3.82 q=0.22 heading=228
+23:21:37.540 window id=B hush=false label=HUMAN VOICE rms=0.0012 floor=0.0005 taps=2 rej=1 peak=x9 acc=0 accMax=0.024 accRms=0.008 struct=false rhythm=0.5/null(5) voice=0.41 impact=0.02 machine=0.01 | Speech 0.41, Animal 0.02, Inside, large room or hall 0.02, Wild animals 0.02, Snake 0.02
+23:21:38.530 window id=B hush=false label=HUMAN TAPPING rms=0.0005 floor=0.0005 taps=0 rej=0 peak=x2 acc=0 accMax=0.024 accRms=0.008 struct=false rhythm=1.0/2(4) voice=0.74 impact=0.02 machine=0.00 | Speech 0.74, Inside, large room or hall 0.02, Liquid 0.01, Ping 0.01, Inside, public space 0.01
+23:21:39.529 window id=B hush=false label=quiet rms=0.0004 floor=0.0005 taps=0 rej=0 peak=x3 acc=0 accMax=0.020 accRms=0.008 struct=false rhythm=0.2/null(2) voice=0.16 impact=0.01 machine=0.00 | Speech 0.15, Animal 0.08, Livestock, farm animals, working animals 0.06, Cattle, bovinae 0.06, Insect 0.06
+23:21:40.545 window id=B hush=false label=HUMAN VOICE rms=0.0005 floor=0.0005 taps=0 rej=0 peak=x3 acc=0 accMax=0.022 accRms=0.008 struct=false rhythm=0.2/null(2) voice=0.89 impact=0.00 machine=0.00 | Speech 0.89, Inside, large room or hall 0.02, Narration, monologue 0.00, Animal 0.00, Inside, small room 0.00
+23:21:41.528 Onset @1904294 (+672 ms) peak=0.018 x16 rise=143 dl=28.58 q=0.43 heading=228
+23:21:41.530 window id=B hush=false label=HUMAN VOICE rms=0.0005 floor=0.0005 taps=1 rej=0 peak=x4 acc=0 accMax=0.027 accRms=0.007 struct=false rhythm=0.5/null(3) voice=0.67 impact=0.08 machine=0.00 | Speech 0.67, Dishes, pots, and pans 0.04, Cutlery, silverware 0.03, Inside, large room or hall 0.03, Inside, small room 0.02
+23:21:42.530 classifier peak=0.00771 gain=20.0
+23:21:42.539 window id=B hush=false label=HUMAN VOICE rms=0.0008 floor=0.0005 taps=0 rej=0 peak=x4 acc=0 accMax=0.024 accRms=0.008 struct=false rhythm=0.5/null(3) voice=0.42 impact=0.04 machine=0.00 | Speech 0.41, Animal 0.02, Dishes, pots, and pans 0.02, Inside, large room or hall 0.02, Music 0.01
+23:21:43.528 Onset @1986622 (+387 ms) peak=0.025 x17 rise=510 dl=-31.32 q=0.20 heading=228
+23:21:43.530 window id=B hush=false label=quiet rms=0.0013 floor=0.0005 taps=1 rej=0 peak=x5 acc=0 accMax=0.026 accRms=0.007 struct=false rhythm=0.5/null(4) voice=0.04 impact=0.01 machine=0.00 | Music 0.15, Speech 0.04, Wild animals 0.04, Animal 0.03, Bird 0.02
+23:21:44.529 window id=B hush=false label=quiet rms=0.0006 floor=0.0005 taps=0 rej=0 peak=x3 acc=0 accMax=0.026 accRms=0.007 struct=false rhythm=0.5/null(4) voice=0.26 impact=0.03 machine=0.00 | Speech 0.26, Inside, large room or hall 0.04, Door 0.02, Shuffle 0.02, Tap 0.02
+23:21:45.528 Onset @2065029 (+21 ms) peak=0.097 x42 rise=264 dl=10.04 q=0.37 heading=228
+23:21:45.528 Onset @2093753 (+619 ms) peak=0.058 x25 rise=104 dl=1.57 q=0.48 heading=228
+23:21:45.531 window id=B hush=false label=HUMAN TAPPING rms=0.0031 floor=0.0005 taps=2 rej=1 peak=x13 acc=0 accMax=0.024 accRms=0.008 struct=false rhythm=0.9/steady(4) voice=0.06 impact=0.21 machine=0.01 | Tambourine 0.33, Rattle (instrument) 0.20, Percussion 0.15, Maraca 0.15, Speech 0.06
+23:21:46.529 Onset @2118038 (+125 ms) peak=0.030 x26 rise=100 dl=1.13 q=0.62 heading=228
+23:21:46.531 window id=B hush=false label=HUMAN TAPPING rms=0.0007 floor=0.0005 taps=1 rej=0 peak=x5 acc=0 accMax=0.024 accRms=0.008 struct=false rhythm=0.9/steady(5) voice=0.42 impact=0.09 machine=0.00 | Speech 0.41, Dishes, pots, and pans 0.03, Typewriter 0.03, Cutlery, silverware 0.02, Inside, small room 0.02
+23:21:47.528 Onset @2194150 (+711 ms) peak=0.006 x6 rise=0 dl=-0.31 q=0.95 heading=228
+23:21:47.531 window id=B hush=false label=HUMAN TAPPING rms=0.0007 floor=0.0005 taps=1 rej=0 peak=x3 acc=0 accMax=0.027 accRms=0.008 struct=false rhythm=0.9/steady(6) voice=0.68 impact=0.00 machine=0.00 | Speech 0.67, Inside, large room or hall 0.02, Inside, public space 0.01, Conversation 0.00, Narration, monologue 0.00
+23:21:48.544 Onset @2214178 (+128 ms) peak=0.008 x6 rise=0 dl=0.11 q=0.96 heading=228
+23:21:48.549 window id=B hush=false label=HUMAN TAPPING rms=0.0006 floor=0.0005 taps=1 rej=0 peak=x4 acc=0 accMax=0.023 accRms=0.008 struct=false rhythm=0.9/steady(7) voice=0.59 impact=0.00 machine=0.00 | Speech 0.59, Clip-clop 0.04, Horse 0.03, Animal 0.02, Inside, large room or hall 0.02
+23:21:49.529 window id=B hush=false label=HUMAN TAPPING rms=0.0005 floor=0.0005 taps=0 rej=0 peak=x3 acc=0 accMax=0.022 accRms=0.009 struct=false rhythm=0.9/steady(6) voice=0.59 impact=0.00 machine=0.00 | Speech 0.59, Inside, large room or hall 0.03, Narration, monologue 0.01, Tambourine 0.01, Inside, public space 0.01
+23:21:50.535 Voice DoA: delay=4.85 q=0.57 heading=228
+23:21:50.537 window id=B hush=false label=HUMAN TAPPING rms=0.0010 floor=0.0006 taps=0 rej=0 peak=x3 acc=0 accMax=0.031 accRms=0.008 struct=false rhythm=0.9/steady(6) voice=0.81 impact=0.00 machine=0.00 | Speech 0.80, Inside, large room or hall 0.02, Inside, public space 0.02, Outside, urban or manmade 0.01, Conversation 0.00
+23:21:51.531 window id=B hush=false label=HUMAN VOICE rms=0.0006 floor=0.0006 taps=0 rej=0 peak=x3 acc=0 accMax=0.022 accRms=0.008 struct=false rhythm=0.5/null(5) voice=0.74 impact=0.00 machine=0.00 | Speech 0.74, Inside, large room or hall 0.03, Inside, public space 0.01, Narration, monologue 0.00, Shuffle 0.00
+23:21:52.526 classifier peak=0.00866 gain=20.0
+23:21:52.530 window id=B hush=false label=HUMAN VOICE rms=0.0008 floor=0.0006 taps=0 rej=0 peak=x3 acc=0 accMax=0.022 accRms=0.007 struct=false rhythm=0.5/null(5) voice=0.95 impact=0.00 machine=0.00 | Speech 0.94, Inside, large room or hall 0.02, Inside, public space 0.01, Conversation 0.00, Narration, monologue 0.00
+23:21:53.528 Onset @2466731 (+390 ms) peak=0.006 x5 rise=0 dl=-0.50 q=0.89 heading=228
+23:21:53.528 Onset @2479900 (+664 ms) peak=0.006 x6 rise=0 dl=0.33 q=0.98 heading=228
+23:21:53.528 Onset @2495726 (+994 ms) peak=0.008 x7 rise=42 dl=- q=- heading=228
+23:21:53.532 window id=B hush=false label=quiet rms=0.0005 floor=0.0005 taps=3 rej=0 peak=x4 acc=0 accMax=0.031 accRms=0.008 struct=false rhythm=0.5/null(6) voice=0.15 impact=0.00 machine=0.01 | Speech 0.15, Animal 0.11, Livestock, farm animals, working animals 0.11, Horse 0.04, Clip-clop 0.04
+23:21:54.530 window id=B hush=false label=HUMAN VOICE rms=0.0006 floor=0.0006 taps=0 rej=0 peak=x2 acc=0 accMax=0.027 accRms=0.008 struct=false rhythm=0.5/null(5) voice=0.85 impact=0.00 machine=0.00 | Speech 0.85, Animal 0.01, Livestock, farm animals, working animals 0.00, Horse 0.00, Clip-clop 0.00
+23:21:55.548 window id=B hush=false label=HUMAN VOICE rms=0.0005 floor=0.0005 taps=0 rej=0 peak=x4 acc=0 accMax=0.023 accRms=0.008 struct=false rhythm=0.5/null(4) voice=0.85 impact=0.00 machine=0.00 | Speech 0.85, Inside, large room or hall 0.01, Animal 0.01, Inside, small room 0.01, Wild animals 0.00
+23:21:56.531 window id=B hush=false label=HUMAN TAPPING rms=0.0007 floor=0.0006 taps=0 rej=0 peak=x3 acc=0 accMax=0.026 accRms=0.008 struct=false rhythm=0.9/steady(3) voice=0.95 impact=0.00 machine=0.00 | Speech 0.94, Inside, large room or hall 0.02, Inside, small room 0.01, Conversation 0.00, Narration, monologue 0.00
+23:21:57.528 Onset @2676951 (+769 ms) peak=0.094 x86 rise=100 dl=-39.14 q=0.45 felt heading=228
+23:21:57.536 Voice DoA: delay=-41.20 q=0.28 heading=228
+23:21:57.538 window id=B hush=false label=HUMAN VOICE rms=0.0025 floor=0.0006 taps=1 rej=0 peak=x21 acc=1 accMax=0.891 accRms=0.096 struct=true rhythm=0.5/null(4) voice=0.34 impact=0.27 machine=0.00 | Speech 0.33, Dishes, pots, and pans 0.15, Cutlery, silverware 0.11, Inside, small room 0.08, Stir 0.06
+23:21:58.528 Onset @2734400 (+966 ms) peak=0.008 x6 rise=0 dl=-0.57 q=0.93 heading=228
+23:21:58.530 window id=B hush=false label=HUMAN VOICE rms=0.0007 floor=0.0006 taps=1 rej=1 peak=x4 acc=0 accMax=0.098 accRms=0.018 struct=true rhythm=0.5/null(5) voice=0.42 impact=0.04 machine=0.00 | Speech 0.41, Dishes, pots, and pans 0.03, Stir 0.02, Frying (food) 0.02, Sizzle 0.02
+23:21:59.530 window id=B hush=false label=HUMAN VOICE rms=0.0004 floor=0.0006 taps=0 rej=0 peak=x3 acc=0 accMax=0.020 accRms=0.007 struct=true rhythm=0.5/null(5) voice=0.59 impact=0.00 machine=0.00 | Speech 0.59, Inside, large room or hall 0.04, Horse 0.02, Clip-clop 0.02, Animal 0.01
+23:22:00.528 Onset @2819825 (+746 ms) peak=0.097 x73 rise=19 dl=-21.17 q=0.43 felt heading=228
+23:22:00.528 Onset @2829634 (+950 ms) peak=0.015 x11 rise=33 dl=-47.02 q=0.43 heading=228
+23:22:00.532 window id=B hush=false label=quiet rms=0.0014 floor=0.0006 taps=2 rej=0 peak=x12 acc=1 accMax=0.700 accRms=0.108 struct=true rhythm=0.5/null(7) voice=0.09 impact=0.07 machine=0.01 | Speech 0.08, Inside, small room 0.08, Animal 0.04, Patter 0.03, Rodents, rats, mice 0.02
+23:22:01.528 Onset @2842949 (+228 ms) peak=0.032 x31 rise=14 dl=15.96 q=0.45 heading=228
+23:22:01.529 window id=B hush=false label=HUMAN TAPPING rms=0.0005 floor=0.0006 taps=1 rej=0 peak=x6 acc=0 accMax=0.325 accRms=0.046 struct=true rhythm=0.9/steady(5) voice=0.26 impact=0.00 machine=0.01 | Speech 0.26, Pigeon, dove 0.26, Wild animals 0.15, Bird 0.15, Animal 0.11
+23:22:02.530 classifier peak=0.01203 gain=20.0
+23:22:02.546 window id=B hush=false label=HUMAN TAPPING rms=0.0005 floor=0.0006 taps=0 rej=0 peak=x4 acc=0 accMax=0.034 accRms=0.008 struct=true rhythm=0.9/steady(5) voice=0.90 impact=0.00 machine=0.00 | Speech 0.89, Inside, large room or hall 0.03, Narration, monologue 0.01, Clip-clop 0.01, Inside, public space 0.01
+23:22:03.488 Nearby: ROUTE DOWN (lost I2501-6a46)
+23:22:03.537 Voice DoA: delay=8.08 q=0.25 heading=228
+23:22:03.539 window id=? hush=false label=HUMAN TAPPING rms=0.0027 floor=0.0006 taps=0 rej=1 peak=x7 acc=0 accMax=0.095 accRms=0.015 struct=true rhythm=0.9/steady(5) voice=0.33 impact=0.18 machine=0.02 | Speech 0.33, Inside, small room 0.06, Dishes, pots, and pans 0.04, Hammer 0.04, Inside, large room or hall 0.04
+23:22:03.540 No letter assigned yet: events held back
+23:22:04.528 Onset @3016903 (+852 ms) peak=0.018 x18 rise=42 dl=-20.99 q=0.69 heading=228
+23:22:04.530 window id=? hush=false label=HUMAN TAPPING rms=0.0008 floor=0.0006 taps=1 rej=0 peak=x6 acc=0 accMax=0.201 accRms=0.034 struct=true rhythm=0.9/steady(6) voice=0.41 impact=0.14 machine=0.00 | Speech 0.41, Dishes, pots, and pans 0.06, Cutlery, silverware 0.04, Typing 0.04, Stir 0.04
+23:22:05.528 Onset @3025350 (+28 ms) peak=0.020 x19 rise=51 dl=-20.93 q=0.62 heading=228
+23:22:05.528 Onset @3064971 (+853 ms) peak=0.021 x20 rise=728 dl=-20.85 q=0.67 heading=228
+23:22:05.535 Voice DoA: delay=-4.49 q=0.19 heading=228
+23:22:05.537 window id=? hush=false label=HUMAN VOICE rms=0.0014 floor=0.0007 taps=2 rej=0 peak=x7 acc=0 accMax=0.122 accRms=0.018 struct=true rhythm=0.5/null(7) voice=0.34 impact=0.07 machine=0.00 | Speech 0.33, Dishes, pots, and pans 0.03, Inside, small room 0.02, Inside, large room or hall 0.02, Laughter 0.02
+23:22:06.520 Nearby: discovering
+23:22:06.528 Onset @3075243 (+67 ms) peak=0.022 x22 rise=194 dl=-20.57 q=0.71 heading=228
+23:22:06.528 Onset @3112969 (+853 ms) peak=0.022 x22 rise=731 dl=-20.28 q=0.64 heading=228
+23:22:06.530 window id=? hush=false label=quiet rms=0.0019 floor=0.0007 taps=2 rej=0 peak=x11 acc=0 accMax=0.137 accRms=0.023 struct=true rhythm=0.5/null(8) voice=0.26 impact=0.15 machine=0.00 | Speech 0.26, Dishes, pots, and pans 0.08, Cutlery, silverware 0.04, Inside, small room 0.03, Inside, large room or hall 0.03
+23:22:07.528 Onset @3124013 (+83 ms) peak=0.025 x23 rise=191 dl=-20.64 q=0.67 heading=228
+23:22:07.528 Onset @3160973 (+853 ms) peak=0.027 x25 rise=727 dl=-20.65 q=0.63 heading=228
+23:22:07.530 window id=? hush=false label=quiet rms=0.0018 floor=0.0007 taps=2 rej=0 peak=x8 acc=0 accMax=0.104 accRms=0.019 struct=true rhythm=0.5/null(10) voice=0.09 impact=0.07 machine=0.01 | Fowl 0.26, Livestock, farm animals, working animals 0.20, Chicken, rooster 0.20, Cluck 0.15, Speech 0.08
+23:22:08.527 Onset @3208963 (+853 ms) peak=0.025 x19 rise=173 dl=-22.85 q=0.81 heading=228
+23:22:08.529 window id=? hush=false label=quiet rms=0.0016 floor=0.0007 taps=1 rej=0 peak=x8 acc=1 accMax=1.026 accRms=0.121 struct=false rhythm=0.5/null(9) voice=0.18 impact=0.09 machine=0.00 | Speech 0.15, Inside, small room 0.03, Whistling 0.02, Hands 0.02, Clapping 0.02
+23:22:08.752 Nearby: found C|I2501-6a46 (UHER) parsed=(C, I2501-6a46, 0) routed=false
+23:22:09.528 Onset @3219130 (+65 ms) peak=0.029 x24 rise=132 dl=-21.64 q=0.61 heading=228
+23:22:09.529 Onset @3256912 (+852 ms) peak=0.019 x16 rise=374 dl=-21.41 q=0.67 heading=228
+23:22:09.531 window id=? hush=false label=HUMAN TAPPING rms=0.0019 floor=0.0007 taps=2 rej=0 peak=x10 acc=0 accMax=0.133 accRms=0.025 struct=false rhythm=0.9/steady(10) voice=0.15 impact=0.20 machine=0.02 | Speech 0.15, Dishes, pots, and pans 0.08, Cutlery, silverware 0.03, Inside, small room 0.03, Hammer 0.02
+23:22:10.529 Onset @3305009 (+854 ms) peak=0.021 x18 rise=168 dl=-20.05 q=0.58 heading=228
+23:22:10.531 window id=? hush=false label=HUMAN TAPPING rms=0.0014 floor=0.0008 taps=1 rej=0 peak=x6 acc=0 accMax=0.109 accRms=0.021 struct=false rhythm=0.9/steady(11) voice=0.27 impact=0.49 machine=0.00 | Speech 0.26, Dishes, pots, and pans 0.26, Cutlery, silverware 0.20, Stir 0.11, Chink, clink 0.04
+23:22:11.535 Onset @3352921 (+852 ms) peak=0.015 x15 rise=34 dl=-20.50 q=0.59 heading=228
+23:22:11.540 window id=? hush=false label=HUMAN TAPPING rms=0.0008 floor=0.0008 taps=1 rej=0 peak=x5 acc=0 accMax=0.116 accRms=0.026 struct=false rhythm=0.9/steady(12) voice=0.59 impact=0.04 machine=0.00 | Speech 0.59, Inside, small room 0.03, Inside, large room or hall 0.02, Dishes, pots, and pans 0.02, Door 0.01
+23:22:12.529 classifier peak=0.02296 gain=20.0
+23:22:12.531 Onset @3361350 (+28 ms) peak=0.022 x22 rise=42 dl=-20.87 q=0.70 heading=228
+23:22:12.532 Onset @3400973 (+853 ms) peak=0.025 x25 rise=727 dl=-21.13 q=0.54 heading=228
+23:22:12.535 window id=? hush=false label=HUMAN TAPPING rms=0.0014 floor=0.0008 taps=2 rej=0 peak=x7 acc=0 accMax=0.156 accRms=0.034 struct=false rhythm=0.9/steady(13) voice=0.11 impact=0.11 machine=0.00 | Speech 0.11, Dishes, pots, and pans 0.06, Inside, small room 0.04, Animal 0.02, Cutlery, silverware 0.02
+23:22:13.382 Nearby: found S|I2501-991e|1 (TXN2) parsed=(S, I2501-991e, 1) routed=false
+23:22:13.535 Onset @3411248 (+67 ms) peak=0.025 x26 rise=731 dl=-20.60 q=0.57 heading=228
+23:22:13.536 Onset @3421759 (+286 ms) peak=0.005 x5 rise=0 dl=-0.95 q=0.94 heading=228
+23:22:13.536 Onset @3448968 (+853 ms) peak=0.022 x23 rise=213 dl=-20.89 q=0.64 heading=228
+23:22:13.540 window id=? hush=false label=HUMAN TAPPING rms=0.0018 floor=0.0008 taps=3 rej=0 peak=x11 acc=0 accMax=0.137 accRms=0.023 struct=false rhythm=0.9/steady(14) voice=0.04 impact=0.25 machine=0.05 | Stir 0.15, Livestock, farm animals, working animals 0.11, Dishes, pots, and pans 0.11, Animal 0.08, Fowl 0.08
+23:22:14.528 Onset @3460008 (+83 ms) peak=0.022 x20 rise=733 dl=-20.81 q=0.69 heading=228
+23:22:14.529 Onset @3496984 (+853 ms) peak=0.022 x19 rise=715 dl=-20.53 q=0.71 heading=228
+23:22:14.532 window id=? hush=false label=HUMAN TAPPING rms=0.0016 floor=0.0008 taps=2 rej=0 peak=x7 acc=0 accMax=0.162 accRms=0.043 struct=false rhythm=0.9/steady(14) voice=0.04 impact=0.01 machine=0.01 | Livestock, farm animals, working animals 0.20, Fowl 0.15, Chicken, rooster 0.15, Animal 0.11, Cluck 0.08
+23:22:15.529 Onset @3545028 (+854 ms) peak=0.024 x24 rise=729 dl=-22.82 q=0.69 heading=228
+23:22:15.531 window id=? hush=false label=HUMAN TAPPING rms=0.0013 floor=0.0008 taps=1 rej=0 peak=x8 acc=0 accMax=0.093 accRms=0.015 struct=false rhythm=0.9/steady(13) voice=0.28 impact=0.07 machine=0.00 | Speech 0.26, Animal 0.08, Livestock, farm animals, working animals 0.06, Domestic animals, pets 0.04, Dog 0.04
+23:22:16.530 Onset @3555131 (+65 ms) peak=0.024 x17 rise=148 dl=-21.68 q=0.48 heading=228
+23:22:16.530 Onset @3592945 (+853 ms) peak=0.021 x15 rise=126 dl=-21.66 q=0.62 heading=228
+23:22:16.537 Voice DoA: delay=22.23 q=0.14 heading=228
+23:22:16.539 window id=? hush=false label=HUMAN TAPPING rms=0.0017 floor=0.0010 taps=2 rej=0 peak=x8 acc=0 accMax=0.027 accRms=0.008 struct=false rhythm=0.9/steady(14) voice=0.41 impact=0.05 machine=0.00 | Speech 0.41, Dishes, pots, and pans 0.02, Chink, clink 0.01, Inside, small room 0.01, Inside, large room or hall 0.01
+23:22:17.531 Onset @3608507 (+177 ms) peak=0.007 x5 rise=0 dl=0.22 q=0.94 heading=228
+23:22:17.531 Onset @3641060 (+855 ms) peak=0.015 x11 rise=98 dl=-19.14 q=0.47 heading=228
+23:22:17.534 window id=? hush=false label=HUMAN TAPPING rms=0.0013 floor=0.0013 taps=2 rej=0 peak=x5 acc=0 accMax=0.023 accRms=0.006 struct=false rhythm=0.9/steady(14) voice=0.42 impact=0.36 machine=0.00 | Speech 0.41, Dishes, pots, and pans 0.20, Cutlery, silverware 0.15, Inside, small room 0.04, Stir 0.03
+23:22:18.536 Onset @3675663 (+576 ms) peak=0.008 x8 rise=91 dl=0.28 q=0.96 heading=228
+23:22:18.537 Onset @3679470 (+655 ms) peak=0.005 x5 rise=0 dl=0.26 q=0.97 heading=228
+23:22:18.540 window id=? hush=false label=HUMAN TAPPING rms=0.0007 floor=0.0013 taps=2 rej=0 peak=x5 acc=0 accMax=0.078 accRms=0.016 struct=false rhythm=0.9/steady(14) voice=0.20 impact=0.04 machine=0.02 | Speech 0.20, Inside, small room 0.03, Animal 0.02, Dishes, pots, and pans 0.02, Mechanisms 0.02
+23:22:19.528 Onset @3697350 (+28 ms) peak=0.020 x19 rise=42 dl=-21.20 q=0.64 heading=228
+23:22:19.529 Onset @3736972 (+853 ms) peak=0.021 x19 rise=729 dl=-22.24 q=0.51 heading=228
+23:22:19.531 window id=? hush=false label=quiet rms=0.0013 floor=0.0013 taps=2 rej=0 peak=x6 acc=0 accMax=0.194 accRms=0.037 struct=false rhythm=0.5/null(15) voice=0.16 impact=0.09 machine=0.00 | Speech 0.15, Animal 0.04, Livestock, farm animals, working animals 0.04, Dishes, pots, and pans 0.04, Inside, small room 0.04
+23:22:20.535 Onset @3747248 (+67 ms) peak=0.024 x23 rise=211 dl=-21.45 q=0.61 heading=228
+23:22:20.536 Onset @3784958 (+853 ms) peak=0.021 x20 rise=223 dl=-21.66 q=0.65 heading=228
+23:22:20.540 window id=? hush=false label=HUMAN TAPPING rms=0.0016 floor=0.0013 taps=2 rej=0 peak=x9 acc=0 accMax=0.246 accRms=0.037 struct=false rhythm=0.9/steady(15) voice=0.09 impact=0.17 machine=0.00 | Stir 0.20, Dishes, pots, and pans 0.11, Frying (food) 0.11, Sizzle 0.11, Speech 0.08
+23:22:21.530 Onset @3796090 (+85 ms) peak=0.018 x14 rise=666 dl=-21.21 q=0.70 heading=228
+23:22:21.530 Onset @3822971 (+645 ms) peak=0.021 x16 rise=24 dl=45.86 q=0.51 heading=228
+23:22:21.530 Onset @3833061 (+855 ms) peak=0.019 x14 rise=101 dl=-21.04 q=0.69 heading=228
+23:22:21.533 window id=? hush=false label=HUMAN TAPPING rms=0.0016 floor=0.0014 taps=3 rej=0 peak=x6 acc=0 accMax=0.131 accRms=0.034 struct=false rhythm=0.9/steady(15) voice=0.06 impact=0.11 machine=0.01 | Toilet flush 0.15, Inside, small room 0.08, Speech 0.06, Animal 0.06, Water 0.06
+23:22:22.526 classifier peak=0.02563 gain=20.0
+23:22:22.528 Onset @3881028 (+854 ms) peak=0.027 x37 rise=205 dl=-22.91 q=0.73 heading=228
+23:22:22.530 window id=? hush=false label=HUMAN TAPPING rms=0.0015 floor=0.0014 taps=1 rej=0 peak=x13 acc=0 accMax=0.130 accRms=0.025 struct=false rhythm=0.9/steady(14) voice=0.12 impact=0.07 machine=0.00 | Animal 0.20, Livestock, farm animals, working animals 0.20, Fowl 0.20, Chicken, rooster 0.20, Speech 0.11
+23:22:23.531 Onset @3928913 (+852 ms) peak=0.019 x16 rise=250 dl=-21.84 q=0.59 heading=228
+23:22:23.534 window id=? hush=false label=HUMAN VOICE rms=0.0018 floor=0.0014 taps=1 rej=0 peak=x8 acc=0 accMax=0.133 accRms=0.034 struct=false rhythm=0.5/null(14) voice=0.50 impact=0.07 machine=0.00 | Speech 0.50, Dishes, pots, and pans 0.04, Cutlery, silverware 0.02, Inside, small room 0.02, Inside, large room or hall 0.01
+23:22:24.536 window id=? hush=false label=quiet rms=0.0011 floor=0.0014 taps=0 rej=1 peak=x6 acc=0 accMax=0.115 accRms=0.027 struct=false rhythm=0.5/null(12) voice=0.26 impact=0.26 machine=0.00 | Speech 0.26, Dishes, pots, and pans 0.15, Stir 0.15, Cutlery, silverware 0.11, Liquid 0.06
+23:22:25.028 Nearby: requestConnection to I2501-6a46 FAILED: com.google.android.gms.common.api.ApiException: 8012: STATUS_ENDPOINT_IO_ERROR
+23:22:25.533 window id=? hush=false label=HUMAN TAPPING rms=0.0006 floor=0.0014 taps=0 rej=0 peak=x4 acc=0 accMax=0.138 accRms=0.030 struct=false rhythm=0.9/steady(10) voice=0.33 impact=0.00 machine=0.01 | Speech 0.33, Rodents, rats, mice 0.02, Music 0.01, Animal 0.01, Wild animals 0.01
+23:22:26.536 Onset @4064761 (+682 ms) peak=0.011 x12 rise=244 dl=4.37 q=0.91 heading=228
+23:22:26.539 window id=? hush=false label=HUMAN VOICE rms=0.0005 floor=0.0014 taps=1 rej=0 peak=x5 acc=0 accMax=0.080 accRms=0.017 struct=false rhythm=0.5/null(10) voice=0.34 impact=0.00 machine=0.00 | Speech 0.33, Inside, large room or hall 0.03, Inside, small room 0.02, Animal 0.01, Shuffle 0.01
+23:22:27.536 Onset @4081358 (+28 ms) peak=0.087 x94 rise=252 dl=-18.76 q=0.65 heading=228
+23:22:27.541 window id=? hush=false label=HUMAN VOICE rms=0.0011 floor=0.0014 taps=1 rej=0 peak=x24 acc=0 accMax=0.111 accRms=0.018 struct=false rhythm=0.5/null(9) voice=0.74 impact=0.01 machine=0.00 | Speech 0.74, Animal 0.01, Inside, small room 0.01, Inside, large room or hall 0.01, Child speech, kid speaking 0.00
+23:22:28.532 window id=? hush=false label=HUMAN VOICE rms=0.0008 floor=0.0014 taps=0 rej=0 peak=x7 acc=0 accMax=0.019 accRms=0.007 struct=false rhythm=0.5/null(7) voice=0.88 impact=0.00 machine=0.00 | Speech 0.85, Inside, large room or hall 0.03, Narration, monologue 0.02, Conversation 0.00, Inside, small room 0.00
+23:22:29.531 Onset @4216957 (+853 ms) peak=0.017 x17 rise=771 dl=-25.43 q=0.73 heading=228
+23:22:29.535 window id=? hush=false label=HUMAN VOICE rms=0.0010 floor=0.0014 taps=1 rej=0 peak=x7 acc=0 accMax=0.028 accRms=0.008 struct=false rhythm=0.5/null(5) voice=0.75 impact=0.07 machine=0.00 | Speech 0.74, Dishes, pots, and pans 0.04, Inside, large room or hall 0.03, Cutlery, silverware 0.02, Inside, small room 0.01
+23:22:30.244 Nearby: connection initiated with S|I2501-991e|1 (TXN2), accepting
+23:22:30.298 Nearby: ROUTE UP via I2501-991e, hops=2
+23:22:30.298 Route up with 2 hops, announcing (ble=04:1F:B8:89:03:38)
+23:22:30.530 Onset @4228931 (+102 ms) peak=0.022 x11 rise=25 dl=-25.37 q=0.69 heading=228
+23:22:30.532 window id=? hush=false label=HUMAN TAPPING rms=0.0018 floor=0.0014 taps=1 rej=0 peak=x4 acc=0 accMax=0.029 accRms=0.008 struct=false rhythm=0.9/steady(5) voice=0.33 impact=0.12 machine=0.03 | Speech 0.33, Stir 0.11, Liquid 0.08, Cutlery, silverware 0.06, Dishes, pots, and pans 0.04
+23:22:31.375 Nearby: advertising as S|I2501-ef39|2
+23:22:31.530 Onset @4274567 (+53 ms) peak=0.020 x15 rise=212 dl=-25.11 q=0.59 heading=228
+23:22:31.531 Onset @4285613 (+283 ms) peak=0.024 x18 rise=190 dl=-25.12 q=0.60 heading=228
+23:22:31.533 window id=? hush=false label=HUMAN TAPPING rms=0.0019 floor=0.0014 taps=2 rej=0 peak=x7 acc=0 accMax=0.028 accRms=0.008 struct=false rhythm=1.0/2(6) voice=0.11 impact=0.12 machine=0.03 | Speech 0.11, Stir 0.08, Dishes, pots, and pans 0.06, Livestock, farm animals, working animals 0.04, Cutlery, silverware 0.04
+23:22:31.549 Command received: ASSIGN sec=20 letter=B to=I2501-ef39
+23:22:31.549 Commander radio address 04:1F:B8:89:A5:F0, answering as responder
+23:22:31.551 BleRanging: tag advertising as ef39 flags=0 battery=100
+23:22:31.553 BleRanging[A/CS]: start requested as responder toward 04:1F:B8:89:A5:F0
+23:22:31.567 BleRanging: connectable advertising started
+23:22:32.529 classifier peak=0.01377 gain=20.0
+23:22:32.535 window id=B hush=false label=HUMAN TAPPING rms=0.0009 floor=0.0014 taps=0 rej=1 peak=x3 acc=0 accMax=0.119 accRms=0.020 struct=false rhythm=1.0/2(6) voice=0.20 impact=0.05 machine=0.00 | Speech 0.20, Inside, small room 0.03, Animal 0.02, Domestic animals, pets 0.02, Dishes, pots, and pans 0.02
+23:22:32.557 BleRanging: tag advertising as ef39 flags=0 battery=100
+23:22:32.563 BleRanging: connectable advertising started
+23:22:33.536 Onset @4370342 (+48 ms) peak=0.006 x6 rise=0 dl=-2.13 q=0.97 heading=228
+23:22:33.537 Onset @4381177 (+274 ms) peak=0.006 x7 rise=43 dl=0.08 q=0.98 heading=228
+23:22:33.538 Onset @4409034 (+854 ms) peak=0.024 x26 rise=198 dl=-25.12 q=0.82 heading=228
+23:22:33.542 window id=B hush=false label=HUMAN TAPPING rms=0.0013 floor=0.0014 taps=3 rej=0 peak=x9 acc=0 accMax=0.441 accRms=0.057 struct=false rhythm=1.0/2(9) voice=0.20 impact=0.16 machine=0.01 | Speech 0.20, Dishes, pots, and pans 0.08, Livestock, farm animals, working animals 0.04, Cutlery, silverware 0.04, Stir 0.04
+23:22:34.531 Onset @4419098 (+64 ms) peak=0.024 x25 rise=181 dl=-24.54 q=0.68 felt heading=228
+23:22:34.534 window id=B hush=false label=HUMAN TAPPING rms=0.0019 floor=0.0014 taps=1 rej=1 peak=x10 acc=1 accMax=1.072 accRms=0.119 struct=true rhythm=0.9/steady(9) voice=0.06 impact=0.34 machine=0.02 | Dishes, pots, and pans 0.20, Inside, small room 0.15, Cutlery, silverware 0.11, Speech 0.06, Inside, large room or hall 0.03
+23:22:35.531 Onset @4466531 (+52 ms) peak=0.014 x12 rise=123 dl=-24.74 q=0.50 heading=228
+23:22:35.532 Onset @4488846 (+517 ms) peak=0.024 x20 rise=212 dl=-25.27 q=0.48 heading=228
+23:22:35.535 window id=B hush=false label=HUMAN TAPPING rms=0.0016 floor=0.0015 taps=2 rej=0 peak=x6 acc=0 accMax=0.026 accRms=0.008 struct=true rhythm=0.9/steady(10) voice=0.20 impact=0.06 machine=0.00 | Speech 0.20, Inside, small room 0.06, Dishes, pots, and pans 0.03, Cutlery, silverware 0.02, Inside, large room or hall 0.02
+23:22:36.529 Onset @4539063 (+563 ms) peak=0.005 x6 rise=0 dl=0.25 q=0.98 heading=228
+23:22:36.533 window id=B hush=false label=HUMAN TAPPING rms=0.0004 floor=0.0014 taps=1 rej=0 peak=x4 acc=0 accMax=0.026 accRms=0.007 struct=true rhythm=0.9/steady(11) voice=0.41 impact=0.00 machine=0.00 | Speech 0.41, Animal 0.02, Horse 0.02, Clip-clop 0.02, Livestock, farm animals, working animals 0.01
+23:22:37.532 Onset @4599946 (+832 ms) peak=0.010 x10 rise=362 dl=-0.62 q=0.96 heading=228
+23:22:37.535 window id=B hush=false label=HUMAN TAPPING rms=0.0012 floor=0.0014 taps=1 rej=0 peak=x7 acc=0 accMax=0.024 accRms=0.008 struct=true rhythm=0.9/steady(11) voice=0.50 impact=0.02 machine=0.00 | Speech 0.50, Animal 0.02, Livestock, farm animals, working animals 0.02, Fowl 0.01, Chicken, rooster 0.01
+23:22:38.531 Onset @4612001 (+83 ms) peak=0.023 x14 rise=225 dl=-24.88 q=0.48 heading=228
+23:22:38.532 Onset @4625047 (+355 ms) peak=0.033 x21 rise=138 dl=-24.89 q=0.56 heading=228
+23:22:38.532 Onset @4635109 (+564 ms) peak=0.029 x18 rise=151 dl=-25.21 q=0.55 heading=228
+23:22:38.534 window id=B hush=false label=HUMAN TAPPING rms=0.0024 floor=0.0014 taps=3 rej=0 peak=x6 acc=0 accMax=0.021 accRms=0.007 struct=true rhythm=0.9/steady(13) voice=0.08 impact=0.53 machine=0.00 | Stir 0.67, Dishes, pots, and pans 0.33, Liquid 0.33, Sizzle 0.33, Frying (food) 0.26
+23:22:39.529 Onset @4658510 (+52 ms) peak=0.023 x20 rise=188 dl=-24.58 q=0.49 heading=228
+23:22:39.530 Onset @4668762 (+265 ms) peak=0.020 x17 rise=142 dl=-25.37 q=0.56 heading=228
+23:22:39.533 window id=B hush=false label=HUMAN TAPPING rms=0.0015 floor=0.0014 taps=2 rej=0 peak=x6 acc=0 accMax=0.028 accRms=0.009 struct=true rhythm=0.9/steady(13) voice=0.15 impact=0.62 machine=0.02 | Dishes, pots, and pans 0.33, Cutlery, silverware 0.26, Speech 0.15, Stir 0.08, Inside, small room 0.08
+23:22:40.536 window id=B hush=false label=HUMAN TAPPING rms=0.0006 floor=0.0013 taps=0 rej=0 peak=x4 acc=0 accMax=0.021 accRms=0.007 struct=true rhythm=0.9/steady(13) voice=0.80 impact=0.00 machine=0.00 | Speech 0.80, Spray 0.02, Inside, large room or hall 0.02, Inside, public space 0.02, Snake 0.01
+23:22:41.531 Onset @4792931 (+852 ms) peak=0.014 x11 rise=1 dl=-24.75 q=0.65 heading=228
+23:22:41.534 window id=B hush=false label=HUMAN TAPPING rms=0.0009 floor=0.0013 taps=1 rej=0 peak=x4 acc=0 accMax=0.020 accRms=0.008 struct=true rhythm=0.9/steady(11) voice=0.75 impact=0.02 machine=0.00 | Speech 0.74, Inside, large room or hall 0.02, Dishes, pots, and pans 0.02, Cutlery, silverware 0.01, Inside, small room 0.01
+23:22:42.529 classifier peak=0.02382 gain=20.0
+23:22:42.532 Onset @4804990 (+103 ms) peak=0.015 x16 rise=92 dl=23.08 q=0.33 heading=228
+23:22:42.532 Onset @4815236 (+317 ms) peak=0.020 x22 rise=235 dl=-24.71 q=0.57 heading=228
+23:22:42.532 Onset @4828003 (+583 ms) peak=0.019 x21 rise=224 dl=-24.84 q=0.62 heading=228
+23:22:42.534 window id=B hush=false label=HUMAN TAPPING rms=0.0018 floor=0.0013 taps=3 rej=1 peak=x8 acc=0 accMax=0.020 accRms=0.008 struct=false rhythm=0.9/steady(13) voice=0.02 impact=0.45 machine=0.09 | Stir 0.26, Dishes, pots, and pans 0.20, Cutlery, silverware 0.20, Liquid 0.11, Sizzle 0.11
+23:22:43.529 Onset @4850645 (+55 ms) peak=0.018 x9 rise=39 dl=-24.72 q=0.65 heading=228
+23:22:43.529 Onset @4862648 (+305 ms) peak=0.025 x12 rise=114 dl=-24.60 q=0.81 heading=228
+23:22:43.530 Onset @4872698 (+514 ms) peak=0.021 x11 rise=181 dl=-25.00 q=0.65 heading=228
+23:22:43.532 window id=B hush=false label=quiet rms=0.0021 floor=0.0013 taps=3 rej=0 peak=x5 acc=0 accMax=0.021 accRms=0.008 struct=false rhythm=0.5/null(14) voice=0.09 impact=0.43 machine=0.02 | Dishes, pots, and pans 0.20, Cutlery, silverware 0.15, Stir 0.11, Speech 0.08, Inside, small room 0.08
+23:22:44.528 Onset @4936662 (+847 ms) peak=0.007 x8 rise=172 dl=0.42 q=0.99 heading=228
+23:22:44.530 window id=B hush=false label=quiet rms=0.0004 floor=0.0013 taps=1 rej=2 peak=x5 acc=0 accMax=0.021 accRms=0.007 struct=false rhythm=0.5/null(14) voice=0.15 impact=0.00 machine=0.00 | Speech 0.15, Animal 0.06, Livestock, farm animals, working animals 0.03, Wild animals 0.03, Outside, rural or natural 0.03
+23:22:45.531 Onset @4972024 (+583 ms) peak=0.005 x9 rise=183 dl=-0.25 q=0.98 heading=228
+23:22:45.532 Onset @4984910 (+852 ms) peak=0.022 x34 rise=188 dl=-24.42 q=0.67 heading=228
+23:22:45.535 window id=B hush=false label=HUMAN TAPPING rms=0.0010 floor=0.0013 taps=2 rej=0 peak=x10 acc=0 accMax=0.023 accRms=0.007 struct=false rhythm=0.9/steady(15) voice=0.11 impact=0.27 machine=0.07 | Speech 0.11, Dishes, pots, and pans 0.11, Cutlery, silverware 0.08, Inside, small room 0.08, Tools 0.06
+23:22:46.534 window id=B hush=false label=quiet rms=0.0014 floor=0.0013 taps=0 rej=0 peak=x3 acc=0 accMax=0.020 accRms=0.008 struct=false rhythm=0.5/null(12) voice=0.11 impact=0.41 machine=0.02 | Stir 0.33, Dishes, pots, and pans 0.20, Cutlery, silverware 0.20, Speech 0.11, Liquid 0.11
+23:22:47.532 Onset @5042632 (+54 ms) peak=0.015 x10 rise=31 dl=-25.06 q=0.56 heading=228
+23:22:47.533 Onset @5065684 (+535 ms) peak=0.023 x16 rise=657 dl=-25.03 q=0.65 heading=228
+23:22:47.535 window id=B hush=false label=quiet rms=0.0019 floor=0.0013 taps=2 rej=0 peak=x6 acc=0 accMax=0.394 accRms=0.047 struct=false rhythm=0.5/null(12) voice=0.06 impact=0.04 machine=0.02 | Livestock, farm animals, working animals 0.26, Animal 0.20, Fowl 0.20, Duck 0.11, Goat 0.08
+23:22:48.532 window id=B hush=false label=HUMAN VOICE rms=0.0005 floor=0.0013 taps=0 rej=0 peak=x4 acc=0 accMax=0.031 accRms=0.008 struct=false rhythm=0.5/null(12) voice=0.34 impact=0.05 machine=0.00 | Speech 0.33, Ping 0.03, Inside, large room or hall 0.03, Door 0.02, Music 0.02
+23:22:49.531 Onset @5176961 (+853 ms) peak=0.018 x23 rise=238 dl=-24.63 q=0.64 heading=228
+23:22:49.534 window id=B hush=false label=quiet rms=0.0010 floor=0.0013 taps=1 rej=0 peak=x7 acc=0 accMax=0.021 accRms=0.007 struct=false rhythm=0.5/null(12) voice=0.21 impact=0.12 machine=0.02 | Speech 0.20, Livestock, farm animals, working animals 0.08, Animal 0.06, Dishes, pots, and pans 0.04, Inside, small room 0.04
+23:22:50.529 Onset @5189034 (+104 ms) peak=0.019 x18 rise=128 dl=-24.46 q=0.76 heading=228
+23:22:50.530 Onset @5199099 (+314 ms) peak=0.024 x22 rise=180 dl=-25.13 q=0.64 heading=228
+23:22:50.530 Onset @5211187 (+566 ms) peak=0.017 x16 rise=118 dl=-25.54 q=0.66 heading=228
+23:22:50.534 window id=B hush=false label=HUMAN TAPPING rms=0.0020 floor=0.0013 taps=3 rej=0 peak=x8 acc=0 accMax=0.024 accRms=0.007 struct=false rhythm=0.9/steady(12) voice=0.01 impact=0.25 machine=0.12 | Stir 0.33, Liquid 0.20, Sizzle 0.20, Frying (food) 0.15, Dishes, pots, and pans 0.11
+23:22:51.531 Onset @5234582 (+53 ms) peak=0.018 x18 rise=120 dl=-25.57 q=0.63 heading=228
+23:22:51.531 Onset @5246521 (+302 ms) peak=0.018 x18 rise=25 dl=-24.46 q=0.70 heading=228
+23:22:51.531 Onset @5254950 (+478 ms) peak=0.023 x23 rise=43 dl=-24.37 q=0.75 heading=228
+23:22:51.534 window id=B hush=false label=HUMAN TAPPING rms=0.0013 floor=0.0013 taps=3 rej=0 peak=x7 acc=0 accMax=0.021 accRms=0.007 struct=false rhythm=0.9/steady(12) voice=0.04 impact=0.50 machine=0.03 | Stir 0.41, Dishes, pots, and pans 0.26, Cutlery, silverware 0.20, Sizzle 0.20, Frying (food) 0.15
+23:22:52.526 classifier peak=0.00567 gain=20.0
+23:22:52.531 window id=B hush=false label=HUMAN TAPPING rms=0.0004 floor=0.0012 taps=0 rej=0 peak=x4 acc=0 accMax=0.021 accRms=0.008 struct=false rhythm=0.9/steady(11) voice=0.50 impact=0.00 machine=0.00 | Speech 0.50, Inside, large room or hall 0.03, Animal 0.02, Inside, small room 0.01, Breathing 0.00
+23:22:53.533 window id=B hush=false label=HUMAN VOICE rms=0.0004 floor=0.0011 taps=0 rej=1 peak=x5 acc=0 accMax=0.026 accRms=0.008 struct=false rhythm=0.5/null(9) voice=0.59 impact=0.00 machine=0.00 | Speech 0.59, Inside, large room or hall 0.03, Inside, small room 0.01, Narration, monologue 0.00, Animal 0.00
+23:22:54.535 Onset @5379642 (+75 ms) peak=0.004 x6 rise=0 dl=-0.16 q=0.95 heading=228
+23:22:54.536 Onset @5383313 (+152 ms) peak=0.006 x8 rise=282 dl=0.10 q=0.97 heading=228
+23:22:54.539 window id=B hush=false label=HUMAN TAPPING rms=0.0004 floor=0.0011 taps=2 rej=0 peak=x4 acc=0 accMax=0.025 accRms=0.007 struct=false rhythm=0.9/steady(10) voice=0.67 impact=0.00 machine=0.00 | Speech 0.67, Insect 0.04, Bee, wasp, etc. 0.02, Animal 0.02, Fly, housefly 0.02
+23:22:55.533 window id=B hush=false label=HUMAN VOICE rms=0.0003 floor=0.0011 taps=0 rej=0 peak=x3 acc=0 accMax=0.024 accRms=0.008 struct=false rhythm=0.5/null(8) voice=0.86 impact=0.00 machine=0.00 | Speech 0.85, Inside, large room or hall 0.01, Animal 0.01, Outside, urban or manmade 0.01, Outside, rural or natural 0.01
+23:22:56.528 Onset @5503036 (+646 ms) peak=0.004 x6 rise=19 dl=-0.07 q=0.96 heading=228
+23:22:56.530 window id=B hush=false label=HUMAN VOICE rms=0.0004 floor=0.0011 taps=1 rej=1 peak=x4 acc=0 accMax=0.019 accRms=0.007 struct=false rhythm=0.5/null(9) voice=0.59 impact=0.00 machine=0.00 | Speech 0.59, Inside, large room or hall 0.02, Animal 0.01, Music 0.01, Inside, small room 0.01
+23:22:57.530 window id=B hush=false label=HUMAN TAPPING rms=0.0006 floor=0.0010 taps=0 rej=0 peak=x4 acc=0 accMax=0.025 accRms=0.007 struct=false rhythm=0.9/steady(8) voice=0.09 impact=0.05 machine=0.02 | Speech 0.08, Inside, small room 0.08, Animal 0.06, Domestic animals, pets 0.04, Dog 0.03
+23:22:58.530 Onset @5572403 (+91 ms) peak=0.007 x6 rise=0 dl=0.40 q=0.97 heading=228
+23:22:58.530 Onset @5576168 (+170 ms) peak=0.007 x7 rise=13 dl=-0.10 q=0.96 heading=228
+23:22:58.530 Onset @5593124 (+523 ms) peak=0.006 x6 rise=0 dl=-0.44 q=0.98 heading=228
+23:22:58.530 Onset @5608990 (+853 ms) peak=0.015 x13 rise=58 dl=-24.56 q=0.64 heading=228
+23:22:58.532 window id=B hush=false label=HUMAN TAPPING rms=0.0008 floor=0.0010 taps=4 rej=0 peak=x4 acc=0 accMax=0.018 accRms=0.007 struct=false rhythm=0.9/steady(8) voice=0.08 impact=0.01 machine=0.02 | Speech 0.08, Animal 0.06, Snake 0.03, Bicycle 0.03, Livestock, farm animals, working animals 0.02
+23:22:59.528 Onset @5628159 (+253 ms) peak=0.021 x18 rise=236 dl=-24.56 q=0.71 heading=228
+23:22:59.528 Onset @5639214 (+483 ms) peak=0.016 x14 rise=226 dl=-24.66 q=0.70 heading=228
+23:22:59.528 Onset @5647373 (+653 ms) peak=0.018 x16 rise=188 dl=-24.68 q=0.72 heading=228
+23:22:59.530 window id=B hush=false label=MACHINERY rms=0.0018 floor=0.0012 taps=3 rej=0 peak=x6 acc=0 accMax=0.019 accRms=0.007 struct=false rhythm=0.5/null(8) voice=0.03 impact=0.06 machine=0.42 | Engine 0.11, Vehicle 0.08, Engine starting 0.08, Livestock, farm animals, working animals 0.06, Animal 0.04
+23:23:00.531 Onset @5666636 (+54 ms) peak=0.021 x19 rise=127 dl=-24.68 q=0.81 heading=228
+23:23:00.532 Onset @5676700 (+264 ms) peak=0.022 x19 rise=169 dl=-25.15 q=0.66 heading=228
+23:23:00.532 Onset @5685713 (+452 ms) peak=0.023 x20 rise=212 dl=-24.41 q=0.65 heading=228
+23:23:00.532 Onset @5695985 (+666 ms) peak=0.015 x13 rise=160 dl=-25.58 q=0.63 heading=228
+23:23:00.533 Onset @5705052 (+855 ms) peak=0.014 x12 rise=178 dl=-25.69 q=0.61 heading=228
+23:23:00.536 window id=B hush=false label=MACHINERY rms=0.0021 floor=0.0012 taps=5 rej=0 peak=x8 acc=0 accMax=0.024 accRms=0.007 struct=false rhythm=0.5/null(13) voice=0.01 impact=0.20 machine=0.41 | Engine 0.15, Tools 0.08, Hammer 0.08, Snake 0.04, Rattle 0.04
+23:23:01.533 Onset @5732562 (+428 ms) peak=0.018 x17 rise=31 dl=-24.49 q=0.78 heading=228
+23:23:01.534 Onset @5743374 (+653 ms) peak=0.017 x16 rise=189 dl=-24.69 q=0.55 heading=228
+23:23:01.535 Onset @5753648 (+867 ms) peak=0.021 x20 rise=213 dl=-24.92 q=0.68 heading=228
+23:23:01.537 window id=B hush=false label=quiet rms=0.0015 floor=0.0012 taps=3 rej=0 peak=x7 acc=0 accMax=0.023 accRms=0.008 struct=false rhythm=0.5/null(16) voice=0.06 impact=0.21 machine=0.09 | Stir 0.33, Liquid 0.20, Frying (food) 0.15, Sizzle 0.15, Dishes, pots, and pans 0.08
+23:23:02.528 classifier peak=0.03681 gain=20.0
+23:23:02.531 Onset @5773615 (+283 ms) peak=0.021 x10 rise=89 dl=-24.68 q=0.73 heading=228
+23:23:02.531 Onset @5781861 (+455 ms) peak=0.020 x10 rise=126 dl=-24.84 q=0.74 heading=228
+23:23:02.531 Onset @5800356 (+840 ms) peak=0.044 x21 rise=15 dl=-23.51 q=0.57 heading=228
+23:23:02.534 window id=B hush=false label=quiet rms=0.0023 floor=0.0013 taps=3 rej=0 peak=x5 acc=0 accMax=0.049 accRms=0.012 struct=false rhythm=0.5/null(18) voice=0.04 impact=0.27 machine=0.03 | Dishes, pots, and pans 0.15, Cutlery, silverware 0.08, Stir 0.08, Speech 0.04, Inside, small room 0.04
+23:23:03.530 Onset @5811138 (+65 ms) peak=0.027 x16 rise=131 dl=-24.52 q=0.62 heading=228
+23:23:03.530 Onset @5820111 (+252 ms) peak=0.032 x19 rise=160 dl=-24.29 q=0.71 heading=228
+23:23:03.530 Onset @5839461 (+655 ms) peak=0.015 x9 rise=104 dl=-25.61 q=0.58 heading=228
+23:23:03.533 window id=B hush=false label=MACHINERY rms=0.0019 floor=0.0013 taps=3 rej=0 peak=x5 acc=0 accMax=0.031 accRms=0.008 struct=false rhythm=0.5/null(21) voice=0.02 impact=0.13 machine=0.39 | Engine 0.15, Tools 0.08, Mechanisms 0.06, Sewing machine 0.06, Hammer 0.06
+23:23:04.528 Onset @5877829 (+454 ms) peak=0.018 x12 rise=669 dl=-24.77 q=0.47 heading=228
+23:23:04.528 Onset @5896958 (+853 ms) peak=0.024 x16 rise=223 dl=-24.53 q=0.73 heading=228
+23:23:04.531 window id=B hush=false label=quiet rms=0.0018 floor=0.0013 taps=2 rej=0 peak=x5 acc=0 accMax=0.158 accRms=0.022 struct=false rhythm=0.5/null(22) voice=0.02 impact=0.27 machine=0.30 | Typing 0.15, Engine 0.11, Typewriter 0.11, Mechanisms 0.11, Ratchet, pawl 0.11
+23:23:05.530 Onset @5908086 (+85 ms) peak=0.016 x11 rise=166 dl=-24.32 q=0.64 heading=228
+23:23:05.530 Onset @5920670 (+347 ms) peak=0.009 x6 rise=0 dl=-0.27 q=0.91 heading=228
+23:23:05.530 Onset @5935448 (+655 ms) peak=0.023 x16 rise=138 dl=-24.67 q=0.82 heading=228
+23:23:05.530 Onset @5945510 (+864 ms) peak=0.026 x18 rise=169 dl=-24.95 q=0.65 heading=228
+23:23:05.533 window id=B hush=false label=quiet rms=0.0020 floor=0.0013 taps=4 rej=0 peak=x6 acc=0 accMax=0.023 accRms=0.007 struct=false rhythm=0.5/null(26) voice=0.02 impact=0.46 machine=0.02 | Stir 0.80, Liquid 0.50, Sizzle 0.50, Frying (food) 0.41, Dishes, pots, and pans 0.26
+23:23:06.531 Onset @5954516 (+52 ms) peak=0.022 x14 rise=183 dl=-24.62 q=0.71 heading=228
+23:23:06.531 Onset @5964806 (+266 ms) peak=0.020 x13 rise=100 dl=-25.15 q=0.64 heading=228
+23:23:06.532 Onset @5973740 (+452 ms) peak=0.022 x15 rise=146 dl=-25.37 q=0.78 heading=228
+23:23:06.535 window id=B hush=false label=quiet rms=0.0017 floor=0.0014 taps=3 rej=0 peak=x5 acc=0 accMax=0.021 accRms=0.008 struct=false rhythm=0.5/null(26) voice=0.06 impact=0.63 machine=0.07 | Stir 0.50, Dishes, pots, and pans 0.26, Cutlery, silverware 0.26, Liquid 0.26, Frying (food) 0.15
+23:23:07.531 Onset @6012246 (+255 ms) peak=0.018 x10 rise=117 dl=-24.83 q=0.50 heading=228
+23:23:07.531 Onset @6031359 (+653 ms) peak=0.022 x12 rise=220 dl=-24.57 q=0.65 heading=228
+23:23:07.532 Onset @6042404 (+883 ms) peak=0.023 x13 rise=225 dl=-24.46 q=0.66 heading=228
+23:23:07.535 window id=B hush=false label=quiet rms=0.0020 floor=0.0015 taps=3 rej=0 peak=x4 acc=0 accMax=0.026 accRms=0.007 struct=false rhythm=0.5/null(26) voice=0.04 impact=0.55 machine=0.34 | Stir 0.67, Frying (food) 0.33, Liquid 0.33, Sizzle 0.33, Dishes, pots, and pans 0.20
+23:23:08.533 Onset @6050572 (+53 ms) peak=0.020 x16 rise=191 dl=-24.62 q=0.68 heading=228
+23:23:08.534 Onset @6069822 (+454 ms) peak=0.023 x19 rise=163 dl=-24.66 q=0.80 heading=228
+23:23:08.535 Onset @6079899 (+664 ms) peak=0.029 x23 rise=180 dl=-24.95 q=0.62 heading=228
+23:23:08.538 window id=B hush=false label=HUMAN TAPPING rms=0.0020 floor=0.0015 taps=3 rej=0 peak=x7 acc=0 accMax=0.205 accRms=0.022 struct=false rhythm=1.0/9(24) voice=0.06 impact=0.61 machine=0.05 | Dishes, pots, and pans 0.26, Stir 0.26, Cutlery, silverware 0.20, Liquid 0.20, Sizzle 0.15
+23:23:09.531 window id=B hush=false label=HUMAN TAPPING rms=0.0007 floor=0.0014 taps=0 rej=0 peak=x4 acc=0 accMax=0.057 accRms=0.011 struct=false rhythm=0.9/steady(21) voice=0.11 impact=0.09 machine=0.02 | Speech 0.11, Inside, large room or hall 0.08, Door 0.03, Sliding door 0.03, Hammer 0.03
+23:23:10.532 Onset @6166291 (+464 ms) peak=0.006 x6 rise=176 dl=2.08 q=0.96 heading=228
+23:23:10.535 window id=B hush=false label=HUMAN TAPPING rms=0.0005 floor=0.0014 taps=1 rej=0 peak=x4 acc=0 accMax=0.021 accRms=0.008 struct=false rhythm=0.9/steady(19) voice=0.80 impact=0.00 machine=0.00 | Speech 0.80, Inside, large room or hall 0.02, Animal 0.00, Inside, small room 0.00, Inside, public space 0.00
+23:23:11.530 window id=B hush=false label=HUMAN TAPPING rms=0.0004 floor=0.0014 taps=0 rej=0 peak=x3 acc=0 accMax=0.023 accRms=0.008 struct=false rhythm=0.9/steady(16) voice=0.15 impact=0.03 machine=0.03 | Speech 0.15, Printer 0.08, Mechanisms 0.04, Animal 0.02, Livestock, farm animals, working animals 0.02
+23:23:12.527 classifier peak=0.01112 gain=20.0
+23:23:12.532 window id=B hush=false label=HUMAN TAPPING rms=0.0007 floor=0.0013 taps=0 rej=1 peak=x4 acc=0 accMax=0.113 accRms=0.014 struct=false rhythm=0.9/steady(14) voice=0.09 impact=0.04 machine=0.01 | Speech 0.08, Animal 0.04, Inside, small room 0.04, Inside, large room or hall 0.04, Sliding door 0.03
+23:23:13.533 window id=B hush=false label=quiet rms=0.0005 floor=0.0010 taps=0 rej=0 peak=x4 acc=0 accMax=0.030 accRms=0.008 struct=false rhythm=0.5/null(10) voice=0.20 impact=0.00 machine=0.00 | Speech 0.20, Animal 0.04, Wild animals 0.03, Inside, small room 0.03, Bird 0.02
+23:23:14.531 window id=B hush=false label=quiet rms=0.0005 floor=0.0010 taps=0 rej=0 peak=x3 acc=0 accMax=0.030 accRms=0.008 struct=false rhythm=0.5/null(7) voice=0.20 impact=0.00 machine=0.01 | Speech 0.20, Animal 0.04, Horse 0.04, Clip-clop 0.04, Outside, rural or natural 0.04
+23:23:15.536 window id=B hush=false label=HUMAN VOICE rms=0.0005 floor=0.0010 taps=0 rej=0 peak=x3 acc=0 accMax=0.020 accRms=0.007 struct=false rhythm=0.5/null(4) voice=0.41 impact=0.00 machine=0.03 | Speech 0.41, Printer 0.02, Outside, urban or manmade 0.02, Snake 0.02, Mechanisms 0.02
+23:23:16.531 Onset @6436308 (+89 ms) peak=0.014 x14 rise=719 dl=-4.04 q=0.72 heading=228
+23:23:16.531 Onset @6477752 (+953 ms) peak=0.004 x4 rise=0 dl=0.16 q=0.98 heading=228
+23:23:16.533 window id=B hush=false label=quiet rms=0.0005 floor=0.0008 taps=2 rej=0 peak=x5 acc=0 accMax=0.021 accRms=0.008 struct=false rhythm=0.5/null(3) voice=0.15 impact=0.01 machine=0.02 | Speech 0.15, Animal 0.02, Inside, small room 0.02, Domestic animals, pets 0.01, Snake 0.01
+23:23:17.531 Onset @6513915 (+706 ms) peak=0.008 x6 rise=0 dl=0.38 q=0.98 heading=228
+23:23:17.533 window id=B hush=false label=HUMAN VOICE rms=0.0005 floor=0.0007 taps=1 rej=0 peak=x4 acc=0 accMax=0.025 accRms=0.008 struct=false rhythm=0.5/null(4) voice=0.50 impact=0.01 machine=0.01 | Speech 0.50, Sizzle 0.03, Snake 0.02, Fire 0.02, Bicycle 0.02
+23:23:18.528 Onset @6536787 (+183 ms) peak=0.005 x6 rise=0 dl=-0.35 q=0.97 heading=228
+23:23:18.531 window id=B hush=false label=HUMAN TAPPING rms=0.0004 floor=0.0007 taps=1 rej=1 peak=x4 acc=0 accMax=0.019 accRms=0.007 struct=false rhythm=0.9/steady(4) voice=0.41 impact=0.00 machine=0.00 | Speech 0.41, Animal 0.02, Walk, footsteps 0.02, Clip-clop 0.02, Horse 0.01
+23:23:19.531 Onset @6619317 (+902 ms) peak=0.007 x8 rise=66 dl=3.55 q=0.98 heading=228
+23:23:19.534 window id=B hush=false label=HUMAN TAPPING rms=0.0004 floor=0.0007 taps=1 rej=0 peak=x5 acc=0 accMax=0.035 accRms=0.008 struct=false rhythm=0.9/steady(5) voice=0.20 impact=0.00 machine=0.02 | Speech 0.20, Outside, urban or manmade 0.03, Outside, rural or natural 0.03, Animal 0.02, Snake 0.01
+23:23:20.529 Onset @6626127 (+44 ms) peak=0.006 x5 rise=0 dl=0.13 q=0.98 heading=228
+23:23:20.531 window id=B hush=false label=HUMAN VOICE rms=0.0005 floor=0.0006 taps=1 rej=1 peak=x4 acc=0 accMax=0.022 accRms=0.007 struct=false rhythm=0.5/null(6) voice=0.42 impact=0.02 machine=0.00 | Speech 0.41, Inside, large room or hall 0.03, Inside, small room 0.02, Animal 0.01, Domestic animals, pets 0.01

@@ -138,6 +138,13 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private var lastRoutedMs = 0L
     private const val PASSIVE_AFTER_MS = 10 * 60_000L
 
+    /** Calibration: play a WAV from the app's private files (see [com.hush.audio.Player]). Any role. */
+    fun playFile(name: String, fraction: Float) {
+        val ctx = appContext ?: return
+        val cap = capture
+        com.hush.audio.Player.play(ctx, File(ctx.filesDir, name), fraction) { cap?.samplesCaptured ?: -1L }
+    }
+
     /** Commander: broadcast the probe (PRD "RADIO SWEEP / ACTIVATE SENSORS"). Repeatable at any time. */
     fun activateSensors(): Boolean {
         val ctx = appContext ?: return false
@@ -370,7 +377,10 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private fun runLocator() {
         val cap = capture ?: return
         val now = SystemClock.elapsedRealtime()
-        val useKnocks = mode != Mode.VOICE
+        // Room noises are onsets too and would be located as if they were knocks: fuse knocks only while
+        // some phone hears deliberate tapping (rhythm evidence) or a Hush window is running.
+        val tapping = inHush || live.values.any { it.evidence * decay(now - it.lastMs) >= 0.9f }
+        val useKnocks = mode != Mode.VOICE && tapping
         val useVoice = mode != Mode.TAPPING
         val changed = try {
             locator.process(cap.samplesCaptured, now, mirror, { micGain[it] ?: 1f }, useKnocks, useVoice)
@@ -472,9 +482,23 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         private set
     var mirror = false   // commander's "flip" for the mirror ambiguity of a triangle
 
-    private const val CHIRP_GAP_MS = 1800L
-    private const val SEARCH_BEFORE_MS = 200
-    private const val SEARCH_AFTER_MS = 1300
+    /**
+     * Ranging is SERIALISED: one letter chirps, everyone reports, then the next letter. Commands over the
+     * mesh were measured 26 Sep 23:13 to take 0.6 s on one sensor and 1.4–20 s on another, so a fixed
+     * 1.8 s schedule put chirps outside the search windows. Now each phone searches ±2.5 s around the
+     * moment it received the command (bounded below by the last chirp it heard), and the commander moves
+     * on when every phone has reported or after [CHIRP_TIMEOUT_MS].
+     */
+    private const val SEARCH_BEFORE_MS = 2500
+    private const val SEARCH_AFTER_MS = 2500
+    private const val CHIRP_TIMEOUT_MS = 7000L
+    private const val CHIRP_SETTLE_MS = 400L
+    private var roundQueue: List<String> = emptyList()     // letters still to chirp in this pass
+    private var roundAll: List<String> = emptyList()       // all letters of the round (for finishRanging)
+    private var roundIndex = 0
+    private var reportsForCurrent = 0
+    /** Sample at which this phone last detected any chirp: the next search starts after it. */
+    @Volatile private var lastChirpDetectedSample = -1L
 
     /** Commander: run one chirp per phone, then place the dots from the pairwise distances. */
     fun autoPlace() {
@@ -488,10 +512,32 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         doaAll.clear()
         setRangingStatus("Ranging: chirping ${letters.joinToString(" ")}…")
         sessionLog.addRecord("ranging_start", mapOf("letters" to letters.joinToString(" ")))
-        letters.forEachIndexed { i, l ->
-            main.postDelayed({ triggerChirp(l) }, chirpToken, i * CHIRP_GAP_MS)
-        }
-        main.postDelayed({ finishRanging(letters) }, chirpToken, letters.size * CHIRP_GAP_MS + 2500)
+        startChirpSequence(letters, letters)
+    }
+
+    private fun startChirpSequence(queue: List<String>, all: List<String>) {
+        roundQueue = queue; roundAll = all; roundIndex = 0
+        main.removeCallbacksAndMessages(chirpToken)
+        nextChirp()
+    }
+
+    /** Commander: chirp the next letter of the queue, or finish the round when the queue is done. */
+    private fun nextChirp() {
+        if (role != ROLE_COMMANDER) return
+        if (roundIndex >= roundQueue.size) { finishRanging(roundAll); return }
+        val l = roundQueue[roundIndex]
+        reportsForCurrent = 0
+        triggerChirp(l)
+        main.postDelayed({
+            HLog.d("Ranging: chirp $l reported by $reportsForCurrent of ${roundAll.size} phones after ${CHIRP_TIMEOUT_MS / 1000} s, moving on")
+            advanceChirp()
+        }, chirpToken, CHIRP_TIMEOUT_MS)
+    }
+
+    private fun advanceChirp() {
+        main.removeCallbacksAndMessages(chirpToken)
+        roundIndex++
+        main.postDelayed({ nextChirp() }, chirpToken, CHIRP_SETTLE_MS)
     }
 
     /** Commander: tell [letter] to chirp now; everyone (including us) listens for it. */
@@ -504,10 +550,14 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     /** Every phone: a chirp from [letter] is about to happen. Play it if it is ours, and search for it. */
     private fun onChirpCommand(letter: String) {
         val cap = capture ?: return
-        val startSample = cap.samplesCaptured - AudioCapture.SAMPLE_RATE.toLong() * SEARCH_BEFORE_MS / 1000
+        val fs = AudioCapture.SAMPLE_RATE.toLong()
+        val now = cap.samplesCaptured
+        // Search from 2.5 s before the command (but after the previous chirp we heard) to 2.5 s after it.
+        val startSample = maxOf(now - fs * SEARCH_BEFORE_MS / 1000, if (lastChirpDetectedSample > 0) lastChirpDetectedSample + fs * 3 / 10 else 0L)
+        val endSample = now + fs * SEARCH_AFTER_MS / 1000
         lastChirpMs = SystemClock.elapsedRealtime()
         if (letter == this.letter) appContext?.let { com.hush.audio.Chirp.play(it) }
-        val count = AudioCapture.SAMPLE_RATE * (SEARCH_BEFORE_MS + SEARCH_AFTER_MS) / 1000
+        val count = (endSample - startSample).toInt()
         main.postDelayed(Runnable {
             Thread {
                 val audio = cap.snapshot(startSample, count)
@@ -515,7 +565,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 val t0 = SystemClock.elapsedRealtime()
                 val det = com.hush.audio.Chirp.detect(audio, count)
                 val at = startSample + det.offset
-                HLog.d("Chirp from $letter heard by ${this.letter}: offset=${det.offset} sample=$at peak=%.2f ratio=%.1f (%d ms)".format(det.peak, det.ratio, SystemClock.elapsedRealtime() - t0))
+                if (det.offset >= 0 && det.ratio >= 5f) lastChirpDetectedSample = at
+                HLog.d("Chirp from $letter heard by ${this.letter}: offset=${det.offset} sample=$at peak=%.2f ratio=%.1f firstArrivalShift=%d (%d ms)".format(det.peak, det.ratio, det.firstArrivalShift, SystemClock.elapsedRealtime() - t0))
                 if (det.offset < 0 || det.ratio < 5f) { HLog.d("Chirp from $letter: not credible, dropped"); return@Thread }
                 // Second mic: same full search, so its peak is judged against the same baseline; the
                 // sub-sample difference between the two peaks is the inter-mic delay (direction of arrival).
@@ -558,6 +609,10 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private fun onChirpReport(r: com.hush.model.ChirpReport) {
         heard.getOrPut(r.hearer) { HashMap() }[r.from] = r.sample
         chirpTriggerMs[r.from]?.let { heardTrig.getOrPut(r.hearer) { HashMap() }[r.from] = it }
+        if (rangingInProgress && roundIndex < roundQueue.size && r.from == roundQueue[roundIndex]) {
+            reportsForCurrent++
+            if (reportsForCurrent >= roundAll.size) { HLog.d("Ranging: chirp ${r.from} reported by all ${roundAll.size} phones"); advanceChirp() }
+        }
         if (r.level != null) chirpLevel.getOrPut(r.hearer) { HashMap() }[r.from] = r.level
         HLog.d("Chirp report: ${r.hearer} heard ${r.from} at ${r.sample} ratio=%.1f level=%s".format(r.ratio, r.level?.let { "%.5f".format(it) } ?: "-"))
         if (r.hearer == "A" && r.micDelay != null && r.heading != null) doaThisRound[r.from] = r.micDelay to r.heading
@@ -683,15 +738,31 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         // drop it. Trigger times rather than "letter order × gap", so after a retry the re-chirped
         // letters (sent seconds later) are judged against their own trigger and earlier good pairs survive.
         val fs = AudioCapture.SAMPLE_RATE
+        // Step 1, loose: a chirp cannot be heard more than 1.5 s away from where its trigger time puts it
+        // (commands have been seen to reach a sensor seconds late, so this only catches gross errors).
         for ((hearer, byFrom) in heard) {
             val trig = heardTrig[hearer] ?: HashMap()
             val ref = letters.firstOrNull { byFrom.containsKey(it) && trig.containsKey(it) } ?: continue
             val tRef = byFrom[ref]!!; val trigRef = trig[ref]!!
             val bad = byFrom.filter { (from, t) ->
                 val tr = trig[from] ?: return@filter true
-                from != ref && kotlin.math.abs((t - tRef) - (tr - trigRef) * fs / 1000.0) > 0.35 * fs
+                from != ref && kotlin.math.abs((t - tRef) - (tr - trigRef) * fs / 1000.0) > 1.5 * fs
             }.keys
-            if (bad.isNotEmpty()) { HLog.d("Ranging: $hearer had wrong peaks for $bad, dropped"); bad.forEach { byFrom.remove(it); trig.remove(it) } }
+            if (bad.isNotEmpty()) { HLog.d("Ranging: $hearer had grossly wrong peaks for $bad, dropped"); bad.forEach { byFrom.remove(it); trig.remove(it) } }
+        }
+        // Step 2, tight and clock-free: the gap between two chirps is the same on every hearer's clock to
+        // within the flight-time difference (< 0.1 s for phones < 30 m apart). A hearer whose gap disagrees
+        // with the majority picked a wrong peak (echo, the neighbouring chirp); drop that hearer's value.
+        val ref = letters.firstOrNull { l -> heard.values.count { it.containsKey(l) } >= 2 }
+        if (ref != null) for (j in letters) {
+            if (j == ref) continue
+            val gaps = heard.mapNotNull { (h, byFrom) -> val a = byFrom[ref]; val b = byFrom[j]; if (a != null && b != null) h to (b - a) else null }
+            if (gaps.size < 3) continue
+            val median = gaps.map { it.second }.sorted()[gaps.size / 2]
+            for ((h, g) in gaps) if (kotlin.math.abs(g - median) > 0.1 * fs) {
+                HLog.d("Ranging: $h heard $j %.0f ms off the other phones (gap to $ref), dropped".format((g - median) * 1000.0 / fs))
+                heard[h]?.remove(j)
+            }
         }
         val dist = HashMap<String, Double>()
         for (i in letters.indices) for (j in i + 1 until letters.size) {
@@ -710,8 +781,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 rangingInProgress = true
                 val again = missing.flatMap { listOf(it.first, it.second) }.distinct()
                 HLog.d("Ranging: pairs $missing missing, re-chirping $again")
-                again.forEachIndexed { i, l -> main.postDelayed({ triggerChirp(l) }, chirpToken, i * CHIRP_GAP_MS) }
-                main.postDelayed({ finishRanging(letters) }, chirpToken, again.size * CHIRP_GAP_MS + 2500)
+                startChirpSequence(again, letters)
                 return
             }
         }
@@ -1145,6 +1215,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         // Ranging and map: nothing from this session may leak into the next one.
         main.removeCallbacksAndMessages(chirpToken)
         rangingInProgress = false; retriedThisRound = false
+        roundQueue = emptyList(); roundAll = emptyList(); roundIndex = 0; reportsForCurrent = 0; lastChirpDetectedSample = -1L
         heard.clear(); heardTrig.clear(); chirpTriggerMs.clear(); chirpLevel.clear(); doaThisRound.clear(); lastRoundDist = null
         micGain.clear(); gainHistory.clear(); micSpacingHistory.clear(); rotationHistory.clear(); radioShown.clear()
         mapDots.clear(); rangingStatus = ""; mirror = false

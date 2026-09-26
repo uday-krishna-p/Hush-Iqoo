@@ -29,6 +29,8 @@ import com.hush.ui.SensorScreen
  *   adb shell am start -n com.hush/.MainActivity --es role COMMANDER     (or SENSOR)
  *   adb shell am start -n com.hush/.MainActivity --ez probe true          (commander: ACTIVATE SENSORS)
  *   adb shell am start -n com.hush/.MainActivity --ez hush true           (commander: HUSH, solo allowed)
+ *   adb shell am start -n com.hush/.MainActivity --ez range true          (commander: chirp ranging round)
+ *   adb shell am start -n com.hush/.MainActivity --es play knocks.wav --ef level 0.5   (any role: play files/knocks.wav)
  */
 class MainActivity : AppCompatActivity() {
 
@@ -37,6 +39,9 @@ class MainActivity : AppCompatActivity() {
         const val EXTRA_ROLE = "role"
         const val EXTRA_PROBE = "probe"
         const val EXTRA_HUSH = "hush"
+        const val EXTRA_RANGE = "range"
+        const val EXTRA_PLAY = "play"
+        const val EXTRA_PLAY_LEVEL = "level"
     }
 
     private var role: String? = null
@@ -92,7 +97,17 @@ class MainActivity : AppCompatActivity() {
             HLog.d("Hook: hush")
             if (Engine.role == Engine.ROLE_COMMANDER) { Engine.allowSoloHush = true; Engine.hush(20) } else HLog.d("Hook: hush ignored, not a commander")
         }
+        if (intent.getBooleanExtra(EXTRA_RANGE, false)) {
+            HLog.d("Hook: range")
+            if (Engine.role == Engine.ROLE_COMMANDER) Engine.autoPlace() else HLog.d("Hook: range ignored, not a commander")
+        }
+        intent.getStringExtra(EXTRA_PLAY)?.let { name ->
+            val fraction = intent.getFloatExtra(EXTRA_PLAY_LEVEL, 0.5f)
+            HLog.d("Hook: play $name at $fraction")
+            if (Engine.isRunning) Engine.playFile(name, fraction) else HLog.d("Hook: play ignored, engine not running")
+        }
         intent.removeExtra(EXTRA_ROLE); intent.removeExtra(EXTRA_PROBE); intent.removeExtra(EXTRA_HUSH)
+        intent.removeExtra(EXTRA_RANGE); intent.removeExtra(EXTRA_PLAY); intent.removeExtra(EXTRA_PLAY_LEVEL)
     }
 
     private fun showRolePicker() {
