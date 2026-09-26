@@ -65,8 +65,31 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
                 val base = if (d != null) activity.getString(R.string.arrow_target_dist, target, d) else activity.getString(R.string.arrow_target, target)
                 arrow.label = if (Engine.alignSource.isNotEmpty()) "$base · north via ${Engine.alignSource}" else base
             }
+            if (++ticks % 10 == 0) logArrow(fix, target, angle, srcAngle)
             arrow.postDelayed(this, 100)
         }
+    }
+    private var ticks = 0
+
+    /**
+     * Once a second: what the arrow points at and why, so its direction can be judged from the log (27 Sep):
+     * target, map bearing from A (clockwise from map-up), map rotation to north, compass heading, and the
+     * resulting angle on screen (bearing + rotation − heading, clockwise from the phone's top).
+     */
+    private fun logArrow(fix: com.hush.Locator.Fix?, target: String?, angle: Float?, srcAngle: Float?) {
+        fun f(v: Float?) = v?.let { "%.0f°".format(it) } ?: "-"
+        val rot = Engine.mapRotationDeg
+        val line = if (fix != null && srcAngle != null) {
+            "ARROW target=SOURCE (%.2f, %.2f) dist=%.2f m mapBearing=%s rotation=%s heading=%.0f° screen=%s | north via %s".format(
+                fix.x, fix.y, Engine.sourceDistanceMetres() ?: -1f, f(Engine.sourceBearing()), f(rot), Engine.headingDeg, f(srcAngle), Engine.alignSource.ifEmpty { "-" })
+        } else if (target != null) {
+            "ARROW target=Sensor $target dist=%s mapBearing=%s rotation=%s heading=%.0f° screen=%s%s | north via %s".format(
+                Engine.mapDistanceMetres("A", target)?.let { "%.2f m".format(it) } ?: "-", f(Engine.mapBearing("A", target)), f(rot), Engine.headingDeg, f(angle),
+                if (angle == null) " (no arrow: ${if (rot == null) "map not aligned to north" else "not placed"})" else "", Engine.alignSource.ifEmpty { "-" })
+        } else {
+            "ARROW no target (no sensor scoring, no located source) rotation=%s heading=%.0f°".format(f(rot), Engine.headingDeg)
+        }
+        com.hush.HLog.d(line)
     }
     private val placeRow: android.widget.LinearLayout = activity.findViewById(R.id.placeRow)
 

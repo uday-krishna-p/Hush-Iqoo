@@ -45,26 +45,31 @@ class AudioCapture(private val context: Context, private val listener: Listener)
         }
     }
 
-    /** Writes a valid 16-bit mono header for the bytes so far, so a hard kill still leaves a playable file. */
+    /** Channels in the debug WAV: both mics when capturing stereo (27 Sep: to check the two-mic delays offline). */
+    private var wavChannels = 1
+
+    /** Writes a valid 16-bit header for the bytes so far, so a hard kill still leaves a playable file. */
     private fun wavHeader() {
         val w = wav ?: return
         val bb = java.nio.ByteBuffer.allocate(44).order(java.nio.ByteOrder.LITTLE_ENDIAN)
         bb.put("RIFF".toByteArray()).putInt((36 + wavBytes).toInt()).put("WAVE".toByteArray())
-        bb.put("fmt ".toByteArray()).putInt(16).putShort(1).putShort(1).putInt(SAMPLE_RATE).putInt(SAMPLE_RATE * 2).putShort(2).putShort(16)
+        bb.put("fmt ".toByteArray()).putInt(16).putShort(1).putShort(wavChannels.toShort()).putInt(SAMPLE_RATE)
+            .putInt(SAMPLE_RATE * 2 * wavChannels).putShort((2 * wavChannels).toShort()).putShort(16)
         bb.put("data".toByteArray()).putInt(wavBytes.toInt())
         w.seek(0)
         w.write(bb.array())
         w.seek(44 + wavBytes)
     }
 
-    private fun wavWrite(chunk: ShortArray, n: Int) {
+    private fun wavWrite(chunk: ShortArray, chunk2: ShortArray?, n: Int) {
         val w = wav ?: return
-        if (wavBytes >= DEBUG_WAV_MAX_SECONDS.toLong() * SAMPLE_RATE * 2) return
-        val bb = java.nio.ByteBuffer.allocate(n * 2).order(java.nio.ByteOrder.LITTLE_ENDIAN)
-        for (i in 0 until n) bb.putShort(chunk[i])
+        val frame = 2 * wavChannels
+        if (wavBytes >= DEBUG_WAV_MAX_SECONDS.toLong() * SAMPLE_RATE * frame) return
+        val bb = java.nio.ByteBuffer.allocate(n * frame).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        for (i in 0 until n) { bb.putShort(chunk[i]); if (wavChannels == 2) bb.putShort(chunk2?.get(i) ?: chunk[i]) }
         w.write(bb.array())
-        wavBytes += n * 2
-        if ((wavBytes / 2) % SAMPLE_RATE < n) wavHeader()   // refresh the header about once a second
+        wavBytes += n * frame
+        if ((wavBytes / frame) % SAMPLE_RATE < n) wavHeader()   // refresh the header about once a second
     }
 
     private fun wavClose() {
@@ -197,6 +202,7 @@ class AudioCapture(private val context: Context, private val listener: Listener)
         var filled = 0
         try {
             rec.startRecording()
+            wavChannels = if (stereo) 2 else 1
             wavOpen()
             while (running) {
                 val got = rec.read(raw, 0, CHUNK * channels)
@@ -205,13 +211,14 @@ class AudioCapture(private val context: Context, private val listener: Listener)
                     Thread.sleep(50)
                     continue
                 }
+                if (got % channels != 0) HLog.d("ERROR: AudioRecord.read returned $got shorts, not whole stereo frames: the two mics may now be swapped")
                 val n = got / channels
                 if (stereo) {
                     for (i in 0 until n) { chunk[i] = raw[2 * i]; chunk2!![i] = raw[2 * i + 1] }
                 } else {
                     System.arraycopy(raw, 0, chunk, 0, n)
                 }
-                wavWrite(chunk, n)
+                wavWrite(chunk, chunk2, n)
                 ringPush(chunk, chunk2, n)
                 val chunkEndSample = samplesCaptured          // absolute index just past this chunk
                 var i = 0

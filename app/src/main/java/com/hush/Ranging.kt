@@ -20,8 +20,14 @@ object Ranging {
         return if (d.isNaN() || d < 0.0 || d > 60.0) null else d
     }
 
-    /** Roughly the mean speaker-to-mic distance inside a phone; both phones' own chirps are heard that far from the speaker. */
-    const val SPEAKER_MIC_OFFSET_M = 0.12
+    /**
+     * How much later a phone hears its OWN chirp than the model "heard at the speaker" says, in metres of sound
+     * (speaker-to-mic path inside the phone plus the pick's bias on a weak direct path between phones).
+     * Was 0.12 (fitted with the old detector). Calibrated 27 Sep against a tape measure: the ef39–6a46 pair
+     * (1.00 m) gave 29.5, 28 and 29 samples of self delay in three sessions with different commanders, i.e.
+     * 0.20–0.21 m. Pairs with 991e did not fit any constant (see CLAUDE.md), so this rests on one pair.
+     */
+    const val SPEAKER_MIC_OFFSET_M = 0.21
 
     /**
      * Places three phones from their three pairwise distances: A at origin, B on the +x axis, C above.

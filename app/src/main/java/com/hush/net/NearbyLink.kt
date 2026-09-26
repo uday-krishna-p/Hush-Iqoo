@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import com.google.android.gms.nearby.Nearby
 import com.google.android.gms.nearby.connection.AdvertisingOptions
+import com.google.android.gms.nearby.connection.BandwidthInfo
 import com.google.android.gms.nearby.connection.ConnectionInfo
 import com.google.android.gms.nearby.connection.ConnectionLifecycleCallback
 import com.google.android.gms.nearby.connection.ConnectionResolution
@@ -157,6 +158,13 @@ class NearbyLink(context: Context, private val localName: String, private val li
 
     private val lifecycle = object : ConnectionLifecycleCallback() {
         override fun onConnectionInitiated(endpointId: String, info: ConnectionInfo) {
+            // A sensor without a route must not adopt anyone: their join message would die here (27 Sep
+            // 23:48: 991e attached to ef39 seconds after ef39 had lost the commander and was never lettered).
+            if (isSensor && !isRouted && endpointId != connectingTo) {
+                HLog.d("Nearby: ${info.endpointName} ($endpointId) wants to route through us but we have no route, rejecting")
+                client.rejectConnection(endpointId)
+                return
+            }
             HLog.d("Nearby: connection initiated with ${info.endpointName} ($endpointId), accepting")
             pendingNames[endpointId] = info.endpointName
             client.acceptConnection(endpointId, payloads)
@@ -181,11 +189,21 @@ class NearbyLink(context: Context, private val localName: String, private val li
                 client.stopDiscovery()
                 advertise()                     // now others may route through us
                 listener.onRouteUp(hops)
+            } else if (isSensor && !isRouted) {
+                // Accepted while we were routed, completed after we lost the route: let it find another way.
+                HLog.d("Nearby: $name connected to us after we lost our route, disconnecting it so it re-routes")
+                client.disconnectFromEndpoint(endpointId)
             } else {
                 downstream[endpointId] = name
                 HLog.d("Nearby: DOWNSTREAM $name joined ($endpointId), ${downstream.size} below us")
             }
             refreshStatus()
+        }
+
+        // Diagnostics for the 27 Sep uplink stalls (reports 2–20 s late while commands went down in ~1 s):
+        // Nearby moves a link between Bluetooth and Wi-Fi on its own, which is a known cause of pauses.
+        override fun onBandwidthChanged(endpointId: String, info: BandwidthInfo) {
+            HLog.d("Nearby: link ${nameOf(endpointId)} bandwidth quality=${info.quality} (1=low: Bluetooth, 2=medium, 3=high: Wi-Fi)")
         }
 
         override fun onDisconnected(endpointId: String) {
@@ -210,15 +228,23 @@ class NearbyLink(context: Context, private val localName: String, private val li
     private val payloads = object : PayloadCallback() {
         override fun onPayloadReceived(endpointId: String, payload: Payload) {
             val bytes = payload.asBytes() ?: return
+            // Every neighbour sends at least one message a second (events up, or commands/relays), so a gap of
+            // more than 2.5 s is a stall worth seeing in the log.
+            val now = android.os.SystemClock.elapsedRealtime()
+            val last = lastRx.put(endpointId, now)
+            if (endpointId != upstreamId && last != null && now - last > 2500) HLog.d("Nearby: nothing from ${nameOf(endpointId)} for %.1f s".format((now - last) / 1000.0))
             listener.onMessage(endpointId, String(bytes, Charsets.UTF_8), endpointId == upstreamId)
         }
 
         override fun onPayloadTransferUpdate(endpointId: String, update: PayloadTransferUpdate) {}
     }
 
+    private val lastRx = HashMap<String, Long>()
+    private fun nameOf(endpointId: String): String = downstream[endpointId] ?: (if (endpointId == upstreamId) upstreamName else null) ?: endpointId
+
     /** Send toward the commander. */
     fun sendUp(text: String) {
-        val id = upstreamId ?: return
+        val id = upstreamId ?: run { HLog.d("Nearby: sendUp dropped, no route (${text.take(60)})"); return }
         client.sendPayload(id, Payload.fromBytes(text.toByteArray(Charsets.UTF_8)))
             .addOnFailureListener { e -> HLog.d("Nearby: sendUp FAILED: $e") }
     }

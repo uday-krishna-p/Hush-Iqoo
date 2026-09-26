@@ -22,6 +22,8 @@ object Chirp {
     const val DURATION_MS = 80               // was 40: twice the length = +3 dB of matched-filter gain in noise
     const val F_START = 2000.0
     const val F_END = 6000.0
+    /** Centre of the sweep: the carrier of the matched-filter output. */
+    const val F_CENTRE = (F_START + F_END) / 2
     const val SPEED_OF_SOUND = 343f          // m/s at ~20 °C
     const val VOLUME_FRACTION = 0.4f         // of max alarm volume: 0.7 → 0.9 for range, 0.4 on 26 Sep 23:15 at the team's request (loud on a table); raise again for a hall
 
@@ -256,6 +258,59 @@ object Chirp {
             if (denom < 0) fine = at + (0.5 * (y0 - y2) / denom).coerceIn(-0.5, 0.5)
         }
         return Detection(at, env48[k].toFloat(), ratio, fine, shift)
+    }
+
+    /** Result of [micDelay]: mic 1 minus mic 0 in samples, and how clearly one carrier cycle won (0..1). */
+    data class MicDelay(val samples: Double, val margin: Double, val similarity: Double)
+
+    /** Half-width of the direct-arrival lobe compared between the two mics: the envelope main lobe (±0.5 ms). */
+    private const val MIC_LOBE = 24
+
+    /**
+     * Two-mic delay of the chirp arrival that [detect] found at [at] on mic 0 (27 Sep). Both mics' analytic
+     * matched-filter outputs over the direct-arrival lobe (±[MIC_LOBE]) are cross-correlated for lags of
+     * ±[maxLag]; the phase of the best lag gives the sub-sample part (0.52 rad per sample at the 4 kHz centre).
+     *
+     * Measured on the phones (stereo debug audio, 27 Sep 00:15): the phase part repeats between rounds, but
+     * WHICH 4 kHz cycle (12 samples = 8.6 cm of path) is right is often not clear, because the two mics'
+     * envelopes around the arrival differ (reflections). [MicDelay.margin] is how much better the chosen lag
+     * scores than any lag a cycle or more away; below ~0.15 the delay is ambiguous and must not be used.
+     * The earlier ways were worse: a second, independent detection on mic 1 picked other arrivals (−29 and −30
+     * samples logged, more than a 16 cm phone allows); a ±12 window saw only a pure tone (every lag scored 0.99).
+     */
+    fun micDelay(mic0: ShortArray, mic1: ShortArray, n: Int, at: Int, maxLag: Int = 28): MicDelay? {
+        val t = template; val q = quadrature; val m = t.size
+        val lo0 = at - MIC_LOBE; val hi0 = at + MIC_LOBE
+        if (lo0 - maxLag < 0 || hi0 + maxLag + m > n) return null
+        fun corr(a: ShortArray, lag: Int): Pair<Double, Double> {
+            var si = 0.0; var sq = 0.0
+            for (k in 0 until m) { val v = a[lag + k].toDouble(); si += v * t[k]; sq += v * q[k] }
+            return si to sq
+        }
+        val z0 = Array(hi0 - lo0 + 1) { corr(mic0, lo0 + it) }
+        val lo1 = lo0 - maxLag; val hi1 = hi0 + maxLag
+        val z1 = Array(hi1 - lo1 + 1) { corr(mic1, lo1 + it) }
+        var e0 = 0.0; for (z in z0) e0 += z.first * z.first + z.second * z.second
+        val score = DoubleArray(2 * maxLag + 1)
+        val phase = DoubleArray(2 * maxLag + 1)
+        for (l in -maxLag..maxLag) {
+            var re = 0.0; var im = 0.0; var e1 = 0.0
+            for (k in z0.indices) {
+                val a = z0[k]; val b = z1[k + maxLag + l]
+                re += a.first * b.first + a.second * b.second      // z0 · conj(z1)
+                im += a.second * b.first - a.first * b.second
+                e1 += b.first * b.first + b.second * b.second
+            }
+            score[l + maxLag] = kotlin.math.sqrt(re * re + im * im) / kotlin.math.sqrt(maxOf(e0 * e1, 1e-30))
+            phase[l + maxLag] = kotlin.math.atan2(im, re)
+        }
+        var bi = 0; for (i in score.indices) if (score[i] > score[bi]) bi = i
+        // Residual delay from the phase, within ±half a carrier cycle of the best lag.
+        val fine = (bi - maxLag) + phase[bi] * SAMPLE_RATE / (2 * PI * F_CENTRE)
+        var rival = 0.0
+        for (i in score.indices) if (kotlin.math.abs(i - bi) >= 9) rival = maxOf(rival, score[i])
+        val margin = if (bi == 0 || bi == score.size - 1) 0.0 else score[bi] - rival   // at the search edge: no peak
+        return MicDelay(fine, margin, score[bi])
     }
 
     /** Builds the FFT tables and lets the runtime compile the search before the first chirp (the first call took 4 s). */

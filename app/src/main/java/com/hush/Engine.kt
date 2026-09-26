@@ -492,13 +492,18 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private const val SEARCH_BEFORE_MS = 2500
     private const val SEARCH_AFTER_MS = 2500
     /**
-     * Budget per chirp (measured 26–27 Sep): command down 0.6 s per mesh hop (1.4–1.6 s at 2 hops), each phone
-     * waits SEARCH_AFTER + 0.1 s, then two searches (mic 0 and mic 1, now ~0.1–0.3 s each instead of 1.2–5.6 s),
-     * then the report goes up (same 0.6 s per hop): ~6.1 s at 2 hops. The commander moves on as soon as every
-     * phone has reported, so the timeout only costs time when a phone missed the chirp.
+     * Budget per chirp (measured 26–27 Sep with the phones' clock skew removed): command down 0.01–0.25 s
+     * (outliers 1.5 s), each phone waits SEARCH_AFTER + 0.1 s, then two searches (mic 0 and mic 1, 37–94 ms each
+     * instead of 1.2–5.6 s), then the report goes up (similar latency): ~3–4.5 s. The commander moves on as soon
+     * as every phone has reported, so the timeout only costs time when a phone missed the chirp or a link stalls.
      */
     private const val CHIRP_TIMEOUT_MS = 7000L
     private const val CHIRP_SETTLE_MS = 400L
+    /** The chosen 4 kHz cycle must beat the neighbouring cycles by this much (27 Sep stereo audio: ambiguous
+     *  cases 0.007–0.08, the repeatable ones 0.19–0.24). */
+    private const val MIC_DELAY_MIN_MARGIN = 0.15
+    /** Samples: ~17 cm of path, the most two mics on a 16 cm phone can differ. */
+    private const val MIC_DELAY_MAX = 24.0
     private var roundQueue: List<String> = emptyList()     // letters still to chirp in this pass
     private var roundAll: List<String> = emptyList()       // all letters of the round (for finishRanging)
     private var roundIndex = 0
@@ -553,6 +558,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     /** Commander: tell [letter] to chirp now; everyone (including us) listens for it. */
     private fun triggerChirp(letter: String) {
         chirpTriggerMs[letter] = SystemClock.elapsedRealtime()
+        HLog.d("Ranging: trigger CHIRP $letter")
         link?.sendDown(Command(Command.CHIRP, letter = letter).toJson())
         onChirpCommand(letter)
     }
@@ -578,19 +584,20 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 if (det.offset >= 0 && det.ratio >= 5f) lastChirpDetectedSample = at
                 HLog.d("Chirp from $letter heard by ${this.letter}: offset=${det.offset} sample=$at peak=%.2f ratio=%.1f firstArrivalShift=%d (%d ms)".format(det.peak, det.ratio, det.firstArrivalShift, SystemClock.elapsedRealtime() - t0))
                 if (det.offset < 0 || det.ratio < 5f) { HLog.d("Chirp from $letter: not credible, dropped"); return@Thread }
-                // Second mic: same full search, so its peak is judged against the same baseline; the
-                // sub-sample difference between the two peaks is the inter-mic delay (direction of arrival).
+                // Second mic: the delay of the SAME arrival on mic 1 (matched-filter outputs of both mics
+                // cross-correlated around the direct arrival found on mic 0), for the direction of arrival.
                 var micDelay: Float? = null
                 if (cap.stereo && letter != this.letter) {
                     val a2 = cap.snapshot(startSample, count, 1)
                     if (a2 != null) {
-                        val d2 = com.hush.audio.Chirp.detect(a2, count)
-                        val gap = kotlin.math.abs(d2.offset - det.offset)
-                        if (d2.offset >= 0 && d2.ratio >= 5f && gap <= 40) {
-                            micDelay = (d2.fine - det.fine).toFloat()
-                            HLog.d("Chirp from $letter mic delay: %.2f samples (mic1 − mic0), ratio2=%.1f, heading=%.0f".format(micDelay, d2.ratio, headingDeg))
+                        val md = com.hush.audio.Chirp.micDelay(audio, a2, count, det.offset)
+                        if (md != null && md.margin >= MIC_DELAY_MIN_MARGIN && kotlin.math.abs(md.samples) <= MIC_DELAY_MAX) {
+                            micDelay = md.samples.toFloat()
+                            HLog.d("Chirp from $letter mic delay: %.2f samples (mic1 − mic0), margin=%.2f sim=%.2f, heading=%.0f".format(micDelay, md.margin, md.similarity, headingDeg))
                         } else {
-                            HLog.d("Chirp from $letter: second mic not usable (offset gap $gap, ratio2 %.1f)".format(d2.ratio))
+                            HLog.d("Chirp from $letter: second mic not usable (delay %s, margin %s, sim %s: %s)".format(
+                                md?.samples?.let { "%.1f".format(it) } ?: "-", md?.margin?.let { "%.2f".format(it) } ?: "-", md?.similarity?.let { "%.2f".format(it) } ?: "-",
+                                if (md == null) "no audio" else if (md.margin < MIC_DELAY_MIN_MARGIN) "ambiguous carrier cycle" else "beyond the mic spacing"))
                         }
                     }
                 }
@@ -675,8 +682,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private fun alignFromDoa(a: String, b: String, c: String, dAB: Double, dAC: Double, dBC: Double) {
         val db = doaThisRound[b] ?: return
         val dc = doaThisRound[c] ?: return
-        // Inside ~0.8 m the mics are in the near field and the angle is unreliable: skip such rounds.
-        if (dAB < 0.8 || dAC < 0.8) { HLog.d("DoA align: phones too close (AB %.2f, AC %.2f m), skipped".format(dAB, dAC)); return }
+        // Too close and the angle is unreliable: skip such rounds (limit shared with the locator's axes).
+        val near = com.hush.Locator.NEAR_FIELD
+        if (dAB < near || dAC < near) { HLog.d("DoA align: phones too close (AB %.2f, AC %.2f m, limit %.1f m), skipped".format(dAB, dAC, near)); return }
         // True angle at A between B and C from the triangle.
         val cosG = ((dAB * dAB + dAC * dAC - dBC * dBC) / (2 * dAB * dAC)).coerceIn(-1.0, 1.0)
         val gamma = Math.toDegrees(kotlin.math.acos(cosG))

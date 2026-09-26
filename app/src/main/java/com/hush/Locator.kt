@@ -47,7 +47,14 @@ class Locator {
         const val WEIGHT_AMPLITUDE = 0.5
         const val DECAY_S = 25.0               // older knocks fade with this time constant
         const val HOLD_S = 3.5                 // wait this long for late reports before matching a knock
-        const val NEAR_FIELD = 0.8             // m: inside this the two-mic angle is unreliable
+        /**
+         * m: inside this a chirp's two-mic angle is not used. Was 0.8. Lowered 27 Sep for the 1.00/1.20/0.65 m
+         * layout: with mics ~0.15 m apart, the far-field formula is off by < 1° even at 0.5 m (exact path
+         * difference vs s·cosθ: 0.5 % at 0.65 m); the real error that close is the chirping phone's speaker sitting
+         * up to ~8 cm from its centre, ≤ 7° at 0.65 m, below the locator's 12° two-mic sigma. At 0.8 m the
+         * commander (0.65 m from 991e) got no DoA alignment and two of three phones no mic axis.
+         */
+        const val NEAR_FIELD = 0.5
         const val REGION_DROP = 3.0            // cells within this log-likelihood of the peak form the "likely region"
         const val MAX_AGE_MS = 60_000L         // a fix older than this is no longer shown
         const val DEFAULT_MIC_SPACING = 0.10   // m, until the chirp rounds have solved it

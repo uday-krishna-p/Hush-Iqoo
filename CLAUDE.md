@@ -216,6 +216,40 @@ foreground, the activity re-asserts the foreground service whenever it comes on 
 spread 2.0 samples (was 87.5 on the old detector). The confirming round was spoiled because the commander was being
 handled (accelerometer RMS 0.1–1.9 m/s², a 7-step "carried" placement) and both sensors' reports then stalled 10–15 s.
 
+**Geometry, 27 Sep 00:05–00:25 (user's new plan: ef39 = COMMANDER in the centre, 6a46 and 991e sensors; tape
+measure from the team: ef39–6a46 1.00 m, ef39–991e 0.65 m, 6a46–991e 1.20 m; letters B/C follow join order, check
+"is Sensor" in the commander log):**
+(1) *Ranging vs tape.* Every still session since 23:54 (three commanders/letterings) measures the same shape:
+ef39–6a46 0.91–0.92 m with the old 0.12 m constant, ef39–991e 0.87–0.98, 991e–6a46 1.88–2.15 (one round 4.49).
+Solving the two-way model with the tape distances: the ef39–6a46 pair gives a self-hearing delay of 29.5, 28 and
+29 samples in three sessions (0.20–0.21 m), so `SPEAKER_MIC_OFFSET_M` is now **0.21** (was 0.12). With it:
+ef39–6a46 1.00 (tape 1.00), ef39–991e 0.98–1.01 (tape 0.65), 991e–6a46 1.88–1.99 (tape 1.20): a straight line
+with ef39 in the middle. The ef39–991e pair would need a self delay of −21 samples to match the tape, which is
+impossible, so either the tape/labels are off or 991e's direct sound is blocked (sound around an obstacle reads
+long). Asked the team to re-check 991e. Stereo audio shows the 991e pairs' direct arrival weak and ~600–700
+samples before a much stronger reflection. `Clock:` spread 7.5–35.5 samples on these rounds (2.0 in the first
+23:46 layout). (2) *Two-mic delay of the chirp is ambiguous by one 4 kHz cycle (12 samples, 8.6 cm of path).*
+With stereo debug audio (both channels are distinct mics: 2.6–2.9 % identical samples): independent detections per
+mic gave impossible delays (−29, −30); matched-filter cross-correlation with a ±12 window saw a pure tone (every
+lag 0.99, whole-sample results were my clamp bug); the phase part repeats between rounds (e.g. 0.60/0.22,
+25.0/24.7, 10.96/−1.27 ≡ 10.96/10.73 mod 12) but the cycle does not; envelope onsets per mic repeat within ~2
+samples in 4 of 6 pair-directions but give 25–37 samples (beyond the ~22 a 16 cm phone allows) and disagree with
+the phase method by exactly 3 cycles. Root cause: the 2–6 kHz chirp's envelope is as wide as one 4 kHz cycle, so
+even a clean synthetic copy picks the right cycle by only 0.10. The app now gates chirp two-mic delays (cycle
+margin ≥ 0.15 and |delay| ≤ 24 samples); nearly all are rejected, so DoA north and mic axes stay off rather than
+wrong. Knock two-mic delays (broadband) are repeatable (991e's own knocks: IQR 0.27 samples). Next: a rotation
+test (one phone turned in 45° steps, a chirp from 1 m) to learn the real delay-vs-angle curve and the mic
+positions, and/or a wider chirp band (e.g. 1–8 kHz) so the envelope is narrower than a carrier cycle.
+(3) *Near-field limit* for two-mic angles lowered from 0.8 to 0.5 m: the far-field formula is < 1° off at 0.65 m
+for 0.15 m mic spacing; the speaker's offset from the phone centre (≤ 7° at 0.65 m) is the real error. With
+0.8 m the commander ef39 (0.65 m from 991e) got no DoA alignment and two of three phones no mic axis.
+(4) *Arrow log:* the commander writes `ARROW target=… mapBearing=… rotation=… heading=… screen=…` once a second;
+with no north alignment it says `no arrow: map not aligned to north`. (5) *Mesh:* a sensor with no route now
+refuses or drops anyone connecting through it (23:48: 991e attached to ef39 12 s after ef39 had silently lost the
+commander and was never lettered); Nearby's bandwidth changes and > 2.5 s gaps from below are logged (links came
+up at quality 3 = Wi-Fi; gaps of 2.8–6.3 s seen); explicit `Ranging: trigger CHIRP X` lines for latency.py.
+(6) *Debug WAV is stereo* now (both mics, 90 s, private file).
+
 **Earlier (18:30):**
 
 **Verified from the laptop (adb-driven, phones on the table):** roles → mesh join → HUSH → chirps → ranging →

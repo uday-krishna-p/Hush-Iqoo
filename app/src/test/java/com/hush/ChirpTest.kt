@@ -25,7 +25,7 @@ class ChirpTest {
             for (k in -1 until t.size) {
                 val a = if (k >= 0) t[k].toDouble() else 0.0
                 val b = if (k + 1 < t.size) t[k + 1].toDouble() else 0.0
-                val v = a * (1 - frac) + b * frac
+                val v = a * frac + b * (1 - frac)   // template value at (j − start) = k + 1 − frac
                 val j = i0 + k + 1
                 if (j in 0 until n) x[j] += amp * v
             }
@@ -59,6 +59,24 @@ class ChirpTest {
         val a = audio(0.004, listOf(at to 0.006))   // weak: ratio near the credibility threshold
         val det = Chirp.detect(a, a.size)
         assertEquals(at, det.fine, 2.0)
+    }
+
+    @Test
+    fun twoMicDelayOfTheSameArrival() {
+        val at = 180_000.0
+        for (delay in listOf(-17.3, 0.0, 6.6, 13.4)) {
+            // Direct path plus a stronger reflection 90 samples later on both mics. (With a reflection only 30
+            // samples later the chosen carrier cycle wins by just 0.149: the 2–6 kHz chirp's envelope is as wide
+            // as one 4 kHz cycle, which is why real two-mic delays are often ambiguous.)
+            val m0 = audio(0.002, listOf(at to 0.03, at + 90 to 0.045))
+            val m1 = audio(0.002, listOf(at + delay to 0.03, at + delay + 90 to 0.045))
+            val det = Chirp.detect(m0, m0.size)
+            val md = Chirp.micDelay(m0, m1, m0.size, det.offset)
+            // The value is right, but even this clean copy wins over the neighbouring 4 kHz cycle by only ~0.1:
+            // the 2–6 kHz chirp cannot say WHICH cycle on real, reverberant audio (Engine gates on margin 0.15).
+            assertTrue("delay $delay: got $md", md != null && md.similarity > 0.95)
+            assertEquals(delay, md!!.samples, 0.5)
+        }
     }
 
     @Test
