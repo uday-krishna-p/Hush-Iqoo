@@ -62,6 +62,9 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
     override fun onCountdown(secondsLeft: Int) {
         if (secondsLeft < 0) {
             countdown.visibility = View.GONE
+        } else if (secondsLeft == 99) {
+            countdown.visibility = View.VISIBLE
+            countdown.text = activity.getString(R.string.ranging_now)
         } else {
             countdown.visibility = View.VISIBLE
             countdown.text = secondsLeft.toString()

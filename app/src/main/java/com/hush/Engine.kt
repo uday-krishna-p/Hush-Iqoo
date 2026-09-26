@@ -209,6 +209,14 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         HLog.d("Chirp report: ${r.hearer} heard ${r.from} at ${r.sample} ratio=%.1f".format(r.ratio))
     }
 
+    // Sensors B and C define the map frame (they do not move); the commander A moves inside it.
+    // Map unit = metres × mapScale, centred on the sensors' midpoint. Fixed after the first ranging.
+    private var frameB: String? = null
+    private var frameC: String? = null
+    private var frameDBC = 0.0
+    private var lastAInFrame: Pair<Double, Double>? = null      // metres, B at origin, C on +x
+    private var lastAFrameMs = 0L
+
     private fun finishRanging(letters: List<String>) {
         rangingInProgress = false
         val dist = HashMap<String, Double>()
@@ -219,27 +227,104 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val text = dist.entries.joinToString("  ") { "%s %.2f m".format(it.key, it.value) }
         HLog.d("RANGING result: $text  (heard=$heard)")
         sessionLog.addRecord("ranging", mapOf("distances" to text))
+        var placed = false
         if (letters.size >= 3) {
             val a = letters[0]; val b = letters[1]; val c = letters[2]
             val dAB = dist["$a$b"]; val dAC = dist["$a$c"]; val dBC = dist["$b$c"]
-            if (dAB != null && dAC != null && dBC != null) {
-                val tri = Ranging.triangle(a, b, c, dAB, dAC, dBC)
-                if (tri != null) {
-                    val flipped = if (mirror) tri.mapValues { (_, p) -> p.first to -p.second } else tri
-                    mapDots.clear()
-                    val unit = Ranging.toUnitSquare(flipped)
-                    mapDots.putAll(unit)
-                    // Scale: metres per map unit, from pair AB.
-                    val ua = unit[a]!!; val ub = unit[b]!!
-                    val unitAB = kotlin.math.hypot((ub.first - ua.first).toDouble(), (ub.second - ua.second).toDouble()).toFloat()
-                    mapMetresPerUnit = if (unitAB > 0f) (dAB / unitAB).toFloat() else null
-                    setRangingStatus("Placed by sound: $text")
-                    listener?.onPeers(peers.values.toList())
-                    return
+            if (dAB != null && dAC != null && dBC != null && dBC > 0.05) {
+                // A in the B–C frame: B=(0,0), C=(dBC,0).
+                val x = (dAB * dAB - dAC * dAC + dBC * dBC) / (2 * dBC)
+                val y2 = dAB * dAB - x * x
+                val y = (if (y2 > 0) kotlin.math.sqrt(y2) else 0.0) * (if (mirror) -1 else 1)
+                val aPos = x to y
+                if (frameB != b || frameC != c || mapMetresPerUnit == null) {
+                    frameB = b; frameC = c; frameDBC = dBC
+                    mapMetresPerUnit = (maxOf(dAB, dAC, dBC) * 1.6).toFloat().coerceAtLeast(1f)   // span so the triangle fits with room to walk
+                    lastAInFrame = null
                 }
+                val scale = 1.0 / mapMetresPerUnit!!
+                val cx = dBC / 2; val cy = 0.0
+                fun toMap(p: Pair<Double, Double>) = ((0.5 + (p.first - cx) * scale).toFloat()) to ((0.5 - (p.second - cy) * scale).toFloat())
+                mapDots[b] = toMap(0.0 to 0.0)
+                mapDots[c] = toMap(dBC to 0.0)
+                mapDots[a] = toMap(aPos)
+                autoAlign(aPos)
+                setRangingStatus("Placed by sound: $text")
+                listener?.onPeers(peers.values.toList())
+                placed = true
             }
         }
-        setRangingStatus(if (dist.isEmpty()) "Ranging failed: no chirps heard. Place manually." else "Ranging incomplete: $text. Place manually.")
+        if (!placed) setRangingStatus(if (dist.isEmpty()) "Ranging failed: no chirps heard. Place manually." else "Ranging incomplete: $text. Place manually.")
+        if (pendingHushSeconds > 0) {
+            val s = pendingHushSeconds
+            pendingHushSeconds = 0
+            broadcastHush(s)
+        }
+    }
+
+    // ---- Automatic alignment to north from the commander's own walking ----
+
+    private var walkHeadingSinX = 0.0
+    private var walkHeadingSinY = 0.0
+    private var walkSamples = 0
+    private var movedSinceRanging = 0f          // seconds of movement since the last ranging
+    private var alignSolutions = ArrayList<Pair<Float, Float>>()   // (rotation if not mirrored, rotation if mirrored)
+
+    /** Called once per second from the audio window on the commander: accumulate walking heading. */
+    private fun trackWalking(acc: AccelChannel.Result) {
+        if (role != ROLE_COMMANDER) return
+        if (acc.rmsHp > 0.25f) {
+            movedSinceRanging += 1f
+            val h = Math.toRadians(headingDeg.toDouble())
+            walkHeadingSinX += kotlin.math.cos(h); walkHeadingSinY += kotlin.math.sin(h); walkSamples++
+        }
+        // Re-range on its own after walking a few seconds, outside a window.
+        if (!inHush && !rangingInProgress && movedSinceRanging >= 3f && peers.size >= 2 &&
+            SystemClock.elapsedRealtime() - lastAFrameMs > 8000) {
+            HLog.d("Auto re-ranging after %.0f s of walking".format(movedSinceRanging))
+            autoPlace()
+        }
+    }
+
+    private fun autoAlign(aPos: Pair<Double, Double>) {
+        val now = SystemClock.elapsedRealtime()
+        val prev = lastAInFrame
+        val walkBearing = if (walkSamples > 0) ((Math.toDegrees(kotlin.math.atan2(walkHeadingSinY, walkHeadingSinX)) + 360.0) % 360.0).toFloat() else null
+        if (prev != null && walkBearing != null) {
+            val dx = aPos.first - prev.first; val dy = aPos.second - prev.second
+            val moved = kotlin.math.hypot(dx, dy)
+            if (moved >= 0.5) {
+                // Bearing of the move in the map frame (x right, y up): clockwise from up.
+                val mapBearingNoMirror = ((Math.toDegrees(kotlin.math.atan2(dx, dy)) + 360.0) % 360.0).toFloat()
+                val mapBearingMirror = ((Math.toDegrees(kotlin.math.atan2(dx, -dy)) + 360.0) % 360.0).toFloat()
+                val rotNo = ((walkBearing - mapBearingNoMirror) + 720f) % 360f
+                val rotMi = ((walkBearing - mapBearingMirror) + 720f) % 360f
+                alignSolutions.add(rotNo to rotMi)
+                // Pick the mirror hypothesis whose rotation estimates agree across walks.
+                fun spread(sel: (Pair<Float, Float>) -> Float): Float {
+                    val xs = alignSolutions.map { Math.toRadians(sel(it).toDouble()) }
+                    val mx = xs.map { kotlin.math.cos(it) }.average(); val my = xs.map { kotlin.math.sin(it) }.average()
+                    return (1.0 - kotlin.math.hypot(mx, my)).toFloat()
+                }
+                fun mean(sel: (Pair<Float, Float>) -> Float): Float {
+                    val xs = alignSolutions.map { Math.toRadians(sel(it).toDouble()) }
+                    return ((Math.toDegrees(kotlin.math.atan2(xs.map { kotlin.math.sin(it) }.average(), xs.map { kotlin.math.cos(it) }.average())) + 360.0) % 360.0).toFloat()
+                }
+                val useMirror = alignSolutions.size >= 2 && spread { it.second } < spread { it.first }
+                if (useMirror != mirror && alignSolutions.size >= 2) {
+                    HLog.d("Auto-align: switching mirror to $useMirror")
+                    mirror = useMirror
+                    // Re-place A with the other mirror sign next round; dots for this round stay.
+                }
+                mapRotationDeg = if (useMirror) mean { it.second } else mean { it.first }
+                HLog.d("Auto-align: moved %.2f m, walked bearing %.0f°, map rotation now %.0f° (mirror=%b, walks=%d)".format(moved, walkBearing, mapRotationDeg, mirror, alignSolutions.size))
+                setRangingStatus("Aligned to north from your walk (%.1f m).".format(moved))
+            }
+        }
+        lastAInFrame = aPos
+        lastAFrameMs = now
+        walkHeadingSinX = 0.0; walkHeadingSinY = 0.0; walkSamples = 0
+        movedSinceRanging = 0f
     }
 
     private fun setRangingStatus(s: String) {
@@ -396,6 +481,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         accel?.stop(); accel = null
         compass?.stop(); compass = null
         mapRotationDeg = null
+        frameB = null; frameC = null; lastAInFrame = null; alignSolutions.clear(); mapMetresPerUnit = null
+        pendingHushSeconds = 0
         classifier?.close(); classifier = null
         link?.stop(); link = null
         peers.clear()
@@ -422,9 +509,22 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         }
         HLog.d("HUSH pressed: $seconds s to ${peers.size} sensors")
         sessionLog.addRecord("hush", mapOf("seconds" to seconds, "sensors" to peers.size + 1, "mode" to mode.name))
+        // One button: range first (chirps, ~8 s) so the map is fresh, then run the window.
+        if (peers.size >= 2 && !rangingInProgress) {
+            pendingHushSeconds = seconds
+            listener?.onCountdown(99)   // screen shows "ranging…" until the real countdown starts
+            autoPlace()
+        } else {
+            broadcastHush(seconds)
+        }
+        return true
+    }
+
+    private var pendingHushSeconds = 0
+
+    private fun broadcastHush(seconds: Int) {
         link?.broadcast(Command(Command.HUSH, seconds).toJson())
         startHushLocal(seconds)
-        return true
     }
 
     /** Set by a long press on HUSH: run a window with only this phone (single-phone testing). */
@@ -506,6 +606,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val rhythm = rhythmTracker.evaluate(now)
         val cls = classifier?.classify(pcm16k, n16)
         val label = fuseLabel(rhythm, cls)
+        main.post { trackWalking(acc) }
         val battery = try {
             (appContext?.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
         } catch (_: Exception) { -1 }

@@ -44,7 +44,7 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
                 arrow.active = false; arrow.label = activity.getString(R.string.arrow_no_target)
             } else if (angle == null) {
                 arrow.active = false
-                arrow.label = if (Engine.mapDots.containsKey(target)) activity.getString(R.string.arrow_align_first) else activity.getString(R.string.arrow_place_first, target)
+                arrow.label = if (Engine.mapDots.containsKey(target)) activity.getString(R.string.arrow_walk_to_align) else activity.getString(R.string.arrow_place_first, target)
             } else {
                 arrow.active = true
                 arrow.angleDeg = angle
@@ -119,6 +119,11 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
             bigCountdown.visibility = View.GONE
             btnHush.isEnabled = true
             btnHush.text = activity.getString(R.string.hush_button)
+        } else if (secondsLeft == 99) {
+            bigCountdown.visibility = View.VISIBLE
+            bigCountdown.text = activity.getString(R.string.ranging_now)
+            btnHush.isEnabled = false
+            btnHush.text = activity.getString(R.string.hush_running)
         } else {
             bigCountdown.visibility = View.VISIBLE
             bigCountdown.text = secondsLeft.toString()
