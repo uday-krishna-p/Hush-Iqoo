@@ -14,8 +14,9 @@ import java.nio.channels.FileChannel
 class Classifier(context: Context) {
 
     data class Result(
-        val human: Float,
-        val machine: Float,
+        val human: Float,      // VOICE bucket: speech, shouts, whistles
+        val impact: Float,     // IMPACT bucket: anything YAMNet hears as a knock-like hit
+        val machine: Float,    // MACHINE bucket: continuous machinery
         val topClass: String,
         val top5: List<Pair<String, Float>>
     )
@@ -28,24 +29,33 @@ class Classifier(context: Context) {
         // quiet room still reads as Silence / Inside, small room.
         private const val MAX_GAIN = 20f
 
-        // Exact YAMNet display names. Tune these after watching the top-5 list on the phone.
+        // Exact YAMNet display names, chosen from what the model actually said on the phones (26 Sep).
+        // VOICE: reliable. A person talking scores 0.5–0.98 here.
         val HUMAN = setOf(
-            "Speech", "Shout", "Yell", "Children shouting", "Screaming",
-            "Whistling", "Whistle",
-            "Tap", "Knock", "Thump, thud", "Wood", "Bang", "Slap, smack",
-            "Tick", "Tick-tock", "Clapping", "Finger snapping"
+            "Speech", "Child speech, kid speaking", "Conversation", "Narration, monologue",
+            "Shout", "Yell", "Children shouting", "Screaming", "Whistling", "Whistle"
         )
+        // IMPACT: what YAMNet calls a knuckle on a desk. It cannot tell these apart, so they are one bucket
+        // that only corroborates the TapDetector. Hammer lives here, not in MACHINE: a hammer blow is a hit.
+        val IMPACT = setOf(
+            "Tap", "Knock", "Hammer", "Hands", "Thump, thud", "Wood", "Bang", "Slap, smack",
+            "Clapping", "Finger snapping", "Tick", "Tick-tock",
+            "Dishes, pots, and pans", "Cutlery, silverware", "Chop", "Chopping (food)",
+            "Percussion", "Drum", "Wood block", "Basketball bounce", "Bouncing"
+        )
+        // MACHINE: continuous machinery only.
         val MACHINE = setOf(
             "Engine", "Light engine (high frequency)", "Medium engine (mid frequency)",
-            "Heavy engine (low frequency)", "Engine starting",
-            "Power tool", "Tools", "Drill", "Hammer", "Jackhammer",
-            "Vehicle", "Motor vehicle (road)"
+            "Heavy engine (low frequency)", "Engine starting", "Idling",
+            "Power tool", "Tools", "Drill", "Jackhammer", "Sawing", "Chainsaw",
+            "Vehicle", "Motor vehicle (road)", "Motorcycle", "Aircraft", "Helicopter"
         )
     }
 
     private val interpreter: Interpreter
     private val labels: List<String>
     private val humanIdx: IntArray
+    private val impactIdx: IntArray
     private val machineIdx: IntArray
     private val input = FloatArray(INPUT_SAMPLES)
     private val input2d = arrayOf(input)
@@ -56,8 +66,9 @@ class Classifier(context: Context) {
     init {
         labels = loadLabels(context)
         HLog.d("Loaded ${labels.size} YAMNet labels")
-        (HUMAN + MACHINE).filter { it !in labels }.forEach { HLog.d("WARNING bucket name not in class map: '$it'") }
+        (HUMAN + IMPACT + MACHINE).filter { it !in labels }.forEach { HLog.d("WARNING bucket name not in class map: '$it'") }
         humanIdx = labels.indices.filter { labels[it] in HUMAN }.toIntArray()
+        impactIdx = labels.indices.filter { labels[it] in IMPACT }.toIntArray()
         machineIdx = labels.indices.filter { labels[it] in MACHINE }.toIntArray()
 
         val options = Interpreter.Options().setNumThreads(2)
@@ -139,12 +150,15 @@ class Classifier(context: Context) {
 
         var human = 0f
         for (k in humanIdx) human += avg[k]
+        var impact = 0f
+        for (k in impactIdx) impact += avg[k]
         var machine = 0f
         for (k in machineIdx) machine += avg[k]
 
         val top5 = avg.indices.sortedByDescending { avg[it] }.take(5).map { labels[it] to avg[it] }
         return Result(
             human = human.coerceIn(0f, 1f),
+            impact = impact.coerceIn(0f, 1f),
             machine = machine.coerceIn(0f, 1f),
             topClass = top5.first().first,
             top5 = top5

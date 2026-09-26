@@ -12,7 +12,8 @@ class TapDetector(sampleRate: Int) {
         val taps: Int,              // onsets found in this window
         val peakRatio: Float,       // loudest frame / median frame energy
         val intervalsMs: List<Int>, // gaps between consecutive taps, including across the window edge
-        val score: Float            // 0..1 "this window contains deliberate tapping"
+        val score: Float,           // 0..1 "this window contains deliberate tapping"
+        val onsetsAbsMs: List<Long> // absolute onset times (windowStartMs + offset) for the rhythm tracker
     )
 
     companion object {
@@ -31,7 +32,7 @@ class TapDetector(sampleRate: Int) {
     /** [windowStartMs] is any monotonic clock so intervals can span two windows. */
     fun analyse(pcm: ShortArray, n: Int, windowStartMs: Long): Result {
         val frames = n / frame
-        if (frames < 10) return Result(0, 0f, emptyList(), 0f)
+        if (frames < 10) return Result(0, 0f, emptyList(), 0f, emptyList())
         val energy = FloatArray(frames)
         for (f in 0 until frames) {
             var s = 0.0
@@ -77,6 +78,6 @@ class TapDetector(sampleRate: Int) {
             taps == 0 || taps > MAX_TAPS_PER_SEC -> 0f
             else -> (0.4f + 0.2f * taps).coerceAtMost(1f)
         }
-        return Result(taps, peakRatio, intervals, score)
+        return Result(taps, peakRatio, intervals, score, onsetsMs.map { windowStartMs + it })
     }
 }

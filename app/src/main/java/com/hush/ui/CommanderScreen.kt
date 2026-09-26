@@ -65,7 +65,9 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
             val name = if (l == "A") activity.getString(R.string.this_phone) else names[l] ?: activity.getString(R.string.offline)
             sb.append(l).append("  ").append(name).append('\n')
             if (e != null) {
-                sb.append("   rms %.4f  taps %d  tap %.2f  human %.2f  %s\n".format(e.rms, e.taps, e.tapScore, e.human, e.topClass))
+                val rh = if (e.rhythm != null) " · ${e.rhythm}" else ""
+                sb.append("   ${e.label}$rh\n")
+                sb.append("   rms %.4f  taps %d  rhythm %.1f  voice %.2f  machine %.2f\n".format(e.rms, e.taps, e.rhythmScore, e.human, e.machine))
             } else {
                 sb.append("   ").append(activity.getString(R.string.no_data_yet)).append('\n')
             }

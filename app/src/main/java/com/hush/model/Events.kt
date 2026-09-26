@@ -13,8 +13,11 @@ data class SensorEvent(
     val machine: Float,          // 0..1 YAMNet MACHINE bucket
     val topClass: String,
     val taps: Int = 0,           // knocks found by TapDetector in this second
-    val tapScore: Float = 0f,    // 0..1
-    val rhythm: String? = null,  // e.g. "3-2"
+    val tapScore: Float = 0f,    // 0..1 for this second alone
+    val impact: Float = 0f,      // 0..1 YAMNet IMPACT bucket (corroboration only)
+    val rhythmScore: Float = 0f, // 0..1 deliberate-tapping confidence over the last 8 s
+    val rhythm: String? = null,  // e.g. "3-2" or "steady"
+    val label: String = "",      // fused headline: "HUMAN TAPPING", "TAPPING?", "HUMAN VOICE", "MACHINERY", "quiet"
     val chirpTs: Long? = null
 ) {
     fun toJson(): String = JSONObject().apply {
@@ -27,6 +30,9 @@ data class SensorEvent(
         put("top", topClass)
         put("taps", taps)
         put("tap", r(tapScore))
+        put("imp", r(impact))
+        put("rs", r(rhythmScore))
+        put("lab", label)
         rhythm?.let { put("rh", it) }
         chirpTs?.let { put("chirp", it) }
     }.toString()
@@ -45,6 +51,9 @@ data class SensorEvent(
                 topClass = o.getString("top"),
                 taps = o.optInt("taps", 0),
                 tapScore = o.optDouble("tap", 0.0).toFloat(),
+                impact = o.optDouble("imp", 0.0).toFloat(),
+                rhythmScore = o.optDouble("rs", 0.0).toFloat(),
+                label = o.optString("lab"),
                 rhythm = o.optString("rh").ifEmpty { null },
                 chirpTs = if (o.has("chirp")) o.getLong("chirp") else null
             )

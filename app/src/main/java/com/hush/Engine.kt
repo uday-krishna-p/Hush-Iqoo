@@ -11,7 +11,9 @@ import android.os.VibratorManager
 import android.provider.Settings
 import com.hush.audio.AudioCapture
 import com.hush.audio.Classifier
+import com.hush.audio.RhythmTracker
 import com.hush.audio.TapDetector
+import android.os.VibrationAttributes
 import com.hush.model.Command
 import com.hush.model.Messages
 import com.hush.model.SensorEvent
@@ -34,9 +36,34 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val floor: Float,
         val gain: Float,
         val tap: TapDetector.Result,
+        val rhythm: RhythmTracker.Result,
         val cls: Classifier.Result?,
         val event: SensorEvent
     )
+
+    const val LABEL_TAPPING = "HUMAN TAPPING"
+    const val LABEL_TAPPING_MAYBE = "TAPPING?"
+    const val LABEL_VOICE = "HUMAN VOICE"
+    const val LABEL_MACHINE = "MACHINERY"
+    const val LABEL_QUIET = "quiet"
+
+    /**
+     * The headline for one second, most trusted evidence first:
+     * rhythm over 8 s, then a single tap corroborated by YAMNet's impact bucket, then voice, then machinery.
+     */
+    fun fuseLabel(tap: TapDetector.Result, rhythm: RhythmTracker.Result, cls: Classifier.Result?): String {
+        val voice = cls?.human ?: 0f
+        val impact = cls?.impact ?: 0f
+        val machine = cls?.machine ?: 0f
+        return when {
+            rhythm.score >= 0.9f -> LABEL_TAPPING
+            tap.taps > 0 && (rhythm.score >= 0.5f || impact >= 0.10f) -> LABEL_TAPPING_MAYBE
+            voice >= 0.30f -> LABEL_VOICE
+            machine >= 0.35f -> LABEL_MACHINE
+            tap.taps > 0 -> LABEL_TAPPING_MAYBE
+            else -> LABEL_QUIET
+        }
+    }
 
     data class Peer(val endpointId: String, val name: String, val letter: String)
 
@@ -74,6 +101,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private var capture: AudioCapture? = null
     private var classifier: Classifier? = null
     private val tapDetector = TapDetector(AudioCapture.SAMPLE_RATE)
+    private val rhythmTracker = RhythmTracker()
     private var link: NearbyLink? = null
     private var localName = "?"
     private var lastStatus = "Not started"
@@ -124,6 +152,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         link?.stop(); link = null
         peers.clear()
         recentRms.clear()
+        rhythmTracker.reset()
         inHush = false
         role = null
         letter = "?"
@@ -145,7 +174,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         inHush = true
         hushEndMs = SystemClock.elapsedRealtime() + seconds * 1000L
         HLog.d("Hush window started: $seconds s, noise floor %.5f".format(floor))
-        vibrate(500)
+        vibrate(longArrayOf(0, 400, 120, 400, 120, 600))   // three strong pulses at the start
         tick()
     }
 
@@ -157,7 +186,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         if (left <= 0) {
             inHush = false
             HLog.d("Hush window ended")
-            vibrate(300)
+            vibrate(longArrayOf(0, 250, 100, 250))            // two short pulses at the end
             listener?.onCountdown(-1)
         } else {
             listener?.onCountdown(left)
@@ -165,7 +194,11 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         }
     }
 
-    private fun vibrate(ms: Long) {
+    /**
+     * [pattern] is off/on/off/on... in ms. Full amplitude, and tagged as an alarm so the phone does not
+     * scale it down the way it does for ordinary app haptics (the first version was barely noticeable).
+     */
+    private fun vibrate(pattern: LongArray) {
         val ctx = appContext ?: return
         try {
             val vib = if (Build.VERSION.SDK_INT >= 31) {
@@ -174,7 +207,15 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 @Suppress("DEPRECATION")
                 ctx.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
             }
-            vib.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE))
+            val amplitudes = IntArray(pattern.size) { if (it % 2 == 1) 255 else 0 }
+            val effect = if (vib.hasAmplitudeControl()) VibrationEffect.createWaveform(pattern, amplitudes, -1)
+                         else VibrationEffect.createWaveform(pattern, -1)
+            if (Build.VERSION.SDK_INT >= 33) {
+                vib.vibrate(effect, VibrationAttributes.createForUsage(VibrationAttributes.USAGE_ALARM))
+            } else {
+                vib.vibrate(effect)
+            }
+            HLog.d("vibrate ${pattern.contentToString()} amplitudeControl=${vib.hasAmplitudeControl()}")
         } catch (e: Exception) {
             HLog.d("vibrate failed: $e")
         }
@@ -183,26 +224,34 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     // ---- Own microphone ----
 
     override fun onWindow(pcm48k: ShortArray, n48: Int, pcm16k: FloatArray, n16: Int, rms: Float) {
-        val tap = tapDetector.analyse(pcm48k, n48, SystemClock.elapsedRealtime() - 1000)
+        val now = SystemClock.elapsedRealtime()
+        val tap = tapDetector.analyse(pcm48k, n48, now - 1000)
+        rhythmTracker.add(tap.onsetsAbsMs)
+        val rhythm = rhythmTracker.evaluate(now)
         val cls = classifier?.classify(pcm16k, n16)
+        val label = fuseLabel(tap, rhythm, cls)
         if (!inHush) {
             recentRms.addLast(rms)
             while (recentRms.size > FLOOR_SECONDS) recentRms.removeFirst()
         }
         val event = SensorEvent(
             sensorId = letter,
-            tMs = SystemClock.elapsedRealtime(),
+            tMs = now,
             rms = rms,
             floor = if (inHush) floor else (if (recentRms.isEmpty()) 0f else recentRms.average().toFloat()),
             human = cls?.human ?: 0f,
             machine = cls?.machine ?: 0f,
             topClass = cls?.topClass ?: "-",
             taps = tap.taps,
-            tapScore = tap.score
+            tapScore = tap.score,
+            impact = cls?.impact ?: 0f,
+            rhythmScore = rhythm.score,
+            rhythm = rhythm.rhythm,
+            label = label
         )
-        val w = Window(rms, event.floor, classifier?.lastGain ?: 1f, tap, cls, event)
-        HLog.d("window id=$letter hush=$inHush rms=%.4f floor=%.4f taps=%d peak=x%.0f tapScore=%.2f human=%.2f machine=%.2f | %s".format(
-            rms, event.floor, tap.taps, tap.peakRatio, tap.score, event.human, event.machine,
+        val w = Window(rms, event.floor, classifier?.lastGain ?: 1f, tap, rhythm, cls, event)
+        HLog.d("window id=$letter hush=$inHush label=$label rms=%.4f floor=%.4f taps=%d peak=x%.0f rhythm=%.1f/%s voice=%.2f impact=%.2f machine=%.2f | %s".format(
+            rms, event.floor, tap.taps, tap.peakRatio, rhythm.score, rhythm.rhythm, event.human, event.impact, event.machine,
             cls?.top5?.joinToString(", ") { (name, s) -> "%s %.2f".format(name, s) } ?: "-"))
         main.post {
             listener?.onOwnWindow(w)
