@@ -90,9 +90,18 @@ class BleRanging(context: Context, private val listener: Listener) {
         override fun onStartFailure(errorCode: Int) { HLog.d("BleRanging: connectable advertising FAILED $errorCode") }
     }
 
-    /** Sensor: be connectable over BLE so the commander can hold a link for Channel Sounding. */
+    /** Our own tag: a 16-bit service UUID that only Hush uses, with the phone's Hush name as service data. */
+    private val hushUuid = android.os.ParcelUuid.fromString("0000A5A5-0000-1000-8000-00805F9B34FB")
+    private var ownName: String = ""
+    private var scanner: android.bluetooth.le.BluetoothLeScanner? = null
+    /** Hush name → the address that phone is advertising under right now (rotates every ~15 min). */
+    private val liveAddress = HashMap<String, String>()
+    private val wanted = HashMap<String, Pair<String, Boolean>>()   // Hush name → (letter, useCs) still to be started
+
+    /** Sensor: be connectable over BLE and carry our Hush name, so the commander can find our live address. */
     @android.annotation.SuppressLint("MissingPermission")
-    fun advertiseConnectable() {
+    fun advertiseConnectable(name: String) {
+        ownName = name
         try {
             val adapter = bt?.adapter ?: return
             advertiser = adapter.bluetoothLeAdvertiser ?: run { HLog.d("BleRanging: no advertiser"); return }
@@ -100,14 +109,50 @@ class BleRanging(context: Context, private val listener: Listener) {
                 .setAdvertiseMode(android.bluetooth.le.AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
                 .setConnectable(true).setTimeout(0)
                 .setTxPowerLevel(android.bluetooth.le.AdvertiseSettings.ADVERTISE_TX_POWER_HIGH).build()
-            val data = android.bluetooth.le.AdvertiseData.Builder().setIncludeDeviceName(false).build()
+            val data = android.bluetooth.le.AdvertiseData.Builder().setIncludeDeviceName(false)
+                .addServiceData(hushUuid, name.takeLast(4).toByteArray(Charsets.US_ASCII)).build()
             advertiser?.startAdvertising(settings, data, advCallback)
         } catch (e: Throwable) { HLog.d("BleRanging: advertise threw $e") }
     }
 
+    private val scanCallback = object : android.bluetooth.le.ScanCallback() {
+        @android.annotation.SuppressLint("MissingPermission")
+        override fun onScanResult(callbackType: Int, result: android.bluetooth.le.ScanResult) {
+            val tag = result.scanRecord?.getServiceData(hushUuid) ?: return
+            val suffix = String(tag, Charsets.US_ASCII)
+            val addr = result.device.address
+            val name = wanted.keys.firstOrNull { it.endsWith(suffix) } ?: return
+            if (liveAddress[name] == addr) return
+            liveAddress[name] = addr
+            HLog.d("BleRanging: $name is advertising as $addr (rssi ${result.rssi})")
+            val (letter, useCs) = wanted[name] ?: return
+            connectAndRange(letter, addr, useCs)
+        }
+        override fun onScanFailed(errorCode: Int) { HLog.d("BleRanging: scan FAILED $errorCode") }
+    }
+
+    @android.annotation.SuppressLint("MissingPermission")
+    private fun ensureScanning() {
+        if (scanner != null) return
+        try {
+            scanner = bt?.adapter?.bluetoothLeScanner ?: run { HLog.d("BleRanging: no scanner"); return }
+            val filter = android.bluetooth.le.ScanFilter.Builder().setServiceData(hushUuid, byteArrayOf(), byteArrayOf()).build()
+            val settings = android.bluetooth.le.ScanSettings.Builder().setScanMode(android.bluetooth.le.ScanSettings.SCAN_MODE_LOW_LATENCY).build()
+            scanner?.startScan(listOf(filter), settings, scanCallback)
+            HLog.d("BleRanging: scanning for Hush tags")
+        } catch (e: Throwable) { HLog.d("BleRanging: scan start threw $e"); scanner = null }
+    }
+
+    /** Commander: find the sensor's live address by its tag, then connect and range. */
+    fun rangeAsInitiator(letter: String, peerName: String, useCs: Boolean = csSupported) {
+        wanted[peerName] = letter to useCs
+        liveAddress.remove(peerName)
+        ensureScanning()
+    }
+
     /** Commander: connect over BLE to the peer first, then start ranging on top of that link. */
     @android.annotation.SuppressLint("MissingPermission")
-    fun rangeAsInitiator(letter: String, peerAddress: String, useCs: Boolean = csSupported) {
+    private fun connectAndRange(letter: String, peerAddress: String, useCs: Boolean) {
         try {
             val device = bt?.adapter?.getRemoteDevice(peerAddress)
             if (device != null && useCs) {
@@ -135,8 +180,8 @@ class BleRanging(context: Context, private val listener: Listener) {
     }
 
     /** Sensor: answer the commander. Started as soon as the commander's address is known, before it initiates. */
-    fun rangeAsResponder(peerAddress: String, useCs: Boolean = csSupported) {
-        advertiseConnectable()
+    fun rangeAsResponder(peerAddress: String, ownName: String, useCs: Boolean = csSupported) {
+        advertiseConnectable(ownName)
         open("A", peerAddress, initiator = false, useCs = useCs)
     }
 
@@ -196,6 +241,8 @@ class BleRanging(context: Context, private val listener: Listener) {
         gatts.values.forEach { try { it.disconnect(); it.close() } catch (_: Exception) {} }
         gatts.clear()
         try { advertiser?.stopAdvertising(advCallback) } catch (_: Exception) {}
+        try { scanner?.stopScan(scanCallback) } catch (_: Exception) {}
+        scanner = null; wanted.clear(); liveAddress.clear()
     }
 
     companion object {

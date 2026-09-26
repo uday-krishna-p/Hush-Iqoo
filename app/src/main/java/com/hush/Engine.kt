@@ -269,8 +269,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     }
 
     private fun startRadioTo(name: String, letter: String) {
-        val addr = peerBleAddress[name] ?: return
-        ble?.rangeAsInitiator(letter, addr)
+        ble?.rangeAsInitiator(letter, name)
     }
     @Volatile var rangingStatus: String = ""
         private set
@@ -1168,7 +1167,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                     Command.ASSIGN -> {
                         letter = msg.letter ?: "?"
                         onLinkStatus(lastStatus)
-                        msg.ble?.let { addr -> HLog.d("Commander radio address $addr, answering as responder"); ble?.rangeAsResponder(addr) }
+                        msg.ble?.let { addr -> HLog.d("Commander radio address $addr, answering as responder"); ble?.rangeAsResponder(addr, localName) }
                     }
                     Command.HUSH -> startHushLocal(msg.seconds)
                     Command.STOP -> { inHush = false; main.removeCallbacksAndMessages(chirpToken); listener?.onCountdown(-1); onLinkStatus("Stopped by commander") }
