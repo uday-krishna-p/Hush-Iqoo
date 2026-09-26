@@ -86,12 +86,13 @@ data class SensorEvent(
     }
 }
 
-/** Commander → sensors. */
-data class Command(val type: String, val seconds: Int = 20, val letter: String? = null) {
+/** Commander → sensors. [to] = the sensor's advertised name for ASSIGN; null = everyone. */
+data class Command(val type: String, val seconds: Int = 20, val letter: String? = null, val to: String? = null) {
     fun toJson(): String = JSONObject().apply {
         put("cmd", type)
         put("sec", seconds)
         letter?.let { put("letter", it) }
+        to?.let { put("to", it) }
     }.toString()
 
     companion object {
@@ -101,7 +102,7 @@ data class Command(val type: String, val seconds: Int = 20, val letter: String? 
         const val CHIRP = "CHIRP"
 
         fun fromJson(o: JSONObject): Command? = try {
-            Command(o.getString("cmd"), o.optInt("sec", 20), o.optString("letter").ifEmpty { null })
+            Command(o.getString("cmd"), o.optInt("sec", 20), o.optString("letter").ifEmpty { null }, o.optString("to").ifEmpty { null })
         } catch (e: Exception) {
             HLog.d("bad Command json: $e")
             null
@@ -141,14 +142,28 @@ data class Placement(val letter: String, val east: Float, val north: Float, val 
     }
 }
 
+/** Sensor → commander (relayed up the tree): "I am here, [hops] from you", or "I left". */
+data class Join(val name: String, val hops: Int, val leaving: Boolean = false) {
+    fun toJson(): String = JSONObject().put("rep", if (leaving) "leave" else "join").put("name", name).put("hops", hops).toString()
+
+    companion object {
+        fun fromJson(o: JSONObject): Join? = try {
+            Join(o.getString("name"), o.optInt("hops", 1), o.optString("rep") == "leave")
+        } catch (e: Exception) {
+            HLog.d("bad Join json: $e"); null
+        }
+    }
+}
+
 object Messages {
-    /** Returns a [SensorEvent], a [Command], a [ChirpReport], a [Placement], or null. */
+    /** Returns a [SensorEvent], a [Command], a [ChirpReport], a [Placement], a [Join], or null. */
     fun parse(text: String): Any? = try {
         val o = JSONObject(text)
         when {
             o.has("cmd") -> Command.fromJson(o)
             o.optString("rep") == "chirp" -> ChirpReport.fromJson(o)
             o.optString("rep") == "place" -> Placement.fromJson(o)
+            o.optString("rep") == "join" || o.optString("rep") == "leave" -> Join.fromJson(o)
             else -> SensorEvent.fromJson(o)
         }
     } catch (e: Exception) {

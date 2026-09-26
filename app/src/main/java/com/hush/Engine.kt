@@ -154,7 +154,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             lastPlacementSentSteps = dr.steps
             val p = com.hush.model.Placement(letter, dr.east, dr.north, dr.steps)
             HLog.d("Placement: carried east=%.1f north=%.1f in %d steps".format(dr.east, dr.north, dr.steps))
-            if (role == ROLE_SENSOR) link?.broadcast(p.toJson()) else onPlacement(p)
+            if (role == ROLE_SENSOR) link?.sendUp(p.toJson()) else onPlacement(p)
         }
     }
 
@@ -260,7 +260,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     /** Commander: tell [letter] to chirp now; everyone (including us) listens for it. */
     private fun triggerChirp(letter: String) {
-        link?.broadcast(Command(Command.CHIRP, letter = letter).toJson())
+        link?.sendDown(Command(Command.CHIRP, letter = letter).toJson())
         onChirpCommand(letter)
     }
 
@@ -297,7 +297,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 }
                 val report = com.hush.model.ChirpReport(this.letter, letter, at, det.ratio, micDelay, headingDeg)
                 main.post {
-                    if (role == ROLE_COMMANDER) onChirpReport(report) else link?.broadcast(report.toJson())
+                    if (role == ROLE_COMMANDER) onChirpReport(report) else link?.sendUp(report.toJson())
                 }
             }.start()
         }, chirpToken, SEARCH_AFTER_MS + 100L)
@@ -722,14 +722,14 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         rangingInProgress = false
         pendingHushSeconds = 0
         inHush = false
-        link?.broadcast(Command(Command.STOP).toJson())
+        link?.sendDown(Command(Command.STOP).toJson())
         listener?.onCountdown(-1)
         setRangingStatus("Stopped.")
         sessionLog.addRecord("stop", emptyMap())
     }
 
     private fun broadcastHush(seconds: Int) {
-        link?.broadcast(Command(Command.HUSH, seconds).toJson())
+        link?.sendDown(Command(Command.HUSH, seconds).toJson())
         startHushLocal(seconds)
     }
 
@@ -851,7 +851,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         main.post {
             listener?.onOwnWindow(w)
             when (role) {
-                ROLE_SENSOR -> link?.broadcast(event.toJson())
+                ROLE_SENSOR -> link?.sendUp(event.toJson())
                 ROLE_COMMANDER -> { recordEvent(event); listener?.onEvent(event, localName) }
             }
         }
@@ -860,23 +860,45 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     // ---- Nearby link ----
 
     override fun onLinkStatus(text: String) {
-        lastStatus = text
-        listener?.onLinkStatus(text)
+        lastStatus = if (role == ROLE_SENSOR && letter != "?") "$text · Sensor $letter" else text
+        listener?.onLinkStatus(lastStatus)
     }
 
-    override fun onPeerConnected(endpointId: String, name: String) {
-        if (role != ROLE_COMMANDER) return
-        val assigned = lettersByName.getOrPut(name) { nextFreeLetter() }
-        peers[endpointId] = Peer(endpointId, name, assigned)
-        HLog.d("Commander: $name is Sensor $assigned (${peers.size} connected)")
-        link?.send(endpointId, Command(Command.ASSIGN, letter = assigned).toJson())
-        if (inHush) link?.send(endpointId, Command(Command.HUSH, secondsLeft()).toJson())
-        listener?.onPeers(peers.values.toList())
+    /** Sensor: our route to the commander came up. Announce ourselves; the tree forwards it up. */
+    override fun onRouteUp(hops: Int) {
+        HLog.d("Route up with $hops hops, announcing")
+        link?.sendUp(com.hush.model.Join(localName, hops).toJson())
     }
 
-    override fun onPeerDisconnected(endpointId: String) {
+    override fun onRouteDown() {
+        letter = "?"
+        inHush = false
+        listener?.onCountdown(-1)
+    }
+
+    override fun onDownstreamLost(endpointId: String) {
+        // Sensors below the lost neighbour will re-route and re-join by themselves; the commander
+        // drops anything it learned through that link.
+        if (role == ROLE_COMMANDER) {
+            val gone = peers.values.filter { it.endpointId == endpointId }.map { it.name }
+            gone.forEach { peers.remove(it) }
+            if (gone.isNotEmpty()) { HLog.d("Commander: lost $gone via $endpointId"); listener?.onPeers(peers.values.toList()) }
+        }
+    }
+
+    /** Commander: a sensor announced itself (directly or relayed). Key is the sensor's name. */
+    private fun onJoin(j: com.hush.model.Join, viaEndpoint: String) {
         if (role != ROLE_COMMANDER) return
-        peers.remove(endpointId)
+        if (j.leaving) {
+            peers.remove(j.name)
+            listener?.onPeers(peers.values.toList())
+            return
+        }
+        val assigned = lettersByName.getOrPut(j.name) { nextFreeLetter() }
+        peers[j.name] = Peer(viaEndpoint, j.name, assigned)
+        HLog.d("Commander: ${j.name} is Sensor $assigned, ${j.hops} hop(s) via $viaEndpoint (${peers.size} sensors)")
+        link?.sendDown(Command(Command.ASSIGN, letter = assigned, to = j.name).toJson())
+        if (inHush) link?.sendDown(Command(Command.HUSH, secondsLeft(), to = j.name).toJson())
         listener?.onPeers(peers.values.toList())
     }
 
@@ -885,24 +907,33 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         return ('B'..'Z').map { it.toString() }.first { it !in used }
     }
 
-    override fun onMessage(endpointId: String, text: String) {
+    override fun onMessage(endpointId: String, text: String, fromUpstream: Boolean) {
+        if (role == ROLE_SENSOR && !fromUpstream) {
+            // From a sensor below us: not ours to read, forward toward the commander.
+            link?.sendUp(text)
+            return
+        }
         when (val msg = Messages.parse(text)) {
             is Command -> {
-                HLog.d("Command received: ${msg.type} sec=${msg.seconds} letter=${msg.letter}")
+                // Commands flow down the tree: forward first, then apply if addressed to us.
+                if (role == ROLE_SENSOR) link?.sendDown(text)
+                if (msg.to != null && msg.to != localName) return
+                HLog.d("Command received: ${msg.type} sec=${msg.seconds} letter=${msg.letter} to=${msg.to}")
                 when (msg.type) {
                     Command.ASSIGN -> {
                         letter = msg.letter ?: "?"
-                        onLinkStatus("Connected as Sensor $letter")
+                        onLinkStatus(lastStatus)
                     }
                     Command.HUSH -> startHushLocal(msg.seconds)
                     Command.STOP -> { inHush = false; main.removeCallbacksAndMessages(chirpToken); listener?.onCountdown(-1); onLinkStatus("Stopped by commander") }
                     Command.CHIRP -> msg.letter?.let { onChirpCommand(it) }
                 }
             }
+            is com.hush.model.Join -> onJoin(msg, endpointId)
             is com.hush.model.ChirpReport -> onChirpReport(msg)
             is com.hush.model.Placement -> onPlacement(msg)
             is SensorEvent -> {
-                val name = peers[endpointId]?.name ?: endpointId
+                val name = peers.values.firstOrNull { it.letter == msg.sensorId }?.name ?: msg.sensorId
                 recordEvent(msg)
                 listener?.onEvent(msg, name)
             }
