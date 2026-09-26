@@ -1,0 +1,17 @@
+[versions]
+agp = "8.13.2"
+kotlin = "2.4.20"
+appcompat = "1.7.1"
+coreKtx = "1.13.1"
+nearby = "19.5.0"
+tflite = "2.17.0"
+
+[libraries]
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+play-services-nearby = { group = "com.google.android.gms", name = "play-services-nearby", version.ref = "nearby" }
+tensorflow-lite = { group = "org.tensorflow", name = "tensorflow-lite", version.ref = "tflite" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
