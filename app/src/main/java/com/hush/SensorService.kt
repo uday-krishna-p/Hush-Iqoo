@@ -3,7 +3,6 @@ package com.hush
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
-import android.util.Log
 
 /**
  * Placeholder for the foreground service that will own the microphone and the Nearby link.
@@ -12,7 +11,7 @@ import android.util.Log
 class SensorService : Service() {
     override fun onCreate() {
         super.onCreate()
-        Log.d("Hush", "SensorService created (stub)")
+        HLog.d("SensorService created (stub)")
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

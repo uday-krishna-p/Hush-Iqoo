@@ -1,7 +1,7 @@
 package com.hush.audio
 
 import android.content.Context
-import android.util.Log
+import com.hush.HLog
 import org.tensorflow.lite.Interpreter
 import java.io.FileInputStream
 import java.nio.MappedByteBuffer
@@ -22,6 +22,8 @@ class Classifier(context: Context) {
 
     companion object {
         const val INPUT_SAMPLES = 15_600
+        private const val TARGET_PEAK = 0.8f
+        private const val MAX_GAIN = 1000f   // +60 dB cap so a truly silent room is not blown up into noise
 
         // Exact YAMNet display names. Tune these after watching the top-5 list on the phone.
         val HUMAN = setOf(
@@ -50,8 +52,8 @@ class Classifier(context: Context) {
 
     init {
         labels = loadLabels(context)
-        Log.d("Hush", "Loaded ${labels.size} YAMNet labels")
-        (HUMAN + MACHINE).filter { it !in labels }.forEach { Log.d("Hush", "WARNING bucket name not in class map: '$it'") }
+        HLog.d("Loaded ${labels.size} YAMNet labels")
+        (HUMAN + MACHINE).filter { it !in labels }.forEach { HLog.d("WARNING bucket name not in class map: '$it'") }
         humanIdx = labels.indices.filter { labels[it] in HUMAN }.toIntArray()
         machineIdx = labels.indices.filter { labels[it] in MACHINE }.toIntArray()
 
@@ -59,7 +61,7 @@ class Classifier(context: Context) {
         interpreter = Interpreter(loadModel(context), options)
 
         val inShape = interpreter.getInputTensor(0).shape()
-        Log.d("Hush", "YAMNet input shape ${inShape.contentToString()}")
+        HLog.d("YAMNet input shape ${inShape.contentToString()}")
         inputIs2d = inShape.size == 2
         interpreter.resizeInput(0, if (inputIs2d) intArrayOf(1, INPUT_SAMPLES) else intArrayOf(INPUT_SAMPLES))
         interpreter.allocateTensors()
@@ -67,18 +69,18 @@ class Classifier(context: Context) {
         var found = -1
         for (i in 0 until interpreter.outputTensorCount) {
             val shape = interpreter.getOutputTensor(i).shape()
-            Log.d("Hush", "YAMNet output $i shape ${shape.contentToString()}")
+            HLog.d("YAMNet output $i shape ${shape.contentToString()}")
             if (found < 0 && shape.isNotEmpty() && shape.last() == labels.size) found = i
         }
         if (found < 0) {
-            Log.d("Hush", "ERROR: no YAMNet output has ${labels.size} columns, using output 0")
+            HLog.d("ERROR: no YAMNet output has ${labels.size} columns, using output 0")
             found = 0
         }
         scoresOutputIndex = found
         val outShape = interpreter.getOutputTensor(found).shape()
         val frames = if (outShape.size >= 2) outShape[0] else 1
         scores = Array(frames) { FloatArray(labels.size) }
-        Log.d("Hush", "Classifier ready: scores from output $found, $frames frame(s)")
+        HLog.d("Classifier ready: scores from output $found, $frames frame(s)")
     }
 
     private fun loadModel(context: Context): MappedByteBuffer {
@@ -98,13 +100,32 @@ class Classifier(context: Context) {
                 line.substring(second + 1).trim().removeSurrounding("\"")
             }
 
-    /** Classifies the last [INPUT_SAMPLES] samples of [pcm16k] (16 kHz floats in -1..1). */
+    private var calls = 0
+
+    /** Last gain applied before the model, for the debug screen. */
+    @Volatile var lastGain: Float = 1f
+        private set
+
+    /**
+     * Classifies the last [INPUT_SAMPLES] samples of [pcm16k] (16 kHz floats in -1..1).
+     * The window is peak-normalised first: phone mics deliver very quiet audio and YAMNet
+     * expects roughly full-scale input, otherwise everything scores as "Silence".
+     */
     fun classify(pcm16k: FloatArray, n: Int): Result {
         val offset = maxOf(0, n - INPUT_SAMPLES)
+        var peak = 0f
         for (i in 0 until INPUT_SAMPLES) {
             val j = offset + i
-            input[i] = if (j < n) pcm16k[j] else 0f
+            val v = if (j < n) pcm16k[j] else 0f
+            input[i] = v
+            val a = if (v < 0f) -v else v
+            if (a > peak) peak = a
         }
+        val gain = if (peak > 1e-5f) (TARGET_PEAK / peak).coerceIn(1f, MAX_GAIN) else 1f
+        if (gain != 1f) for (i in 0 until INPUT_SAMPLES) input[i] *= gain
+        lastGain = gain
+        calls++
+        if (calls % 10 == 1) HLog.d("classifier peak=%.5f gain=%.1f".format(peak, gain))
         val outputs = mapOf<Int, Any>(scoresOutputIndex to scores)
         val inputs = arrayOf<Any>(if (inputIs2d) input2d else input)
         interpreter.runForMultipleInputsOutputs(inputs, outputs)

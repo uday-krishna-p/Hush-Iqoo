@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.util.Log
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.TextView
@@ -25,7 +24,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Log.d("Hush", "MainActivity created on ${Build.MANUFACTURER} ${Build.MODEL}, Android API ${Build.VERSION.SDK_INT}")
+        HLog.init(applicationContext)
+        HLog.d("MainActivity created on ${Build.MANUFACTURER} ${Build.MODEL}, Android API ${Build.VERSION.SDK_INT}")
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         showRolePicker()
     }
@@ -37,12 +37,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun pickRole(name: String) {
-        Log.d("Hush", "Role picked: $name")
+        HLog.d("Role picked: $name")
         role = name
         if (hasMicPermission()) {
             showSensorScreen()
         } else {
-            Log.d("Hush", "Requesting RECORD_AUDIO permission")
+            HLog.d("Requesting RECORD_AUDIO permission")
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), REQ_MIC)
         }
     }
@@ -54,7 +54,7 @@ class MainActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode != REQ_MIC) return
         val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
-        Log.d("Hush", "RECORD_AUDIO granted: $granted")
+        HLog.d("RECORD_AUDIO granted: $granted")
         if (granted) {
             showSensorScreen()
         } else {

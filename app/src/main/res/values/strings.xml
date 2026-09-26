@@ -10,8 +10,9 @@
     <string name="loudness">Loudness (200–3000 Hz)</string>
     <string name="mic_starting">Opening microphone…</string>
     <string name="mic_source">Mic source: %1$s</string>
-    <string name="rms_value">RMS %1$.4f</string>
+    <string name="rms_value">RMS %1$.5f  (%2$.0f dB)  model gain ×%3$.0f</string>
     <string name="top_class_value">%1$s\nhuman %2$.2f · machine %3$.2f</string>
+    <string name="tap_value">TAPS %1$d  peak ×%2$.0f  score %3$.2f\ngaps ms: %4$s</string>
     <string name="debug_top5">Top 5 raw classes (debug)</string>
     <string name="classifier_failed">Classifier failed to load:\n%1$s</string>
 </resources>
