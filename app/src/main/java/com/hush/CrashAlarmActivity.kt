@@ -54,11 +54,16 @@ class CrashAlarmActivity : AppCompatActivity(), CrashGuard.Listener {
     override fun onStop() { super.onStop(); if (CrashGuard.nearbyListener === this) CrashGuard.nearbyListener = null }
     override fun onCrashChanged() = render()
 
-    /** Opens the phone app with the number typed in (one more tap). Build B upgrades this to a direct call when allowed. */
+    /**
+     * A contact is called directly when the phone permission is granted (else the phone app opens with the number typed
+     * in); the emergency number always goes through the dialer, because a normal app may not place that call itself.
+     */
     private fun dial(number: String, what: String, action: String) {
         try {
-            startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number")))
-            HLog.d("CrashAlarmActivity: dialer opened on $what ${EmergencyContacts.mask(number)}")
+            val direct = action == Response.CALLED_CONTACT &&
+                androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.CALL_PHONE) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            startActivity(Intent(if (direct) Intent.ACTION_CALL else Intent.ACTION_DIAL, Uri.parse("tel:$number")))
+            HLog.d("CrashAlarmActivity: ${if (direct) "calling" else "dialer opened on"} $what ${EmergencyContacts.mask(number)}")
             CrashGuard.respond(action, what)
         } catch (e: Exception) {
             HLog.d("CrashAlarmActivity: dialer failed for $what: $e")

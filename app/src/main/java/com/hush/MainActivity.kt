@@ -156,7 +156,17 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnCommander).setOnClickListener { pickRole(Engine.ROLE_COMMANDER) }
         findViewById<Button>(R.id.btnSensor).setOnClickListener { pickRole(Engine.ROLE_SENSOR) }
         findViewById<Button>(R.id.btnBackground).setOnClickListener { askBackgroundAllowance(force = true) }
+        findViewById<Button>(R.id.btnContacts).setOnClickListener { startActivity(Intent(this, ContactsActivity::class.java)) }
+        renderContactsButton()
         findViewById<TextView>(R.id.status).text = getString(R.string.pick_role)
+    }
+
+    /** "EMERGENCY CONTACTS · 2 set", orange while none are set (docs/PLAN-crash.md). */
+    private fun renderContactsButton() {
+        val b = findViewById<Button>(R.id.btnContacts) ?: return
+        val n = EmergencyContacts.list(this).size
+        b.text = if (n == 0) getString(R.string.contacts_button_none) else getString(R.string.contacts_button, n)
+        b.backgroundTintList = android.content.res.ColorStateList.valueOf(if (n == 0) 0xFFE65100.toInt() else 0xFF6200EE.toInt())
     }
 
     private fun backgroundAllowed(): Boolean =
@@ -193,6 +203,7 @@ class MainActivity : AppCompatActivity() {
                 ContextCompat.startForegroundService(this, Intent(this, SensorService::class.java).putExtra(SensorService.EXTRA_ROLE, role))
             } catch (e: Exception) { HLog.d("MainActivity: could not re-assert the foreground service: $e") }
         }
+        if (role == null) renderContactsButton()
         // Back from the system dialog: refresh the armed text.
         if (role == null && findViewById<TextView>(R.id.status) != null && Probe.isArmed(this) && missingPermissions().isEmpty()) showArmed(lastArmStatus)
     }
@@ -238,6 +249,9 @@ class MainActivity : AppCompatActivity() {
         p += Manifest.permission.ACCESS_FINE_LOCATION      // GPS overlay for large sites
         p += Manifest.permission.ACTIVITY_RECOGNITION      // step detector for placement dead reckoning
         if (Build.VERSION.SDK_INT >= 36) p += "android.permission.RANGING"   // Bluetooth Channel Sounding spike
+        p += Manifest.permission.SEND_SMS            // crash escalation: text the emergency contacts (docs/PLAN-crash.md)
+        p += Manifest.permission.CALL_PHONE          // crash escalation: call them one after another
+        p += Manifest.permission.READ_PHONE_STATE    // crash escalation: see whether the call was answered
         return p
     }
 

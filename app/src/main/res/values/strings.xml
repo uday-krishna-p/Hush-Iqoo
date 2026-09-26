@@ -53,6 +53,22 @@
     <string name="nearby_cancelled">✓ %1$s pressed I\'M OK: the alarm is cancelled</string>
     <string name="nearby_notif_title">🚨 CRASH NEARBY · %1$s needs help</string>
     <string name="nearby_notif_text">A Hush phone nearby has raised a fall alarm with no response. Open to see who and how far.</string>
+    <string name="contacts_button">EMERGENCY CONTACTS · %1$d set</string>
+    <string name="contacts_button_none">EMERGENCY CONTACTS · none set yet</string>
+    <string name="contacts_title">Emergency contacts</string>
+    <string name="contacts_intro">If this phone detects that you have fallen and you do not answer within 30 s, it texts these people your position, calls them one after another on speaker, and opens the dialer on the emergency number. Order matters.</string>
+    <string name="contacts_name">name</string>
+    <string name="contacts_number">+91 number</string>
+    <string name="contacts_pick">PICK</string>
+    <string name="contacts_emergency">Emergency number: </string>
+    <string name="contacts_save">SAVE</string>
+    <string name="contacts_saved">Saved %1$d contact(s)</string>
+    <string name="contacts_none">No contacts saved yet</string>
+    <string name="contacts_test">TEST (describe, send nothing)</string>
+    <string name="contacts_test_call">TEST CALL contact 1</string>
+    <string name="contacts_test_call_confirm">Really call %1$s (%2$s) now?</string>
+    <string name="contacts_mode_dry">Mode: DRY RUN · escalation only logs texts and calls · tap to go LIVE</string>
+    <string name="contacts_mode_live">Mode: LIVE · escalation really texts and calls · tap for DRY RUN</string>
     <string name="perms_denied">Microphone and nearby-device permissions are required. Tap a role again to retry.</string>
 
     <string name="my_mic_a">My mic (Sensor A)</string>

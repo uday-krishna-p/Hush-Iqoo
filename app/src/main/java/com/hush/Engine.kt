@@ -251,6 +251,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         }
     }
 
+    fun appContextOrNull(): Context? = appContext
     /** Sensor: re-advertise the tag now (the SOS flag changed). */
     fun refreshTag() { if (role == ROLE_SENSOR) { main.removeCallbacks(tagRefresh); main.post(tagRefresh) } }
     fun gpsFix(): android.location.Location? = gps?.fix

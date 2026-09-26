@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/contacts_title"
+            android:textSize="28sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:text="@string/contacts_intro"
+            android:textSize="14sp" />
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+            <EditText android:id="@+id/name1" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:hint="@string/contacts_name" android:inputType="textPersonName" />
+            <EditText android:id="@+id/number1" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1.2" android:hint="@string/contacts_number" android:inputType="phone" />
+            <Button android:id="@+id/pick1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/contacts_pick" />
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+            <EditText android:id="@+id/name2" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:hint="@string/contacts_name" android:inputType="textPersonName" />
+            <EditText android:id="@+id/number2" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1.2" android:hint="@string/contacts_number" android:inputType="phone" />
+            <Button android:id="@+id/pick2" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/contacts_pick" />
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+            <EditText android:id="@+id/name3" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:hint="@string/contacts_name" android:inputType="textPersonName" />
+            <EditText android:id="@+id/number3" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1.2" android:hint="@string/contacts_number" android:inputType="phone" />
+            <Button android:id="@+id/pick3" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/contacts_pick" />
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:orientation="horizontal" android:gravity="center_vertical">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/contacts_emergency" android:textSize="16sp" />
+            <EditText android:id="@+id/emergencyNumber" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:inputType="phone" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnSaveContacts"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:layout_marginTop="12dp"
+            android:text="@string/contacts_save"
+            android:textSize="20sp" />
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:orientation="horizontal">
+            <Button android:id="@+id/btnTestContacts" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/contacts_test" />
+            <Button android:id="@+id/btnTestCall" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:backgroundTint="#B71C1C" android:text="@string/contacts_test_call" android:textColor="#FFFFFF" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnModeToggle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/contacts_mode_dry" />
+
+        <TextView
+            android:id="@+id/contactsResult"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:fontFamily="monospace"
+            android:textSize="13sp" />
+    </LinearLayout>
+</ScrollView>

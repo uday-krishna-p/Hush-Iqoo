@@ -14,6 +14,12 @@
          nothing unless the app is exempt from battery optimisation (or allowed to run in the background). -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- Crash / fall escalation (docs/PLAN-crash.md, build B): text and call the owner's emergency contacts, see whether
+         a call was answered. Runtime permissions; refused → only the dialer opens. A normal app may never dial 112 itself. -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+
     <!-- Nearby Connections: Bluetooth + Wi-Fi Direct. Older Android versions need the legacy names. -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
@@ -85,6 +91,12 @@
             android:screenOrientation="portrait"
             android:showWhenLocked="true"
             android:turnScreenOn="true" />
+
+        <!-- Emergency contacts: name + number rows, TEST, TEST CALL, dry-run / live switch -->
+        <activity
+            android:name=".ContactsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
 
         <!-- Started by the system only: probe seen by the passive scan (our own PendingIntent), boot finished,
              app updated, re-arm alarm. Not exported: another app must not be able to fire the rescue alarm. -->
