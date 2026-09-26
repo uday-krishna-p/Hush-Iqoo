@@ -254,18 +254,19 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 val at = startSample + det.offset
                 HLog.d("Chirp from $letter heard by ${this.letter}: offset=${det.offset} sample=$at peak=%.2f ratio=%.1f (%d ms)".format(det.peak, det.ratio, SystemClock.elapsedRealtime() - t0))
                 if (det.offset < 0 || det.ratio < 5f) { HLog.d("Chirp from $letter: not credible, dropped"); return@Thread }
-                // Second mic: search only ±60 samples around the first mic's peak for the inter-mic delay.
+                // Second mic: same full search, so its peak is judged against the same baseline; the
+                // sub-sample difference between the two peaks is the inter-mic delay (direction of arrival).
                 var micDelay: Float? = null
                 if (cap.stereo && letter != this.letter) {
-                    val span = 60
-                    val from2 = startSample + det.offset - span
-                    val len2 = com.hush.audio.Chirp.template.size + 2 * span
-                    val a2 = cap.snapshot(from2, len2, 1)
+                    val a2 = cap.snapshot(startSample, count, 1)
                     if (a2 != null) {
-                        val d2 = com.hush.audio.Chirp.detect(a2, len2)
-                        if (d2.offset >= 0) {
-                            micDelay = (d2.fine - span - (det.fine - det.offset)).toFloat()
+                        val d2 = com.hush.audio.Chirp.detect(a2, count)
+                        val gap = kotlin.math.abs(d2.offset - det.offset)
+                        if (d2.offset >= 0 && d2.ratio >= 5f && gap <= 40) {
+                            micDelay = (d2.fine - det.fine).toFloat()
                             HLog.d("Chirp from $letter mic delay: %.2f samples (mic1 − mic0), ratio2=%.1f, heading=%.0f".format(micDelay, d2.ratio, headingDeg))
+                        } else {
+                            HLog.d("Chirp from $letter: second mic not usable (offset gap $gap, ratio2 %.1f)".format(d2.ratio))
                         }
                     }
                 }
@@ -351,6 +352,17 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     private fun finishRanging(letters: List<String>) {
         rangingInProgress = false
+        // Sanity: chirps were triggered CHIRP_GAP_MS apart, so on any one phone's clock chirp k must
+        // arrive about k × gap after chirp 0. A detection far off that is a wrong peak: drop it.
+        val fs = AudioCapture.SAMPLE_RATE
+        for ((hearer, byFrom) in heard) {
+            val t0 = byFrom[letters[0]] ?: continue
+            val bad = byFrom.filter { (from, t) ->
+                val k = letters.indexOf(from)
+                k > 0 && kotlin.math.abs((t - t0) - k * CHIRP_GAP_MS * fs / 1000) > 0.7 * fs
+            }.keys
+            if (bad.isNotEmpty()) { HLog.d("Ranging: $hearer had wrong peaks for $bad, dropped"); bad.forEach { byFrom.remove(it) } }
+        }
         val dist = HashMap<String, Double>()
         for (i in letters.indices) for (j in i + 1 until letters.size) {
             val d = Ranging.pairDistance(heard, letters[i], letters[j])
