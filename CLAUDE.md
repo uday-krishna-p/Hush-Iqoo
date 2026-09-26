@@ -70,6 +70,46 @@ messages (class, confidence, RMS, noise floor, rhythm, timestamps) are shared.
 | Export log | **One JSON-lines file per session** in `Downloads/`, named `hush-<date>-<time>.jsonl`. First line is a header with sensor letters, device names and map dots; every following line is one `SensorEvent` exactly as it crossed the network. Laptop shows it via Office Kit. |
 | Persistence | None beyond the session log file. No database. |
 
+## Positioning and distance plan (26 Sep 16:40 review, hardware-checked)
+
+**iQOO I2501 hardware facts:** GPS, compass, gyroscope, Bluetooth LE **with Channel Sounding** (Bluetooth 6 phase-based
+ranging, exposed by the Android 16 `android.ranging.RangingManager` API). **No** UWB, **no** Wi-Fi RTT, **no** Wi-Fi Aware,
+**no** barometer. All three phones are the same model on Android 16, so both ends of every pair support the same features.
+
+### A. Where are the sensors (auto-placement on the map)
+
+| Option | Accuracy | Indoors | On this phone | Effort | Verdict |
+|---|---|---|---|---|---|
+| GPS per phone | 3–5 m open sky, 10–30 m near buildings | no | yes | 30 min | only when sensors are > 20 m apart; coarse overlay + coordinates in the export |
+| BLE RSSI | 2–4 m, no direction | yes | yes | 45 min | "nearer/farther" only; fallback |
+| **BLE Channel Sounding (Android 16 Ranging API)** | 0.3–1 m pairwise | yes | **yes** | 2–3 h, new API | **primary radio path**: silent, works through light obstruction |
+| Wi-Fi RTT / Aware | 1–2 m | yes | no | — | out |
+| UWB | 10 cm + angle | yes | no | — | out |
+| **Acoustic two-way ranging** (each phone chirps once; every phone times every chirp; pairwise distance cancels clock offsets) | 5–10 cm to ~10 m | yes | yes | 3 h | **most accurate possible here**; also yields the clock sync Locate needs; fails behind solid walls |
+| Step count + compass while carrying a sensor out | 2–3 m over 15 m | yes | yes | 1 h | good for real deployments, poor on a small triangle |
+| ARCore visual odometry | cm | yes | probably | many h | over budget |
+| Manual tap on the map | finger accuracy | yes | yes | done | today's demo and permanent fallback |
+
+Pairwise distances give a shape, not its orientation or mirror image: every phone reports its **compass heading** in the event
+(orientation), and the commander gets one **flip** button for the mirror case; GPS bearing resolves it outdoors.
+
+### B. How far away is the tapping
+
+| Option | Gives | Honest limit |
+|---|---|---|
+| Loudness above each sensor's noise floor (shipped) | ranking, strongest sensor | not a distance; rubble attenuation is unpredictable, which is why pros trust exactly this |
+| Loudness ratio between sensors | rough relative distance in open air | wrong under rubble; hint only |
+| **TDOA from sample-accurate knock onsets** (timestamps only cross the network) | position + error circle, 0.5–1 m open air with 3–4 phones | needs < 1 ms clock sync and positions — both come from acoustic ranging; sound bends under rubble, never claim a dot there |
+| Two-mic bearing on one phone | direction per phone, no sync needed | only if stereo capture is exposed on this model (untested); ±20° |
+
+### Order of work
+1. **Today before 18:00:** manual placement, ranking, export, rehearsal. Nothing above ships in the remaining time without risking the demo.
+2. **Tonight, 30 min:** compass heading in every event → north-up map and arrow.
+3. **Tonight, 1 h spike:** BLE Channel Sounding between two phones via `RangingManager`. Stable distances → auto-placement on it (2 h). Needs the `android.permission.RANGING` runtime permission (manifest change — ask first).
+4. **Regardless, 3 h:** acoustic two-way ranging (ring buffer of the 48 kHz stream, matched-filter chirp detection, pairwise distances, positions by least squares). Locate needs its sync anyway.
+5. **30 min:** GPS coarse overlay + coordinates in the export.
+6. **Locate:** TDOA solver + error circle on the map, once 3/4 give positions and sync.
+
 ## Every sensor on the phone, judged for this job (26 Sep review)
 
 Shipped or planned, in order of value for finding a trapped person. Nothing here sends raw data anywhere.
