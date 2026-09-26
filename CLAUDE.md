@@ -399,7 +399,7 @@ the far sensor); pairing prompts and whether "Radio:" loses its "?".
 The PRD's Feature 2.1 is the priority: **passive victim phones (< 1 % battery/day) that a commander's probe wakes,
 which then notify and buzz the victim and join the network as sensors.** Features 2.2–2.4 (Hush window, ranking,
 radar canvas with arrow) already exist, and the arrow now points at the located sound rather than at a sensor pin.
-Personas B and C (household, hearing-impaired) come later. What follows is what the hardware and Android actually
+Personas B and C (household, hearing-impaired) are planned in `docs/PLAN-personas-bc.md` (ALERT role first, then the whistle counter, then walk-to-triangulate). What follows is what the hardware and Android actually
 allow, the PRD's acceptance criteria against those facts, then the build order.
 
 ### Hardware facts (checked 26 Sep 19:30, `adb shell pm list features` on two I2501, OriginOS 6, API 36)
@@ -498,8 +498,8 @@ polish left: the PRD's gold/cyan highlight of the strongest row and a glowing au
 
 **Later, in this order once phase 1 is measured:** SOS mode (victim-initiated: SOS chirp pattern + hotspot
 beacon + torch, the locator finds the phone to ±0.3 m); sweep of non-Hush phones (BLE only, coarse blobs, honest
-labels); multi-commander flooding mesh; persona B (single-phone walk-to-triangulate, whistle counter); persona C
-(screen flashes + haptics for doorbells and knocks).
+labels); multi-commander flooding mesh; persona B (single-phone walk-to-triangulate, whistle counter) and persona C
+(screen flashes + haptics for doorbells, knocks, alarms), both planned step by step in `docs/PLAN-personas-bc.md`.
 
 **Not in any phase:** Wi-Fi RTT/Aware/UWB (absent), exact position of a non-Hush phone (physics), waking a phone
 whose Bluetooth is off or whose app was force-stopped (platform), a 2 s wake guarantee at < 1 %/day (the two
@@ -593,6 +593,7 @@ app/src/test/java/com/hush/KnockBearingTest.kt   // the own arrow: mirror resolv
 app/src/test/java/com/hush/CrossingTest.kt       // bearing lines → point: three lines, a mirrored phone, ambiguity, parallel, behind, range
 app/src/test/java/com/hush/GpsLayoutTest.kt      // GPS positions: wide triangle placed, table triangle refused, stale or poor fixes named
 docs/PLAN-compass.md                        // the compass plan (own arrow → bearings on the map → GPS → silent chirps)
+docs/PLAN-personas-bc.md                    // personas B and C: ALERT role (colour flash + haptics), whistle counter, walk-to-triangulate
 .github/workflows/build.yml
 ```
 
