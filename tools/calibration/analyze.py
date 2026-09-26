@@ -58,23 +58,27 @@ def match(onset_samples, offset, tol_ms=60):
     extra = [s for i, s in enumerate(onset_samples) if i not in used]
     return matches, missed, extra
 
-def best_offset(onset_samples, hint=None):
-    """A/B do not know C's start sample: search the offset that matches the most scheduled knocks."""
-    if hint is not None:
-        cands = [hint]
-    else:
-        cands = []
-        firsts = [k["ms"] for k in knocks[:6]]
-        for s in onset_samples[:12]:
-            for ms in firsts: cands.append(s - ms * FS // 1000)
+def best_offset(onset_samples, hint=None, span_ms=300):
+    """Offset (phone sample of the schedule's t=0) that lines up the most onsets with scheduled knocks.
+    Every (onset, knock) pair votes for the offset that would align them; the best 4 ms bin wins, then the
+    median residual refines it. With a hint (C's PLAY sample) only offsets within +-span_ms of it may vote:
+    C's own knocks reach its mic after the playback latency, which the PLAY line does not include."""
+    votes = {}
+    for s in onset_samples:
+        for k in knocks:
+            c = s - k["ms"] * FS // 1000
+            if hint is not None and abs(c - hint) > span_ms * FS // 1000: continue
+            b = c // (4 * FS // 1000)
+            votes[b] = votes.get(b, 0) + 1
+    if not votes: return None
     best = None
-    for c in cands:
-        m, _, _ = match(onset_samples, c, tol_ms=40)
-        # refine with the median residual
-        if m:
-            c2 = c + int(st.median([d for _, d, _, _ in m]))
-            m2, _, _ = match(onset_samples, c2, tol_ms=40)
-            if best is None or len(m2) > best[1]: best = (c2, len(m2))
+    for b in sorted(votes, key=votes.get, reverse=True)[:5]:
+        c = b * (4 * FS // 1000) + 2 * FS // 1000
+        m, _, _ = match(onset_samples, c, tol_ms=20)
+        if not m: continue
+        c2 = c + int(st.median([d for _, d, _, _ in m]))
+        m2, _, _ = match(onset_samples, c2, tol_ms=20)
+        if best is None or len(m2) > best[1]: best = (c2, len(m2))
     return best[0] if best else None
 
 print("=" * 78)
@@ -89,8 +93,8 @@ for L in "ABC":
     m, missed, extra = match(on, off)
     print("\n%s: %d onsets logged, %d matched a scheduled knock, %d scheduled knocks missed, %d unscheduled onsets" % (L, len(on), len(m), len(missed), len(extra)))
     if L == "C":
-        lat = [d for _, d, _, _ in m]
-        if lat: print("   C's own speaker→mic delay (playback latency + 0.1 m): median %.1f ms, spread (IQR) %.1f ms" % (st.median(lat) / 48, (sorted(lat)[3 * len(lat) // 4] - sorted(lat)[len(lat) // 4]) / 48))
+        lat = [off + d - playC["s"] for _, d, _, _ in m]
+        if lat: print("   C's own knocks reached its mic %.1f ms after the PLAY sample (playback latency + speaker-to-mic path), spread (IQR) %.2f ms" % (st.median(lat) / 48, (sorted(lat)[3 * len(lat) // 4] - sorted(lat)[len(lat) // 4]) / 48))
     for p in phases:
         mp = [d for _, d, ph, _ in m if ph == p]; tot = sum(1 for k in knocks if k["phase"] == p)
         if mp:
@@ -116,8 +120,9 @@ for L in "ABC":
 print("\nPAIRWISE TIMING (what the locator's time-difference cue sees; should be constant for a fixed layout):")
 for X, Y in [("A", "B"), ("A", "C"), ("B", "C")]:
     if X not in offsets or Y not in offsets: continue
-    mx = {s_true: d for _, d, _, s_true in match([o["s"] for o in logs[X]["onsets"]], offsets[X])[0]}
-    my = {s_true: d for _, d, _, s_true in match([o["s"] for o in logs[Y]["onsets"]], offsets[Y])[0]}
+    # Key by the knock's schedule time: each phone's scheduled sample is on its own clock.
+    mx = {s_true - offsets[X]: d for _, d, _, s_true in match([o["s"] for o in logs[X]["onsets"]], offsets[X])[0]}
+    my = {s_true - offsets[Y]: d for _, d, _, s_true in match([o["s"] for o in logs[Y]["onsets"]], offsets[Y])[0]}
     both = [(mx[s] - my[s]) / 48 for s in mx if s in my]
     if len(both) >= 3:
         med = st.median(both); dev = [abs(b - med) for b in both]

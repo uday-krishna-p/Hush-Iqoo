@@ -195,9 +195,16 @@ the weaker one: C hearing A had a flat envelope until −1004 samples, a direct 
 peak, and the strongest (a reflection) 20 ms later. With the envelope detector the B−A clock offset from the same chirp
 in two rounds agrees to 0.1 sample (−243216.4 / −243216.3). (2) *An unexplained fourth chirp* was heard by all three
 phones at similar strength 1.17 s after C's chirp at 23:21:42 (not any of our phones' self-level): another device
-chirping in the room? A ±2.5 s search window can catch it. (3) *Latency:* 991e 0.59–0.76 s (1 hop), ef39 1.39–1.62 s
-when it was 2 hops (via 991e), steady over 42 commands each. The "1.4–20 s erratic" earlier was ef39's direct link
-stalling from 23:21:06 until Nearby dropped it at 23:22:03. (4) *Endless auto re-ranging:* the "walked 3 s" counter
+chirping in the room? A ±2.5 s search window can catch it. (3) *Latency is small; the phones' wall clocks are not.* Against
+the laptop (`adb shell date +%s.%N`, round trip 0.1 s) the phones run A +0.44 s, ef39 +1.81 s, 991e +1.02 s, so
+log timestamps from different phones differ by up to 1.4 s. Corrected (`latency.py A=0.44 B=1.81 C=1.02`): over 42
+commands each in the 23:24–23:28 rounds, 991e (1 hop) 0.01–0.18 s (median 0.04), ef39 (2 hops via 991e) 0.02–0.25 s
+(median 0.06); in the 23:46 rounds median 0.10–0.15 s with outliers of 0.5–1.55 s. The "0.6 s per hop" and "1.4 s"
+of earlier notes were clock skew. The "1.4–20 s erratic" was ef39's direct link stalling from 23:21:06 until Nearby
+dropped it at 23:22:03. `analyze.py` now finds the player's own delay: its knocks reach its own mic **234.7 ms after
+the PLAY sample** (IQR 0.73 ms; playback latency), and it now matches 72/75 of its own knocks (was mostly
+"unscheduled"); ef39 63/75 (steady 19/20, 3-2 24/30, fast 20/25); the commander 1.3 m away heard none above ambient.
+Same knock on ef39 and 991e: timing difference spread 0.33 ms median abs deviation (11 cm), 90th pct 1.61 ms. (4) *Endless auto re-ranging:* the "walked 3 s" counter
 was cleared only when a round placed the map, so after a failed round the commander chirped every 18 s while lying
 still (13 rounds, 23:24–23:28). Now cleared when any round starts. (5) *Digital silence on ef39:* started from the
 laptop with its screen off, its service never became a foreground service (`startForegroundCount=0`, no exception)
