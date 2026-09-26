@@ -1821,8 +1821,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         }
         accel = AccelChannel(context).also { it.start() }
         val cmp = com.hush.audio.Compass(context).also { it.start() }
-        cmp.offsetDeg = try { context.getSharedPreferences("hush_mic", Context.MODE_PRIVATE).getFloat("compassOffset", 0f) } catch (e: Exception) { HLog.d("Compass offset prefs: $e"); 0f }
-        HLog.d("Compass: correction %+.0f° (SYNC COMPASS)".format(cmp.offsetDeg))
+        // No stored correction: the gyroscope heading starts from a fresh magnetic reading each time, so SYNC once per session.
+        compassSynced = false
         compass = cmp
         deadReckoning = com.hush.audio.DeadReckoning(context, cmp).also { it.start() }
         gps = com.hush.audio.Gps(context).also { it.start() }
@@ -2301,13 +2301,26 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     // ---- Compass sync (27 Sep: three parallel phones read 98°, 238°, 245°; the odd one drew the fused arrow backwards) ----
 
-    /** This phone's compass as the screen shows it: heading, correction, accuracy. */
+    /** True after SYNC COMPASS in this session: the phones' headings agree with each other. */
+    @Volatile var compassSynced = false
+        private set
+
+    /** This phone's heading as the screen shows it. */
     fun compassText(): String {
-        val c = compass ?: return "Compass: off"
-        if (!c.available) return "Compass: not available on this phone"
-        val acc = when (c.accuracy) { 3 -> "good"; 2 -> "medium"; 1 -> "LOW: wave the phone in a figure 8"; 0 -> "UNRELIABLE: wave the phone in a figure 8"; else -> "?" }
-        return "Compass %.0f°  ·  correction %+.0f°  ·  accuracy %s".format(c.headingDeg, c.offsetDeg, acc)
+        val c = compass ?: return "Heading: off"
+        if (!c.available) return "Heading: no rotation sensor on this phone"
+        val how = if (c.gyro) "gyroscope" else "magnetic only"
+        val sync = if (compassSynced) "synced %+.0f°".format(c.offsetDeg) else "NOT SYNCED: lay the phones parallel and tap SYNC"
+        return "Heading %.0f° (%s)  ·  %s".format(c.headingDeg, how, sync)
     }
+
+    /**
+     * This phone hears the knocking itself well enough to point from where it lies: its own two-mic estimate, left/right
+     * settled by turning or by the other phones, from ≥ 3 knocks. Drawn before the fused direction because the fused
+     * one is a single compass direction for everyone, which is wrong for a phone off to the side of a nearby knock
+     * (27 Sep 03:38: knocks beside A; B and C drew A's direction as parallel arrows instead of pointing at the knock).
+     */
+    fun ownHeardWell(own: com.hush.audio.KnockBearing.Estimate?): Boolean = own != null && own.resolved && own.knocks >= 3
 
     /**
      * SYNC COMPASS, pressed on any phone while all phones lie parallel (tops pointing the same way). The commander
@@ -2347,7 +2360,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         while (d > 180f) d -= 360f
         while (d < -180f) d += 360f
         c.offsetDeg = ((c.offsetDeg + d + 540f) % 360f) - 180f
-        try { appContext?.getSharedPreferences("hush_mic", Context.MODE_PRIVATE)?.edit()?.putFloat("compassOffset", c.offsetDeg)?.apply() } catch (e: Exception) { HLog.d("Compass offset not saved: $e") }
+        compassSynced = true
         // Bearing votes collected in the old frame would now point wrong: start them afresh.
         com.hush.audio.KnockBearing.reset(); ownArrowUntilMs = 0L
         if (role == ROLE_COMMANDER) { sharedBearing = null; sharedBearingMs = 0L; sharedHist.fill(0.0); peerBearing.clear() }
@@ -2358,7 +2371,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     fun clearCompassSync(): String {
         val c = compass ?: return "No compass"
         c.offsetDeg = 0f
-        try { appContext?.getSharedPreferences("hush_mic", Context.MODE_PRIVATE)?.edit()?.putFloat("compassOffset", 0f)?.apply() } catch (e: Exception) { HLog.d("Compass offset not saved: $e") }
+        compassSynced = false
         com.hush.audio.KnockBearing.reset(); ownArrowUntilMs = 0L
         HLog.d("COMPASS SYNC cleared on this phone: raw %.0f°".format(c.rawHeadingDeg))
         return "Compass correction removed on this phone"

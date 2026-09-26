@@ -62,12 +62,24 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity,
             arrow.confidence = shared?.confidence ?: own?.confidence ?: 1f
             val lines = Engine.bearingLines()
             if (lines != map.bearings) { map.bearings.clear(); map.bearings.putAll(lines); map.invalidate() }
-            if (shared != null) {
+            if (own != null && Engine.ownHeardWell(own)) {
+                // The commander hears it: its own mics point from where it lies; the others settled left/right.
+                arrow.active = true
+                arrow.angleDeg = own.screenDeg
+                var label = activity.getString(R.string.arrow_heard_here, own.knocks, own.resolvedBy ?: "turning")
+                if (cross != null && angDiff(cross.screenDeg, own.screenDeg) <= 30f) label += activity.getString(R.string.arrow_cross_dist, cross.metres, cross.radius)
+                arrow.label = label
+            } else if (cross != null) {
+                arrow.active = true
+                arrow.angleDeg = cross.screenDeg
+                arrow.label = activity.getString(R.string.arrow_cross, cross.metres, cross.radius, cross.phones)
+            } else if (shared != null) {
                 // The network's estimate first (every phone's mics fused, mirrors resolved across phones); the crossing
                 // of the bearing lines adds a distance when the map has positions.
                 arrow.active = true
                 arrow.angleDeg = shared.screenDeg
                 var label = activity.getString(if (shared.twinDeg == null) R.string.arrow_shared else R.string.arrow_shared_unresolved, shared.phones, (shared.confidence * 100).toInt())
+                if (shared.others) label += activity.getString(R.string.arrow_parallel)
                 if (cross != null && angDiff(cross.screenDeg, shared.screenDeg) <= 30f) label += activity.getString(R.string.arrow_cross_dist, cross.metres, cross.radius)
                 arrow.label = label
             } else if (own != null) {

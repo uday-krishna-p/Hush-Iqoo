@@ -171,6 +171,21 @@ brief sent down); (6) the 1 s audio window (a knock is reported at the end of it
 ~0.4 s); (7) silent ultrasonic chirps (plan step 4) to bring back ranging, clock sync and the timing locator.
 The paragraphs below are the chronological log, newest first.
 
+**Pointing at a nearby knock, gyroscope heading, 27 Sep 03:45 (team: "sensor B and C now point in the same
+direction, but … all point in the direction of the sound"):** the 03:38 round was knocks beside A (A: 11–14 knocks
+at ×14–93, dl ≈ +22.5 = straight off its bottom; B: 3 faint knocks; C: none). The fused bearing is ONE compass
+direction; B and C drew it from where they lie, i.e. parallel to A's line, not at the knock. A fused direction is only
+right for a knock far away compared with the phone spacing; a phone off to the side of a near knock can only point at
+it if it hears it itself or knows where the phones are. Changes: (1) precedence on every screen is now **own arrow
+when this phone hears it well** (resolved by turning or by the other phones, ≥ 3 knocks: `Engine.ownHeardWell`,
+label "heard here … left/right from A,B") > the commander's point (crossing / located source, needs positions) >
+the fused direction (label adds "same direction as the phones that hear it (Place the phones on the map …)") > own
+unresolved. (2) **Heading from the gyroscope** (`TYPE_GAME_ROTATION_VECTOR`, started once from the magnetic
+heading): after the phones were moved, A's magnetic error changed by ~130° while it still reported accuracy 3.
+SYNC is now once per session (not stored); the screen shows "Heading N° (gyroscope) · synced ±N°" or "NOT SYNCED".
+Also seen: C's 03:37 knocks were 14/16 "felt" (through the table), which read as sideways: cloth under the phones.
+991e stopped answering over USB during this install (it joined the mesh; build unknown until re-plugged).
+
 **Compass sync and one screen on every phone, 27 Sep 03:30 (team: "why does sensor A point the opposite way … they
 are all kept parallel"; "they all need to have the same UI (of commander)"):** cause of the backwards arrow: with
 the three phones parallel their compasses read A (6a46) 96–98°, B 236–238°, C 245–246°. Every phone draws the

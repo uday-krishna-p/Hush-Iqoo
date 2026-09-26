@@ -40,11 +40,20 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
             val a = Engine.sensorArrow()
             v.twinAngleDeg = null   // one arrow only (team, 27 Sep 03:30); the mirror shows as low confidence instead
             v.confidence = shared?.confidence ?: own?.confidence ?: 1f
-            if (shared != null) {
-                // The network's estimate (every phone's mics, fused by the commander, mirrors resolved across phones),
-                // drawn through this phone's own compass. Team, 27 Sep 03:10: this comes first, not the single phone.
+            val point = a?.takeIf { !it.here && it.near == null && it.screenDeg != null }
+            if (own != null && Engine.ownHeardWell(own)) {
+                // This phone hears it: its own mics point from where it lies; the others only settled left/right.
+                v.active = true; v.angleDeg = own.screenDeg
+                v.label = activity.getString(R.string.arrow_heard_here, own.knocks, own.resolvedBy ?: "turning")
+            } else if (point != null) {
+                // The commander has a point (crossing of the phones' bearing lines, or a located source): aim at it.
+                v.active = true; v.angleDeg = point.screenDeg!!
+                v.label = activity.getString(R.string.sensor_arrow, if (point.edge) " · far" else point.metres?.let { " · %.1f m".format(it) } ?: "", point.north.ifEmpty { "?" })
+            } else if (shared != null) {
+                // Only a direction: the one the hearing phones agree on, drawn through this phone's heading.
                 v.active = true; v.angleDeg = shared.screenDeg
-                v.label = activity.getString(if (shared.twinDeg == null) R.string.arrow_shared else R.string.arrow_shared_unresolved, shared.phones, (shared.confidence * 100).toInt())
+                v.label = activity.getString(if (shared.twinDeg == null) R.string.arrow_shared else R.string.arrow_shared_unresolved, shared.phones, (shared.confidence * 100).toInt()) +
+                    if (shared.others) activity.getString(R.string.arrow_parallel) else ""
             } else if (own != null) {
                 // No fusion yet (or this phone is the only one hearing it): its own two mics.
                 v.active = true; v.angleDeg = own.screenDeg

@@ -65,6 +65,8 @@
     <string name="arrow_shared">→ KNOCKING · fused from %1$s · confidence %2$d%%</string>
     <string name="arrow_shared_unresolved">→ KNOCKING · fused from %1$s · confidence %2$d%% · turn a phone to firm up</string>
     <string name="arrow_conf">" · confidence %1$d%%"</string>
+    <string name="arrow_heard_here">→ KNOCKING · heard here: %1$d knocks · left/right from %2$s</string>
+    <string name="arrow_parallel">" · same direction as the phones that hear it (Place the phones on the map to point at the spot)"</string>
     <string name="arrow_knock_by">→ KNOCKING · %1$d knocks · confirmed by %2$s</string>
     <string name="export_ok">Saved Downloads/%1$s</string>
     <string name="export_failed">Export failed, see log</string>
