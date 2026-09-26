@@ -19,7 +19,7 @@ import androidx.core.content.ContextCompat
 class BeaconActivity : AppCompatActivity() {
 
     private val keepOnMs = 3 * 60_000L
-    private val letScreenSleep = Runnable { try { window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) } catch (_: Exception) {} }
+    private val letScreenSleep = Runnable { try { window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) } catch (e: Exception) { HLog.d("BeaconActivity: ignored $e") } }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)

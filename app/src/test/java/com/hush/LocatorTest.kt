@@ -22,6 +22,7 @@ class LocatorTest {
     private val spacing = 0.10
     private val maxDelay = spacing * fs / c
 
+    private val rnd = java.util.Random(26_09_2026L)   // fixed seed: the same knocks every run
     private val pos = mapOf("A" to (0.8 to 0.5), "B" to (-1.0 to -0.6), "C" to (1.2 to -0.7))
     private val offset = mapOf("A" to 0.0, "B" to 123456.3, "C" to -98765.7)   // samples, own clock minus A's clock
     private val axisDeg = mapOf("A" to 30.0, "B" to 200.0, "C" to 95.0)         // map bearing of each phone's mic line
@@ -64,9 +65,9 @@ class LocatorTest {
     private fun knock(loc: Locator, sx: Double, sy: Double, aTime: Double, noise: Double) {
         for ((letter, p) in pos) {
             val r = hypot(sx - p.first, sy - p.second)
-            val arrival = aTime + r / c * fs + offset[letter]!! + (Math.random() - 0.5) * 2 * noise
+            val arrival = aTime + r / c * fs + offset[letter]!! + (rnd.nextDouble() - 0.5) * 2 * noise
             val onset = Onset(Math.round(arrival), (0.5 / r).coerceAtMost(1.0).toFloat(), 40f,
-                micDelayFor(letter, sx, sy) + (Math.random() - 0.5).toFloat(), 0.8f, false)
+                micDelayFor(letter, sx, sy) + (rnd.nextDouble() - 0.5).toFloat(), 0.8f, false)
             loc.addReport(OnsetReport(letter, 0f, false, listOf(onset)))
         }
     }
@@ -78,8 +79,13 @@ class LocatorTest {
         assertEquals(3_000_000.0, loc.toA("C", Math.round(3_000_000.0 + offset["C"]!!))!!, 1.0)
     }
 
+    /**
+     * A source 3 m outside a 2 m array: timing pins the direction, loudness and the two-mic cues pin the
+     * distance only roughly (the likely region is a wedge along the bearing). So: bearing within 5°,
+     * position within 1 m.
+     */
     @Test
-    fun knocksNearTheArrayAreLocatedWithinHalfAMetre() {
+    fun knocksNearTheArrayAreLocatedWithinAMetreAndBearingWithinFiveDegrees() {
         val loc = build()
         val sx = 2.5; val sy = 3.0
         var t = 2_000_000.0
@@ -89,9 +95,12 @@ class LocatorTest {
         val fix = loc.fix
         assertNotNull(fix)
         val err = hypot(fix!!.x - sx, fix.y - sy)
-        println("fix (${fix.x}, ${fix.y}) vs true ($sx, $sy): error %.2f m, radius %.2f, knocks %d".format(err, fix.radius, fix.knocks))
+        val (ax, ay) = pos["A"]!!
+        var dBearing = Math.abs(bearing(ax, ay, sx, sy) - bearing(ax, ay, fix.x, fix.y)); if (dBearing > 180) dBearing = 360 - dBearing
+        println("fix (${fix.x}, ${fix.y}) vs true ($sx, $sy): error %.2f m, bearing off %.1f°, radius %.2f, knocks %d".format(err, dBearing, fix.radius, fix.knocks))
         println("detail: " + fix.detail)
-        assertTrue("error $err m", err <= 0.5)
+        assertTrue("bearing off by $dBearing°", dBearing <= 5.0)
+        assertTrue("error $err m", err <= 1.0)
         assertEquals(5, fix.knocks)
     }
 

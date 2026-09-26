@@ -30,7 +30,7 @@ class Gps(context: Context) : LocationListener {
     }
 
     fun stop() {
-        try { manager.removeUpdates(this) } catch (_: Exception) {}
+        try { manager.removeUpdates(this) } catch (e: Exception) { HLog.d("Gps: ignored $e") }
     }
 
     override fun onLocationChanged(location: Location) {

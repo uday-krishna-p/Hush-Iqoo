@@ -66,10 +66,11 @@
             android:showWhenLocked="true"
             android:turnScreenOn="true" />
 
-        <!-- Started by the system: probe seen by the passive scan, boot finished, app updated, re-arm alarm -->
+        <!-- Started by the system only: probe seen by the passive scan (our own PendingIntent), boot finished,
+             app updated, re-arm alarm. Not exported: another app must not be able to fire the rescue alarm. -->
         <receiver
             android:name=".ProbeReceiver"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />

@@ -105,7 +105,8 @@ knocks (phones on the same slab) arrive faster than through air: onsets tagged "
   90 s of raw 48 kHz audio to private `files/debug.wav` for laptop analysis over USB (`WavStats.java`, `Cadence2.java`,
   `TapGrid.java` in the session scratchpad replay the detector offline). Never leaves the phone otherwise.
 - **No cloud, no HTTP, no analytics, no Firebase.**
-- **Keep it simple.** One module, one Activity, one foreground service, one `Engine` object. No DI, no Compose.
+- **Keep it simple.** One module, one main Activity (plus `BeaconActivity`, the lock-screen rescue alert), one
+  foreground service, one `Engine` object. No DI, no Compose.
 - **Small steps; every build installs on all three phones and is committed and pushed before the next step.**
 - **Do not refactor working code** unless asked. Log every event, state change and error; never swallow exceptions.
 - **Report what to tap and what to expect** after every step.
@@ -153,6 +154,21 @@ background delivered nothing on OriginOS (Bluetooth's own statistics: minutes of
 was exempt from battery optimisation or allowed to run in the background; either alone fixes it. The app now asks
 for the exemption at first launch and shows an orange button until it is granted. The third phone (…000XR) dropped
 off USB at 19:20 and still runs the build from before the locator.
+
+**Code review 26 Sep 22:00 (ten findings, all fixed 23:00):** the ranging retry now judges every detection against
+its own chirp's trigger time instead of "letter order × gap", so a retry can no longer wipe good pairs; the probe
+receiver is not exported; `Engine.stop()` cancels pending chirp callbacks and clears all ranging/map/gain state;
+one `SessionLog` per session; the last second of a window is kept (1.5 s grace after the window ends: the
+commander's own count went from 16–17 to 18–19 windows); the noise-floor history and rhythm tracker are guarded by
+one lock between the audio and main threads; our beeps and chirps put the alarm volume back afterwards
+(`AlarmVolume`); sensors send nothing until they have a letter and the commander drops events from unassigned
+ones; every catch logs; one `Haptics` object, one `batteryPercent()`, one tag UUID.
+
+**Seen 26 Sep 22:59, not yet explained:** a HUSH command took 7.6 s to reach a sensor that had been woken by a
+probe 50 s earlier, and its events came back just as late, so the window ranked it on 3 seconds of data. Same
+mesh code as before; suspects are Nearby's Bluetooth→Wi-Fi upgrade attempt in the first minute of a link, or the
+woken phone's screen being off. Measure: `Command received` time minus `Hush window started` on the commander, on
+a sensor that has been connected for > 2 min, screen on and off.
 
 **Earlier (18:30):**
 
@@ -243,9 +259,9 @@ centimetres, finds a knocking person to a bearing, detects transmitting phones a
   laptop the same thing is `adb shell dumpsys deviceidle whitelist +com.hush`. Also worth setting once per phone:
   i Manager → Autostart → Hush on, and do not swipe Hush away from recents (a force-stop disables the port until
   the app is opened again).
-- `ProbeReceiver` is exported (it must receive the boot broadcast) and also takes the scan-result and re-arm
-  intents; another app on the phone could send the re-arm action (harmless) or a forged scan result with a fake
-  probe record (shows the alert screen). Accepted for now; split into two receivers before any public build.
+- `ProbeReceiver` is **not exported**: the boot and app-update broadcasts and our own PendingIntent scan results
+  still reach it (verified 26 Sep 22:58), but another app cannot fire the rescue alarm. Consequence: the laptop
+  cannot send it a broadcast either; use the MainActivity hooks instead.
 
 ### PRD 2.1 acceptance criteria against the facts
 
@@ -382,7 +398,7 @@ for s in $(adb devices | awk 'NR>1 && $2=="device"{print $1}'); do adb -s $s ins
 adb -s <serial> shell "run-as com.hush cat files/hush.log" | grep -i 'RANKING\|BRIEF\|RANGING result\|DoA align\|BleRanging\|LOCATE\|Clock:\|Axis:\|Probe\|Activation\|Beacon\|Tag seen'
 adb shell am start -n com.hush/.MainActivity --es role COMMANDER    # pick a role without tapping coordinates
 adb shell am start -n com.hush/.MainActivity --ez probe true        # commander: ACTIVATE SENSORS
-adb shell am broadcast -n com.hush/.ProbeReceiver -a com.hush.REARM # re-register the passive port from the background
+adb shell am start -n com.hush/.MainActivity --ez hush true         # commander: HUSH window (solo allowed)
 adb shell dumpsys bluetooth_manager | grep -A8 'com.hush (Registered)'   # Bluetooth's view of the port: scan time, results
 ./gradlew testDebugUnitTest -q          # locator maths on synthetic phones, no device needed
 adb -s <serial> exec-out run-as com.hush cat files/debug.wav > debug.wav   # first 90 s of raw audio, laptop analysis only

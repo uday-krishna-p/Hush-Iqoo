@@ -40,12 +40,9 @@ object Chirp {
 
     /** Plays the chirp on the alarm channel. Returns immediately. */
     fun play(context: Context) {
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        AlarmVolume.raise(am, VOLUME_FRACTION)
         try {
-            val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            try {
-                val max = am.getStreamMaxVolume(AudioManager.STREAM_ALARM)
-                am.setStreamVolume(AudioManager.STREAM_ALARM, (max * VOLUME_FRACTION).toInt().coerceAtLeast(1), 0)
-            } catch (_: SecurityException) {}
             val n = template.size
             val pad = SAMPLE_RATE / 20   // 50 ms of silence before, so the start is not clipped by the track ramp-up
             val buf = ShortArray(pad + n + pad)
@@ -58,10 +55,14 @@ object Chirp {
                 .build()
             track.write(buf, 0, buf.size)
             track.play()
-            Handler(Looper.getMainLooper()).postDelayed({ try { track.release() } catch (_: Exception) {} }, 600)
+            Handler(Looper.getMainLooper()).postDelayed({
+                try { track.release() } catch (e: Exception) { HLog.d("Chirp: release failed $e") }
+                AlarmVolume.restore(am)
+            }, 600)
             HLog.d("Chirp: played")
         } catch (e: Exception) {
             HLog.d("Chirp play failed: $e")
+            AlarmVolume.restore(am)
         }
     }
 

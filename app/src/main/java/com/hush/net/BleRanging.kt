@@ -99,7 +99,7 @@ class BleRanging(context: Context, private val listener: Listener) {
     }
 
     /** Our own tag: a 16-bit service UUID that only Hush uses, with the phone's Hush name as service data. */
-    private val hushUuid = android.os.ParcelUuid.fromString("0000A5A5-0000-1000-8000-00805F9B34FB")
+    private val hushUuid = Probe.TAG_UUID
     private var ownName: String = ""
     private var scanner: android.bluetooth.le.BluetoothLeScanner? = null
     /** Hush name → the address that phone is advertising under right now (rotates every ~15 min). */
@@ -121,7 +121,7 @@ class BleRanging(context: Context, private val listener: Listener) {
         try {
             val adapter = bt?.adapter ?: return
             advertiser = adapter.bluetoothLeAdvertiser ?: run { HLog.d("BleRanging: no advertiser"); return }
-            if (advertising) { try { advertiser?.stopAdvertising(advCallback) } catch (_: Exception) {}; advertising = false }
+            if (advertising) { try { advertiser?.stopAdvertising(advCallback) } catch (e: Exception) { HLog.d("BleRanging: ignored $e") }; advertising = false }
             val settings = android.bluetooth.le.AdvertiseSettings.Builder()
                 .setAdvertiseMode(android.bluetooth.le.AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
                 .setConnectable(true).setTimeout(0)
@@ -270,7 +270,7 @@ class BleRanging(context: Context, private val listener: Listener) {
         if (!csSupported && !rssiSupported) { HLog.d("BleRanging: nothing supported, skip"); return }
         // A responder may hold one session per peer address; keep them under distinct keys.
         val key = if (initiator) letter else "$letter@$peerAddress"
-        sessions.remove(key)?.let { try { it.close() } catch (_: Exception) {} }
+        sessions.remove(key)?.let { try { it.close() } catch (e: Exception) { HLog.d("BleRanging: ignored $e") } }
         val tech = if (useCs) "CS" else "RSSI"
         try {
             val callback = object : RangingSession.Callback {
@@ -320,17 +320,17 @@ class BleRanging(context: Context, private val listener: Listener) {
 
     @android.annotation.SuppressLint("MissingPermission")
     fun stop() {
-        sessions.values.forEach { try { it.stop(); it.close() } catch (_: Exception) {} }
+        sessions.values.forEach { try { it.stop(); it.close() } catch (e: Exception) { HLog.d("BleRanging: ignored $e") } }
         sessions.clear()
-        gatts.values.forEach { try { it.disconnect(); it.close() } catch (_: Exception) {} }
+        gatts.values.forEach { try { it.disconnect(); it.close() } catch (e: Exception) { HLog.d("BleRanging: ignored $e") } }
         gatts.clear()
-        try { advertiser?.stopAdvertising(advCallback) } catch (_: Exception) {}
+        try { advertiser?.stopAdvertising(advCallback) } catch (e: Exception) { HLog.d("BleRanging: ignored $e") }
         advertising = false
-        try { scanner?.stopScan(scanCallback) } catch (_: Exception) {}
+        try { scanner?.stopScan(scanCallback) } catch (e: Exception) { HLog.d("BleRanging: ignored $e") }
         scanner = null; wanted.clear(); liveAddress.clear()
-        try { gattServer?.close() } catch (_: Exception) {}
+        try { gattServer?.close() } catch (e: Exception) { HLog.d("BleRanging: ignored $e") }
         gattServer = null; responderAddress = null
-        try { bondReceiver?.let { appContext.unregisterReceiver(it) } } catch (_: Exception) {}
+        try { bondReceiver?.let { appContext.unregisterReceiver(it) } } catch (e: Exception) { HLog.d("BleRanging: ignored $e") }
         bondReceiver = null
     }
 }

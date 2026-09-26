@@ -5,12 +5,8 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
 import android.provider.Settings
 import android.os.BatteryManager
-import android.os.VibrationAttributes
 import com.hush.audio.AccelChannel
 import com.hush.audio.AudioCapture
 import com.hush.audio.Classifier
@@ -218,7 +214,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     private fun batteryPercent(): Int = try {
         (appContext?.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
-    } catch (_: Exception) { -1 }
+    } catch (e: Exception) { HLog.d("battery level unavailable: $e"); -1 }
 
     /** Sensor: (re)advertise the Hush tag with the current flags and battery, so a commander sees us within seconds. */
     private val tagRefresh = object : Runnable {
@@ -234,7 +230,13 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     private val hushEvents = HashMap<String, MutableList<SensorEvent>>()   // letter → events during the window
     private val peerHeading = HashMap<String, Float>()                     // letter → last compass heading a sensor reported
-    val sessionLog = com.hush.log.SessionLog()
+    /** One log per session: a fresh one at every start(), so an export holds this session only. */
+    var sessionLog = com.hush.log.SessionLog()
+        private set
+    /** Guards the audio thread's noise-floor history and rhythm tracker against main-thread resets. */
+    private val audioLock = Any()
+    /** After a window ends, late sensor events for its last second are still accepted until this time. */
+    private var hushGraceUntilMs = 0L
 
     /** Commander's map: letter → (x, y) fractions of the square. Kept here so it survives screen changes. */
     val mapDots = LinkedHashMap<String, Pair<Float, Float>>()
@@ -424,6 +426,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     /** heard[hearer letter][chirping letter] = sample index on the hearer's clock. Commander only. */
     private val heard = HashMap<String, HashMap<String, Long>>()
+    /** When each letter's chirp was last triggered (our clock, ms), and which trigger each detection belongs to. */
+    private val chirpTriggerMs = HashMap<String, Long>()
+    private val heardTrig = HashMap<String, HashMap<String, Long>>()
     private var rangingInProgress = false
     private var retriedThisRound = false
     private var lastRoundDist: HashMap<String, Double>? = null
@@ -478,7 +483,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         if (letters.size < 3) { setRangingStatus("Need at least 3 phones connected (have ${letters.size})"); return }
         rangingInProgress = true
         retriedThisRound = false
-        heard.clear()
+        heard.clear(); heardTrig.clear(); chirpTriggerMs.clear()
         doaThisRound.clear()
         doaAll.clear()
         setRangingStatus("Ranging: chirping ${letters.joinToString(" ")}…")
@@ -491,6 +496,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     /** Commander: tell [letter] to chirp now; everyone (including us) listens for it. */
     private fun triggerChirp(letter: String) {
+        chirpTriggerMs[letter] = SystemClock.elapsedRealtime()
         link?.sendDown(Command(Command.CHIRP, letter = letter).toJson())
         onChirpCommand(letter)
     }
@@ -551,6 +557,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     private fun onChirpReport(r: com.hush.model.ChirpReport) {
         heard.getOrPut(r.hearer) { HashMap() }[r.from] = r.sample
+        chirpTriggerMs[r.from]?.let { heardTrig.getOrPut(r.hearer) { HashMap() }[r.from] = it }
         if (r.level != null) chirpLevel.getOrPut(r.hearer) { HashMap() }[r.from] = r.level
         HLog.d("Chirp report: ${r.hearer} heard ${r.from} at ${r.sample} ratio=%.1f level=%s".format(r.ratio, r.level?.let { "%.5f".format(it) } ?: "-"))
         if (r.hearer == "A" && r.micDelay != null && r.heading != null) doaThisRound[r.from] = r.micDelay to r.heading
@@ -669,17 +676,22 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private var lastAFrameMs = 0L
 
     private fun finishRanging(letters: List<String>) {
+        if (role != ROLE_COMMANDER) { HLog.d("Ranging: finish after stop, ignored"); return }
         rangingInProgress = false
-        // Sanity: chirps were triggered CHIRP_GAP_MS apart, so on any one phone's clock chirp k must
-        // arrive about k × gap after chirp 0. A detection far off that is a wrong peak: drop it.
+        // Sanity: on any one phone's clock two chirps must be as far apart as their TRIGGER times were
+        // (network delay and flight time are well under 0.35 s). A detection far off is a wrong peak:
+        // drop it. Trigger times rather than "letter order × gap", so after a retry the re-chirped
+        // letters (sent seconds later) are judged against their own trigger and earlier good pairs survive.
         val fs = AudioCapture.SAMPLE_RATE
         for ((hearer, byFrom) in heard) {
-            val t0 = byFrom[letters[0]] ?: continue
+            val trig = heardTrig[hearer] ?: HashMap()
+            val ref = letters.firstOrNull { byFrom.containsKey(it) && trig.containsKey(it) } ?: continue
+            val tRef = byFrom[ref]!!; val trigRef = trig[ref]!!
             val bad = byFrom.filter { (from, t) ->
-                val k = letters.indexOf(from)
-                k > 0 && kotlin.math.abs((t - t0) - k * CHIRP_GAP_MS * fs / 1000) > 0.35 * fs
+                val tr = trig[from] ?: return@filter true
+                from != ref && kotlin.math.abs((t - tRef) - (tr - trigRef) * fs / 1000.0) > 0.35 * fs
             }.keys
-            if (bad.isNotEmpty()) { HLog.d("Ranging: $hearer had wrong peaks for $bad, dropped"); bad.forEach { byFrom.remove(it) } }
+            if (bad.isNotEmpty()) { HLog.d("Ranging: $hearer had wrong peaks for $bad, dropped"); bad.forEach { byFrom.remove(it); trig.remove(it) } }
         }
         val dist = HashMap<String, Double>()
         for (i in letters.indices) for (j in i + 1 until letters.size) {
@@ -903,9 +915,11 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         }
         if (e.sensorId == "A") runLocator()
         emitLive()
-        if (!inHush) return
+        val nowMs = SystemClock.elapsedRealtime()
+        // A sensor's event for the window's last second arrives after the window ended: keep it (grace).
+        if (!inHush && nowMs > hushGraceUntilMs) return
         // Skip the start buzz and beep: they rattle the phone and were once scored as tapping.
-        if (SystemClock.elapsedRealtime() < hushStartMs + SELF_NOISE_MS) return
+        if (nowMs < hushStartMs + SELF_NOISE_MS) return
         hushEvents.getOrPut(e.sensorId) { ArrayList() }.add(e)
     }
 
@@ -1080,6 +1094,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val id = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "0000"
         localName = "${Build.MODEL}-${id.takeLast(4)}"
         letter = if (newRole == ROLE_COMMANDER) "A" else "?"
+        sessionLog = com.hush.log.SessionLog()
         HLog.d("Engine start role=$newRole name=$localName")
 
         try {
@@ -1127,9 +1142,18 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         sightings.clear(); probeStatus = ""; activatedByProbe = false
         main.removeCallbacks(passiveWatchdog); main.removeCallbacks(tagRefresh); main.removeCallbacksAndMessages(probeToken)
         com.hush.net.Probe.stop()
+        // Ranging and map: nothing from this session may leak into the next one.
+        main.removeCallbacksAndMessages(chirpToken)
+        rangingInProgress = false; retriedThisRound = false
+        heard.clear(); heardTrig.clear(); chirpTriggerMs.clear(); chirpLevel.clear(); doaThisRound.clear(); lastRoundDist = null
+        micGain.clear(); gainHistory.clear(); micSpacingHistory.clear(); rotationHistory.clear(); radioShown.clear()
+        mapDots.clear(); rangingStatus = ""; mirror = false
+        walkHeadingSinX = 0.0; walkHeadingSinY = 0.0; walkSamples = 0; movedSinceRanging = 0f; lastAFrameMs = 0L
+        lastDrEast = 0f; lastDrNorth = 0f
+        lastWindowEndMs = -100_000L; lastLiveEmitMs = 0L; lastChirpMs = -10_000L; lastStructureMs = 0L; hushGraceUntilMs = 0L
+        warnedUnassigned = false
         peers.clear()
-        recentRms.clear()
-        rhythmTracker.reset()
+        synchronized(audioLock) { recentRms.clear(); rhythmTracker.reset() }
         hushEvents.clear()
         live.clear()
         lastRanking = emptyList()
@@ -1196,12 +1220,15 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     @Volatile private var lastChirpMs = -10_000L
 
     private fun startHushLocal(seconds: Int) {
-        floor = currentFloor()
+        synchronized(audioLock) {
+            floor = currentFloor()
+            rhythmTracker.reset()   // forget the chirps and anything before the window
+        }
         inHush = true
+        hushGraceUntilMs = 0L
         hushStartMs = SystemClock.elapsedRealtime()
         hushEndMs = hushStartMs + seconds * 1000L
         hushEvents.clear()
-        rhythmTracker.reset()   // forget the chirps and anything before the window
         HLog.d("Hush window started: $seconds s, noise floor %.5f".format(floor))
         vibrate(longArrayOf(0, 700, 150, 700, 150, 900))   // three long full-strength pulses at the start
         appContext?.let { Ping.play(it, listOf(2500 to 250, 0 to 100, 2500 to 250)) }
@@ -1217,6 +1244,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             inHush = false
             HLog.d("Hush window ended")
             lastWindowEndMs = SystemClock.elapsedRealtime()
+            hushGraceUntilMs = lastWindowEndMs + 1500   // recordEvent still accepts the last second's events
             vibrate(longArrayOf(0, 400, 120, 400))            // two pulses at the end
             appContext?.let { Ping.play(it, listOf(1800 to 400)) }
             listener?.onCountdown(-1)
@@ -1228,31 +1256,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         }
     }
 
-    /**
-     * [pattern] is off/on/off/on... in ms. Full amplitude, and tagged as an alarm so the phone does not
-     * scale it down the way it does for ordinary app haptics (the first version was barely noticeable).
-     */
+    /** Hush window start/end pattern, see [com.hush.audio.Haptics]. */
     private fun vibrate(pattern: LongArray) {
-        val ctx = appContext ?: return
-        try {
-            val vib = if (Build.VERSION.SDK_INT >= 31) {
-                (ctx.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
-            } else {
-                @Suppress("DEPRECATION")
-                ctx.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            }
-            val amplitudes = IntArray(pattern.size) { if (it % 2 == 1) 255 else 0 }
-            val effect = if (vib.hasAmplitudeControl()) VibrationEffect.createWaveform(pattern, amplitudes, -1)
-                         else VibrationEffect.createWaveform(pattern, -1)
-            if (Build.VERSION.SDK_INT >= 33) {
-                vib.vibrate(effect, VibrationAttributes.createForUsage(VibrationAttributes.USAGE_ALARM))
-            } else {
-                vib.vibrate(effect)
-            }
-            HLog.d("vibrate ${pattern.contentToString()} amplitudeControl=${vib.hasAmplitudeControl()}")
-        } catch (e: Exception) {
-            HLog.d("vibrate failed: $e")
-        }
+        appContext?.let { com.hush.audio.Haptics.vibrate(it, pattern) }
     }
 
     // ---- Own microphone ----
@@ -1266,11 +1272,11 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         // The app's own sounds are not taps: the start buzz (three regular pulses that rattle the phone),
         // the beeps and the ranging chirps all produced "steady tapping" once. Ignore onsets while they play.
         val selfNoise = (inHush && now - hushStartMs < SELF_NOISE_MS) || (now - lastChirpMs < 1500)
-        if (!selfNoise) rhythmTracker.add(tap.onsetsAbsMs)
+        synchronized(audioLock) { if (!selfNoise) rhythmTracker.add(tap.onsetsAbsMs) }
         val agreed = tap.onsetsAbsMs.any { a -> acc.spikeTimesMs.any { kotlin.math.abs(it - a) <= RhythmTracker.MERGE_MS } }
         if (agreed) lastStructureMs = now
         val structure = now - lastStructureMs < RhythmTracker.HISTORY_MS
-        val rhythm = rhythmTracker.evaluate(now)
+        val rhythm = synchronized(audioLock) { rhythmTracker.evaluate(now) }
         val cls = classifier?.classify(pcm16k, n16)
         val label = fuseLabel(rhythm, cls)
         main.post { trackWalking(acc); trackPlacement(acc) }
@@ -1288,15 +1294,15 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 HLog.d("Voice DoA: delay=%s q=%s heading=%.0f".format(d?.let { "%.2f".format(it.delay) } ?: "-", d?.let { "%.2f".format(it.quality) } ?: "-", headingDeg))
             }
         }
-        val battery = try {
-            (appContext?.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
-        } catch (_: Exception) { -1 }
+        val battery = batteryPercent()
         // Noise floor: only quiet, still seconds count, and it is a median (see FLOOR_SECONDS).
-        if (!rangingInProgress && now - lastChirpMs > 1500 && !acc.moving && !(inHush && now - hushStartMs < SELF_NOISE_MS)) {
-            recentRms.addLast(rms)
-            while (recentRms.size > FLOOR_SECONDS) recentRms.removeFirst()
+        synchronized(audioLock) {
+            if (!rangingInProgress && now - lastChirpMs > 1500 && !acc.moving && !(inHush && now - hushStartMs < SELF_NOISE_MS)) {
+                recentRms.addLast(rms)
+                while (recentRms.size > FLOOR_SECONDS) recentRms.removeFirst()
+            }
+            if (!inHush) floor = currentFloor()
         }
-        if (!inHush) floor = currentFloor()
         val event = SensorEvent(
             sensorId = letter,
             tMs = now,
@@ -1330,11 +1336,17 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         main.post {
             listener?.onOwnWindow(w)
             when (role) {
-                ROLE_SENSOR -> { onsetReport?.let { link?.sendUp(it.toJson()) }; link?.sendUp(event.toJson()) }
+                ROLE_SENSOR -> if (letter == "?") {
+                    // Until ASSIGN arrives our events would land on the commander as a phantom "Sensor ?".
+                    if (!warnedUnassigned) { warnedUnassigned = true; HLog.d("No letter assigned yet: events held back") }
+                } else {
+                    onsetReport?.let { link?.sendUp(it.toJson()) }; link?.sendUp(event.toJson())
+                }
                 ROLE_COMMANDER -> { onsetReport?.let { locator.addReport(it) }; recordEvent(event); listener?.onEvent(event, localName) }
             }
         }
     }
+    private var warnedUnassigned = false
 
     /**
      * Audio thread. For each knock this second: absolute sample of its first arrival, peak, and the delay
@@ -1433,6 +1445,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 when (msg.type) {
                     Command.ASSIGN -> {
                         letter = msg.letter ?: "?"
+                        warnedUnassigned = false
                         onLinkStatus(lastStatus)
                         msg.ble?.let { addr -> HLog.d("Commander radio address $addr, answering as responder"); ble?.rangeAsResponder(addr, localName) }
                         main.removeCallbacks(tagRefresh); main.postDelayed(tagRefresh, 1000)   // re-advertise with flags + battery after the responder's plain tag
@@ -1445,11 +1458,15 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             is com.hush.model.Join -> onJoin(msg, endpointId)
             is com.hush.model.ChirpReport -> onChirpReport(msg)
             is com.hush.model.Placement -> onPlacement(msg)
-            is com.hush.model.OnsetReport -> { peerHeading[msg.letter] = msg.heading; locator.addReport(msg) }
+            is com.hush.model.OnsetReport -> {
+                if (peers.values.none { it.letter == msg.letter }) { HLog.d("Onsets from unassigned sensor '${msg.letter}' ignored"); return }
+                peerHeading[msg.letter] = msg.heading; locator.addReport(msg)
+            }
             is SensorEvent -> {
-                val name = peers.values.firstOrNull { it.letter == msg.sensorId }?.name ?: msg.sensorId
+                val peer = peers.values.firstOrNull { it.letter == msg.sensorId }
+                if (peer == null) { HLog.d("Event from unassigned sensor '${msg.sensorId}' ignored"); return }
                 recordEvent(msg)
-                listener?.onEvent(msg, name)
+                listener?.onEvent(msg, peer.name)
             }
         }
     }

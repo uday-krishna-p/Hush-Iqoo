@@ -28,6 +28,7 @@ import com.hush.ui.SensorScreen
  * Laptop hooks (no coordinate tapping needed):
  *   adb shell am start -n com.hush/.MainActivity --es role COMMANDER     (or SENSOR)
  *   adb shell am start -n com.hush/.MainActivity --ez probe true          (commander: ACTIVATE SENSORS)
+ *   adb shell am start -n com.hush/.MainActivity --ez hush true           (commander: HUSH, solo allowed)
  */
 class MainActivity : AppCompatActivity() {
 
@@ -35,6 +36,7 @@ class MainActivity : AppCompatActivity() {
         private const val REQ_PERMS = 1
         const val EXTRA_ROLE = "role"
         const val EXTRA_PROBE = "probe"
+        const val EXTRA_HUSH = "hush"
     }
 
     private var role: String? = null
@@ -86,7 +88,11 @@ class MainActivity : AppCompatActivity() {
             HLog.d("Hook: probe")
             if (Engine.role == Engine.ROLE_COMMANDER) Engine.activateSensors() else HLog.d("Hook: probe ignored, not a commander")
         }
-        intent.removeExtra(EXTRA_ROLE); intent.removeExtra(EXTRA_PROBE)
+        if (intent.getBooleanExtra(EXTRA_HUSH, false)) {
+            HLog.d("Hook: hush")
+            if (Engine.role == Engine.ROLE_COMMANDER) { Engine.allowSoloHush = true; Engine.hush(20) } else HLog.d("Hook: hush ignored, not a commander")
+        }
+        intent.removeExtra(EXTRA_ROLE); intent.removeExtra(EXTRA_PROBE); intent.removeExtra(EXTRA_HUSH)
     }
 
     private fun showRolePicker() {
@@ -98,7 +104,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun backgroundAllowed(): Boolean =
-        try { getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName) } catch (_: Exception) { false }
+        try { getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName) } catch (e: Exception) { HLog.d("battery exemption check failed: $e"); false }
 
     private var askedBackground = false
 
@@ -118,7 +124,7 @@ class MainActivity : AppCompatActivity() {
             HLog.d("Asked for the battery-optimisation exemption")
         } catch (e: Exception) {
             HLog.d("Battery exemption dialog failed: $e")
-            try { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } catch (_: Exception) {}
+            try { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } catch (e: Exception) { HLog.d("MainActivity: ignored $e") }
         }
     }
 

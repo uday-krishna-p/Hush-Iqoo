@@ -12,7 +12,37 @@ import kotlin.math.PI
 import kotlin.math.min
 import kotlin.math.sin
 
-/** Plays a loud tone on the alarm channel at maximum volume. Used to mark the start and end of a Hush window. */
+/**
+ * Our beeps and chirps play on the alarm stream at a level we choose. This raises it and puts the
+ * person's own alarm volume back once the last of our overlapping sounds has finished.
+ */
+object AlarmVolume {
+    private var saved: Int? = null
+    private var pending = 0
+
+    @Synchronized fun raise(am: AudioManager, fraction: Float) {
+        try {
+            if (saved == null) saved = am.getStreamVolume(AudioManager.STREAM_ALARM)
+            pending++
+            val max = am.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+            am.setStreamVolume(AudioManager.STREAM_ALARM, (max * fraction).toInt().coerceAtLeast(1), 0)
+        } catch (e: SecurityException) {
+            HLog.d("AlarmVolume: could not set alarm volume (Do Not Disturb?): $e")
+        }
+    }
+
+    /** One call per [raise], when that sound is over. Restores after the last one. */
+    @Synchronized fun restore(am: AudioManager) {
+        if (pending > 0) pending--
+        if (pending > 0) return
+        val s = saved ?: return
+        saved = null
+        try { am.setStreamVolume(AudioManager.STREAM_ALARM, s, 0); HLog.d("AlarmVolume: restored to $s") }
+        catch (e: SecurityException) { HLog.d("AlarmVolume: restore failed: $e") }
+    }
+}
+
+/** Plays a loud tone on the alarm channel. Used to mark the start and end of a Hush window. */
 object Ping {
 
     private const val SAMPLE_RATE = 48_000
@@ -22,14 +52,9 @@ object Ping {
 
     /** [pattern]: list of (frequencyHz, durationMs). 0 Hz = silence. */
     fun play(context: Context, pattern: List<Pair<Int, Int>>) {
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        AlarmVolume.raise(am, VOLUME_FRACTION)
         try {
-            val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            try {
-                val max = am.getStreamMaxVolume(AudioManager.STREAM_ALARM)
-                am.setStreamVolume(AudioManager.STREAM_ALARM, (max * VOLUME_FRACTION).toInt().coerceAtLeast(1), 0)
-            } catch (e: SecurityException) {
-                HLog.d("Ping: could not set alarm volume (Do Not Disturb?): $e")
-            }
             val total = pattern.sumOf { it.second } * SAMPLE_RATE / 1000
             val buf = ShortArray(total)
             var pos = 0
@@ -62,10 +87,14 @@ object Ping {
                 .build()
             track.write(buf, 0, total)
             track.play()
-            Handler(Looper.getMainLooper()).postDelayed({ try { track.release() } catch (_: Exception) {} }, (total * 1000L / SAMPLE_RATE) + 300)
+            Handler(Looper.getMainLooper()).postDelayed({
+                try { track.release() } catch (e: Exception) { HLog.d("Ping: release failed $e") }
+                AlarmVolume.restore(am)
+            }, (total * 1000L / SAMPLE_RATE) + 300)
             HLog.d("Ping: played $pattern at alarm volume ${am.getStreamVolume(AudioManager.STREAM_ALARM)}/${am.getStreamMaxVolume(AudioManager.STREAM_ALARM)}")
         } catch (e: Exception) {
             HLog.d("Ping failed: $e")
+            AlarmVolume.restore(am)
         }
     }
 }

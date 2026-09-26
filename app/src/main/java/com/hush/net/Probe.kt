@@ -80,7 +80,7 @@ object Probe {
         }
         val scanner = adapter.bluetoothLeScanner ?: run { finish("Probe port NOT armed ($why): no BLE scanner"); return }
         val pi = scanIntent(app)
-        try { scanner.stopScan(pi) } catch (_: Exception) {}
+        try { scanner.stopScan(pi) } catch (e: Exception) { HLog.d("Probe: ignored $e") }
         main.postDelayed({
             val filter = ScanFilter.Builder().setServiceUuid(PROBE_UUID).build()
             val settings = ScanSettings.Builder()
@@ -102,8 +102,8 @@ object Probe {
     fun disarm(context: Context) {
         val app = context.applicationContext
         app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_ARMED, false).apply()
-        try { (app.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter?.bluetoothLeScanner?.stopScan(scanIntent(app)) } catch (_: Exception) {}
-        try { (app.getSystemService(Context.ALARM_SERVICE) as AlarmManager).cancel(rearmIntent(app)) } catch (_: Exception) {}
+        try { (app.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter?.bluetoothLeScanner?.stopScan(scanIntent(app)) } catch (e: Exception) { HLog.d("Probe: ignored $e") }
+        try { (app.getSystemService(Context.ALARM_SERVICE) as AlarmManager).cancel(rearmIntent(app)) } catch (e: Exception) { HLog.d("Probe: ignored $e") }
         HLog.d("Probe port disarmed")
     }
 
@@ -143,7 +143,7 @@ object Probe {
         if (adapter == null || !adapter.isEnabled) { HLog.d("Probe: Bluetooth is off"); return false }
         val adv = adapter.bluetoothLeAdvertiser ?: run { HLog.d("Probe: no BLE advertiser"); return false }
         advertiser = adv
-        try { adv.stopAdvertising(callback) } catch (_: Exception) {}
+        try { adv.stopAdvertising(callback) } catch (e: Exception) { HLog.d("Probe: ignored $e") }
         val ms = (seconds * 1000).coerceIn(1000, 180_000)
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
@@ -166,7 +166,7 @@ object Probe {
 
     @SuppressLint("MissingPermission")
     fun stop() {
-        try { advertiser?.stopAdvertising(callback) } catch (_: Exception) {}
+        try { advertiser?.stopAdvertising(callback) } catch (e: Exception) { HLog.d("Probe: ignored $e") }
         probeUntilMs = 0L
     }
 

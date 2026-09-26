@@ -7,10 +7,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.os.VibrationAttributes
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
+import com.hush.audio.Haptics
 
 /**
  * What a passive phone does the moment a commander's probe reaches it: a high-priority notification whose
@@ -62,28 +59,11 @@ object Activation {
         val allowed = nm.areNotificationsEnabled()
         nm.notify(NOTIFICATION_ID, n)
         HLog.d("Activation: notification posted (notifications enabled=$allowed, full-screen allowed=$canFullScreen)")
-        vibrate(app)
-    }
-
-    /** Long-long-short, three times, as an alarm so the phone does not scale it down. */
-    fun vibrate(context: Context) {
-        try {
-            val vib: Vibrator = if (Build.VERSION.SDK_INT >= 31)
-                (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
-            else @Suppress("DEPRECATION") context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            val unit = longArrayOf(600, 150, 600, 150, 250, 700)
-            val pattern = LongArray(1 + unit.size * 3)
-            pattern[0] = 0
-            for (k in 0 until 3) unit.forEachIndexed { i, v -> pattern[1 + k * unit.size + i] = v }
-            val amps = IntArray(pattern.size) { if (it % 2 == 1) 255 else 0 }
-            val effect = if (vib.hasAmplitudeControl()) VibrationEffect.createWaveform(pattern, amps, -1) else VibrationEffect.createWaveform(pattern, -1)
-            if (Build.VERSION.SDK_INT >= 33) vib.vibrate(effect, VibrationAttributes.createForUsage(VibrationAttributes.USAGE_ALARM)) else vib.vibrate(effect)
-            HLog.d("Activation: haptic pulse")
-        } catch (e: Exception) { HLog.d("Activation: vibrate failed $e") }
+        Haptics.rescuePulse(app)
     }
 
     fun cancel(context: Context) {
-        try { context.applicationContext.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID) } catch (_: Exception) {}
+        try { context.applicationContext.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID) } catch (e: Exception) { HLog.d("Activation: cancel failed $e") }
     }
 
     fun activatedBy(context: Context): String? = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_ACTIVATED_BY, null)

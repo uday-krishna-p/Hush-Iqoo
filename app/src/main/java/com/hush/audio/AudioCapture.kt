@@ -68,7 +68,7 @@ class AudioCapture(private val context: Context, private val listener: Listener)
     }
 
     private fun wavClose() {
-        try { wavHeader(); wav?.close() } catch (_: Exception) {}
+        try { wavHeader(); wav?.close() } catch (e: Exception) { HLog.d("AudioCapture: ignored $e") }
         wav = null
     }
 
@@ -238,7 +238,7 @@ class AudioCapture(private val context: Context, private val listener: Listener)
             HLog.d("ERROR in audio loop: $e")
         } finally {
             wavClose()
-            try { rec.stop() } catch (_: Exception) {}
+            try { rec.stop() } catch (e: Exception) { HLog.d("AudioCapture: ignored $e") }
             rec.release()
             HLog.d("AudioRecord released")
         }

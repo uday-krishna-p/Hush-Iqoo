@@ -58,7 +58,7 @@ class SensorService : Service() {
                     .setContentText("Tap to open Hush and listen again.")
                     .setSmallIcon(android.R.drawable.ic_lock_silent_mode)
                     .setContentIntent(open).setAutoCancel(true).build())
-            } catch (_: Exception) {}
+            } catch (e: Exception) { HLog.d("SensorService: ignored $e") }
             stopSelf()
             return START_NOT_STICKY
         }

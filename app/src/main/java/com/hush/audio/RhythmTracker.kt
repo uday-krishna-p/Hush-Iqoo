@@ -95,7 +95,7 @@ class RhythmTracker {
         }
 
         val score = when {
-            n < MIN_ONSETS -> if (n >= 3) 0.4f else 0.2f
+            n < MIN_ONSETS -> 0.2f
             pattern != null && pattern != "steady" -> 1f
             regular -> 0.9f
             else -> 0.5f
