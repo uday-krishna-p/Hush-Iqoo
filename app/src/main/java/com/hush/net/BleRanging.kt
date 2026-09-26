@@ -81,11 +81,64 @@ class BleRanging(context: Context, private val listener: Listener) {
         return b.build()
     }
 
-    /** Commander: range toward one sensor. */
-    fun rangeAsInitiator(letter: String, peerAddress: String, useCs: Boolean = csSupported) = open(letter, peerAddress, initiator = true, useCs = useCs)
+    private val bt = context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
+    private val appContext = context.applicationContext
+    private val gatts = HashMap<String, android.bluetooth.BluetoothGatt>()
+    private var advertiser: android.bluetooth.le.BluetoothLeAdvertiser? = null
+    private val advCallback = object : android.bluetooth.le.AdvertiseCallback() {
+        override fun onStartSuccess(settingsInEffect: android.bluetooth.le.AdvertiseSettings?) { HLog.d("BleRanging: connectable advertising started") }
+        override fun onStartFailure(errorCode: Int) { HLog.d("BleRanging: connectable advertising FAILED $errorCode") }
+    }
 
-    /** Sensor: answer the commander. */
-    fun rangeAsResponder(peerAddress: String, useCs: Boolean = csSupported) = open("A", peerAddress, initiator = false, useCs = useCs)
+    /** Sensor: be connectable over BLE so the commander can hold a link for Channel Sounding. */
+    @android.annotation.SuppressLint("MissingPermission")
+    fun advertiseConnectable() {
+        try {
+            val adapter = bt?.adapter ?: return
+            advertiser = adapter.bluetoothLeAdvertiser ?: run { HLog.d("BleRanging: no advertiser"); return }
+            val settings = android.bluetooth.le.AdvertiseSettings.Builder()
+                .setAdvertiseMode(android.bluetooth.le.AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
+                .setConnectable(true).setTimeout(0)
+                .setTxPowerLevel(android.bluetooth.le.AdvertiseSettings.ADVERTISE_TX_POWER_HIGH).build()
+            val data = android.bluetooth.le.AdvertiseData.Builder().setIncludeDeviceName(false).build()
+            advertiser?.startAdvertising(settings, data, advCallback)
+        } catch (e: Throwable) { HLog.d("BleRanging: advertise threw $e") }
+    }
+
+    /** Commander: connect over BLE to the peer first, then start ranging on top of that link. */
+    @android.annotation.SuppressLint("MissingPermission")
+    fun rangeAsInitiator(letter: String, peerAddress: String, useCs: Boolean = csSupported) {
+        try {
+            val device = bt?.adapter?.getRemoteDevice(peerAddress)
+            if (device != null && useCs) {
+                HLog.d("BleRanging[$letter]: connecting GATT to $peerAddress before Channel Sounding")
+                gatts.remove(letter)?.close()
+                val gatt = device.connectGatt(appContext, false, object : android.bluetooth.BluetoothGattCallback() {
+                    override fun onConnectionStateChange(g: android.bluetooth.BluetoothGatt, status: Int, newState: Int) {
+                        HLog.d("BleRanging[$letter]: GATT status=$status state=$newState (2=connected)")
+                        if (newState == android.bluetooth.BluetoothProfile.STATE_CONNECTED) {
+                            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ open(letter, peerAddress, initiator = true, useCs = true) }, 1500)
+                        } else if (newState == android.bluetooth.BluetoothProfile.STATE_DISCONNECTED) {
+                            if (sessions[letter] == null) android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ open(letter, peerAddress, initiator = true, useCs = false) }, 500)
+                        }
+                    }
+                }, android.bluetooth.BluetoothDevice.TRANSPORT_LE)
+                gatts[letter] = gatt
+                // If GATT never connects, fall back to RSSI after 8 s.
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    if (sessions[letter] == null) { HLog.d("BleRanging[$letter]: no GATT link after 8 s, RSSI fallback"); open(letter, peerAddress, initiator = true, useCs = false) }
+                }, 8000)
+                return
+            }
+        } catch (e: Throwable) { HLog.d("BleRanging[$letter]: GATT connect threw $e") }
+        open(letter, peerAddress, initiator = true, useCs = useCs)
+    }
+
+    /** Sensor: answer the commander. Started as soon as the commander's address is known, before it initiates. */
+    fun rangeAsResponder(peerAddress: String, useCs: Boolean = csSupported) {
+        advertiseConnectable()
+        open("A", peerAddress, initiator = false, useCs = useCs)
+    }
 
     private fun open(letter: String, peerAddress: String, initiator: Boolean, useCs: Boolean) {
         val mgr = manager ?: return
@@ -109,8 +162,17 @@ class BleRanging(context: Context, private val listener: Listener) {
                     HLog.d("BleRanging[$letter/$tech]: %.2f m (median %.2f, conf %d, rssi %s)".format(d, median, conf, if (data.hasRssi()) data.rssi.toString() else "-"))
                     listener.onDistance(letter, median, tech, conf)
                 }
-                override fun onStopped(device: RangingDevice, reason: Int) { HLog.d("BleRanging[$letter/$tech]: stopped reason=$reason") }
-                override fun onClosed(reason: Int) { HLog.d("BleRanging[$letter/$tech]: closed reason=$reason"); sessions.remove(letter) }
+                override fun onStopped(device: RangingDevice, reason: Int) { HLog.d("BleRanging[$letter/$tech]: stopped reason=$reason (1=local 2=remote 3=unsupported 4=policy 5=no peers)") }
+                override fun onClosed(reason: Int) {
+                    HLog.d("BleRanging[$letter/$tech]: closed reason=$reason")
+                    if (sessions[letter] === thisSession()) sessions.remove(letter)
+                    // Channel Sounding refused (unsupported in this configuration): use signal strength instead.
+                    if (useCs && rssiSupported && reason != RangingSession.Callback.REASON_LOCAL_REQUEST) {
+                        HLog.d("BleRanging[$letter]: CS closed, falling back to RSSI ranging")
+                        open(letter, peerAddress, initiator, useCs = false)
+                    }
+                }
+                private fun thisSession(): RangingSession? = sessions[letter]
             }
             val session = mgr.createRangingSession(executor, callback) ?: run { HLog.d("BleRanging[$letter/$tech]: createRangingSession returned null"); return }
             val config = if (initiator)
@@ -127,9 +189,13 @@ class BleRanging(context: Context, private val listener: Listener) {
         }
     }
 
+    @android.annotation.SuppressLint("MissingPermission")
     fun stop() {
         sessions.values.forEach { try { it.stop(); it.close() } catch (_: Exception) {} }
         sessions.clear()
+        gatts.values.forEach { try { it.disconnect(); it.close() } catch (_: Exception) {} }
+        gatts.clear()
+        try { advertiser?.stopAdvertising(advCallback) } catch (_: Exception) {}
     }
 
     companion object {

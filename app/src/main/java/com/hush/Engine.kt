@@ -1141,7 +1141,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         peers[j.name] = Peer(viaEndpoint, j.name, assigned)
         HLog.d("Commander: ${j.name} is Sensor $assigned, ${j.hops} hop(s) via $viaEndpoint (${peers.size} sensors) ble=${j.ble}")
         link?.sendDown(Command(Command.ASSIGN, letter = assigned, to = j.name, ble = ownBleAddress).toJson())
-        if (j.ble != null) { peerBleAddress[j.name] = j.ble; startRadioTo(j.name, assigned) }
+        // Give the sensor 3 s to start its responder side before we initiate.
+        if (j.ble != null) { peerBleAddress[j.name] = j.ble; main.postDelayed({ startRadioTo(j.name, assigned) }, 3000) }
         if (inHush) link?.sendDown(Command(Command.HUSH, secondsLeft(), to = j.name).toJson())
         listener?.onPeers(peers.values.toList())
     }
