@@ -94,11 +94,13 @@ object KnockBearing {
     /**
      * One knock heard now. Returns true if it was usable. Audio thread. [ratio] is the onset's peak over the
      * background: knuckle knocks measure ×11–28, room noises ×2–6, so a knock outweighs a noise 3–5× here.
+     * [rhythm] is this phone's rhythm score this second (0.2 nothing, 0.5 three onsets, 0.9 steady, 1.0 a pattern):
+     * a knock that is part of deliberate tapping counts up to twice a stray one (27 Sep 03:15, team: rhythm over class).
      */
-    fun add(delaySamples: Float?, quality: Float?, ratio: Float, felt: Boolean, headingDeg: Float, nowMs: Long): Boolean {
+    fun add(delaySamples: Float?, quality: Float?, ratio: Float, rhythm: Float, felt: Boolean, headingDeg: Float, nowMs: Long): Boolean {
         if (delaySamples == null || quality == null || quality < MIN_Q) return false
         val theta = thetaFromDelay(delaySamples) ?: return false
-        val weight = quality.toDouble() * (ratio / 10.0).coerceIn(0.3, 3.0) * (if (felt) FELT_WEIGHT else 1.0)
+        val weight = quality.toDouble() * (ratio / 10.0).coerceIn(0.3, 3.0) * (0.5 + rhythm.coerceIn(0f, 1f)) * (if (felt) FELT_WEIGHT else 1.0)
         synchronized(lock) {
             knocks.addLast(Knock(nowMs, theta, headingDeg, weight, felt))
             while (knocks.isNotEmpty() && nowMs - knocks.first().tMs > ACTIVE_MS) knocks.removeFirst()

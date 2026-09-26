@@ -625,7 +625,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     // ---- Bearings from every phone → lines on the map → crossing (compass plan step 2, 27 Sep) ----
 
     /** Commander: what each phone's own two-mic arrow says (compass degrees), its mirror twin, confidence, when. */
-    private class PeerBearing(val bearing: Float, val twin: Float?, val q: Float, val atMs: Long)
+    private class PeerBearing(val bearing: Float, val twin: Float?, val q: Float, val atMs: Long, val rhythm: Float = 0.5f)
     private val peerBearing = HashMap<String, PeerBearing>()
     /** Where the phones' bearing lines cross, metres in the map frame (see posMetres), or null. */
     @Volatile var crossFix: Crossing.Result? = null
@@ -733,7 +733,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val kb = com.hush.audio.KnockBearing
         val hist = DoubleArray(kb.BINS)
         for ((_, b) in fresh) {
-            val w = b.q.coerceAtLeast(0.2f).toDouble()
+            // Rhythm over class (team, 27 Sep 03:15): a phone hearing steady or patterned tapping (0.9–1.0) counts
+            // up to twice one that only heard stray loud onsets (0.2–0.5).
+            val w = b.q.coerceAtLeast(0.2f).toDouble() * (0.5 + b.rhythm.coerceIn(0f, 1f))
             if (b.twin == null) kb.vote(hist, b.bearing.toDouble(), w)
             else { kb.vote(hist, b.bearing.toDouble(), w / 2); kb.vote(hist, b.twin.toDouble(), w / 2) }
         }
@@ -752,7 +754,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         if (keyText != sharedLogged) {
             sharedLogged = keyText
             HLog.d("SHARED: bearing %.0f°%s from %s, conf %.2f (%s)".format(bearing, if (resolved) "" else " or %.0f°".format(twin), phones, near / all,
-                fresh.entries.joinToString(" ") { "%s=%.0f°%s".format(it.key, it.value.bearing, it.value.twin?.let { t -> "/%.0f°".format(t) } ?: "") }))
+                fresh.entries.joinToString(" ") { "%s=%.0f°%s r%.1f".format(it.key, it.value.bearing, it.value.twin?.let { t -> "/%.0f°".format(t) } ?: "", it.value.rhythm) }))
         }
     }
 
@@ -1557,7 +1559,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         updateLive(e)
         val nowB = SystemClock.elapsedRealtime()
         val hadBearing = peerBearing.containsKey(e.sensorId)
-        if (e.bearing != null) peerBearing[e.sensorId] = PeerBearing(e.bearing, e.bearingTwin, e.bearingQ ?: 0f, nowB) else peerBearing.remove(e.sensorId)
+        if (e.bearing != null) peerBearing[e.sensorId] = PeerBearing(e.bearing, e.bearingTwin, e.bearingQ ?: 0f, nowB, e.rhythmScore) else peerBearing.remove(e.sensorId)
         recordGps(e, nowB)
         if (e.sensorId == "A") { applyGpsLayout(nowB); fuseBearings(nowB); crossBearings(nowB) }
         else if (e.bearing != null || hadBearing) {
@@ -2008,7 +2010,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         main.post { trackWalking(acc); trackPlacement(acc) }
         // Source location, part 1 (every phone): each knock timed to the sample, its loudness, and the
         // two-mic delay that says which side of this phone it came from. Sent to the commander.
-        val onsetReport = if (!selfNoise && phantoms < tap.onsets.size) buildOnsetReport(tap, phantom, startSample, now - 1000, acc) else null
+        val onsetReport = if (!selfNoise && phantoms < tap.onsets.size) buildOnsetReport(tap, phantom, startSample, now - 1000, acc, rhythm.score) else null
         // The own arrow is shown only while this phone hears deliberate tapping: steady/patterned rhythm, a Hush
         // window, or a few LOUD knocks lately. The knock votes accumulate regardless, so it is ready at once.
         val loudCount = synchronized(loudOnsetMs) {
@@ -2125,7 +2127,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         return out
     }
 
-    private fun buildOnsetReport(tap: TapDetector.Result, phantom: BooleanArray, startSample: Long, windowStartMs: Long, acc: AccelChannel.Result): com.hush.model.OnsetReport {
+    private fun buildOnsetReport(tap: TapDetector.Result, phantom: BooleanArray, startSample: Long, windowStartMs: Long, acc: AccelChannel.Result, rhythmNow: Float): com.hush.model.OnsetReport {
         val cap = capture
         val out = ArrayList<com.hush.model.Onset>()
         for ((i, o) in tap.onsets.withIndex()) {
@@ -2143,7 +2145,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             val ms = windowStartMs + o.sampleInWindow / 48
             val felt = acc.spikeTimesMs.any { kotlin.math.abs(it - ms) <= RhythmTracker.MERGE_MS }
             // The phone's own arrow (compass plan step 1): this knock's two-mic delay votes for a direction.
-            val used = com.hush.audio.KnockBearing.add(delay, q, o.ratio, felt, headingDeg, ms)
+            val used = com.hush.audio.KnockBearing.add(delay, q, o.ratio, rhythmNow, felt, headingDeg, ms)
             if (used && o.ratio >= LOUD_KNOCK_RATIO) synchronized(loudOnsetMs) { loudOnsetMs.addLast(ms) }
             out.add(com.hush.model.Onset(abs, o.peak, o.ratio, delay, q, felt))
             HLog.d("Onset @%d (+%d ms) peak=%.3f x%.0f rise=%d dl=%s q=%s%s heading=%.0f%s".format(abs, o.sampleInWindow / 48, o.peak, o.ratio, o.riseSamples,
