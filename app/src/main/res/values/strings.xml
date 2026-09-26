@@ -40,11 +40,12 @@
     <string name="brief_listening">Listening…</string>
     <string name="export_button">EXPORT LOG to Downloads</string>
     <string name="place_button">Place %1$s</string>
+    <string name="align_button">Align %1$s</string>
     <string name="auto_place">AUTO-PLACE (chirps)</string>
     <string name="flip">FLIP</string>
     <string name="stop_button">STOP</string>
     <string name="arrow_no_target">Run HUSH to get a target</string>
-    <string name="arrow_walk_to_align">Not yet aligned to north. Carry sensors out from here, or walk a few steps holding the phone forward.</string>
+    <string name="arrow_walk_to_align">Not yet aligned to north. Point the top of this phone at a sensor and tap its Align button (best with two sensors).</string>
     <string name="ranging_now">chirps…</string>
     <string name="arrow_place_first">Place Sensor %1$s on the map first</string>
     <string name="arrow_target">→ Sensor %1$s</string>

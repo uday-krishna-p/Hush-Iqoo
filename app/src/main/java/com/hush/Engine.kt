@@ -316,12 +316,66 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         }
         val noM = estimates.map { it.first }; val mi = estimates.map { it.second }
         val useMirror = estimates.size >= 2 && spread(mi) < spread(noM)
+        if (pointedHeading.isNotEmpty()) { HLog.d("Placement align: %.0f° not used, north comes from pointing".format(if (useMirror) circMean(mi) else circMean(noM))); return }
         if (useMirror != mirror) { mirror = useMirror; HLog.d("Placement align: mirror=$mirror") }
         mapRotationDeg = if (useMirror) circMean(mi) else circMean(noM)
         alignSource = "placement walk (${estimates.size} sensor${if (estimates.size > 1) "s" else ""})"
         HLog.d("Placement align: rotation %.0f° from %d sensors (mirror=%b)".format(mapRotationDeg, estimates.size, mirror))
         setRangingStatus("Map aligned to north from how the sensors were carried out.")
     }
+    // ---- Manual north (27 Sep, highest priority): the commander points its top at a sensor and taps ALIGN ----
+    /** Letter → the commander's compass heading when its top pointed at that sensor. */
+    private val pointedHeading = LinkedHashMap<String, Float>()
+
+    /** Commander: "my top points at [letter] now". Returns a one-line result for the screen. */
+    fun alignByPointing(letter: String): String {
+        if (role != ROLE_COMMANDER) return "Only the commander aligns"
+        val mb = mapBearing("A", letter) ?: return "Place A and $letter on the map first (ranging)"
+        pointedHeading[letter] = headingDeg
+        HLog.d("ALIGN: pointed at $letter, heading %.0f°, map bearing A→$letter %.0f°".format(headingDeg, mb))
+        return applyPointedAlign()
+    }
+
+    /**
+     * Rotation that fits every stored pointing: rotation = heading − map bearing. With two or more sensors the
+     * mirror is decided too (a reflected map turns the two bearings the wrong way round): if the reflected map
+     * fits clearly better, the map is flipped. Re-applied after every ranging round that moves the dots.
+     */
+    fun applyPointedAlign(): String {
+        val entries = pointedHeading.entries.mapNotNull { (l, h) -> mapBearing("A", l)?.let { Triple(l, h, it) } }
+        if (entries.isEmpty()) return "Nothing aligned yet"
+        fun norm(a: Float) = ((a % 360f) + 360f) % 360f
+        fun diff(a: Float, b: Float): Float { val d = kotlin.math.abs(norm(a - b)); return if (d > 180f) 360f - d else d }
+        fun mean(xs: List<Float>): Float {
+            val r = xs.map { Math.toRadians(it.toDouble()) }
+            return norm(Math.toDegrees(kotlin.math.atan2(r.map { kotlin.math.sin(it) }.average(), r.map { kotlin.math.cos(it) }.average())).toFloat())
+        }
+        fun fit(reflected: Boolean): Pair<Float, Float> {
+            val rs = entries.map { (_, h, mb) -> norm(h - if (reflected) norm(180f - mb) else mb) }
+            val m = mean(rs)
+            return m to (rs.maxOfOrNull { diff(it, m) } ?: 0f)
+        }
+        var (rot, worst) = fit(false)
+        if (entries.size >= 2) {
+            val (rotR, worstR) = fit(true)
+            HLog.d("ALIGN: map as is fits within %.0f°, mirrored within %.0f°".format(worst, worstR))
+            if (worstR + 5f < worst) {
+                mirror = !mirror
+                val flipped = mapDots.mapValues { (_, p) -> p.first to (1f - p.second) }
+                mapDots.clear(); mapDots.putAll(flipped)
+                try { syncLocatorPositions() } catch (e: Exception) { HLog.d("ERROR in locator after flip: $e") }
+                HLog.d("ALIGN: the map was a mirror image of the room, flipped it (mirror=$mirror)")
+                rot = rotR; worst = worstR
+            }
+        }
+        mapRotationDeg = rot
+        val who = entries.joinToString(",") { it.first }
+        alignSource = "pointed at $who" + if (entries.size >= 2) " (±%.0f°)".format(worst) else ""
+        HLog.d("ALIGN: map rotation %.0f° from pointing at %s (worst residual %.0f°)".format(rot, who, worst))
+        listener?.onPeers(peers.values.toList())
+        return "North set: pointed at $who" + if (entries.size >= 2) ", agree within %.0f°".format(worst) else ". Point at a second sensor too."
+    }
+
     /** Degrees to add to a map bearing to get a real compass bearing; set by ALIGN. Null until aligned. */
     @Volatile var mapRotationDeg: Float? = null
         private set
@@ -740,6 +794,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             // Smooth over the last few rounds (circular mean) so a single odd round cannot swing the arrow.
             val recent = rotationHistory.takeLast(5).map { Math.toRadians(it.toDouble()) }
             val smoothed = ((Math.toDegrees(kotlin.math.atan2(recent.map { kotlin.math.sin(it) }.average(), recent.map { kotlin.math.cos(it) }.average())) + 360.0) % 360.0).toFloat()
+            if (pointedHeading.isNotEmpty()) { HLog.d("DoA align: %.0f° not used, north comes from pointing".format(smoothed)); return }
             mapRotationDeg = smoothed
             alignSource = "two-mic direction (±%.0f°, %d rounds)".format(chosenSpread / 2, rotationHistory.size)
             setRangingStatus("Map aligned to north from chirp directions.")
@@ -871,6 +926,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 } catch (e: Exception) { HLog.d("ERROR in locator setup: $e") }
                 doaAll.clear()
                 setRangingStatus("Placed by sound: $text")
+                if (pointedHeading.isNotEmpty()) applyPointedAlign()
                 listener?.onPeers(peers.values.toList())
                 placed = true
             }
@@ -926,6 +982,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         if (!inHush && !rangingInProgress && movedSinceRanging >= 3f && peers.size >= 2 &&
             SystemClock.elapsedRealtime() - lastAFrameMs > 8000) {
             HLog.d("Auto re-ranging after %.0f s of walking".format(movedSinceRanging))
+            if (pointedHeading.isNotEmpty()) { HLog.d("ALIGN: the commander walked, pointing at ${pointedHeading.keys} forgotten"); pointedHeading.clear() }
             autoPlace()
         }
     }
@@ -956,6 +1013,10 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                     return ((Math.toDegrees(kotlin.math.atan2(xs.map { kotlin.math.sin(it) }.average(), xs.map { kotlin.math.cos(it) }.average())) + 360.0) % 360.0).toFloat()
                 }
                 val useMirror = alignSolutions.size >= 2 && spread { it.second } < spread { it.first }
+                if (pointedHeading.isNotEmpty()) {
+                    HLog.d("Auto-align: walk estimate %.0f° not used, north comes from pointing".format(if (useMirror) mean { it.second } else mean { it.first }))
+                    return
+                }
                 if (useMirror != mirror && alignSolutions.size >= 2) {
                     HLog.d("Auto-align: switching mirror to $useMirror")
                     mirror = useMirror
@@ -1228,6 +1289,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         gps?.stop(); gps = null
         placements.clear(); alignSource = ""; lastPlacementSentSteps = -1; stillSeconds = 0
         mapRotationDeg = null
+        pointedHeading.clear()
         frameB = null; frameC = null; lastAInFrame = null; alignSolutions.clear(); mapMetresPerUnit = null
         pendingHushSeconds = 0
         classifier?.close(); classifier = null

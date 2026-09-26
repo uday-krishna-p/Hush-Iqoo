@@ -80,8 +80,9 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
         fun f(v: Float?) = v?.let { "%.0f°".format(it) } ?: "-"
         val rot = Engine.mapRotationDeg
         val line = if (fix != null && srcAngle != null) {
-            "ARROW target=SOURCE (%.2f, %.2f) dist=%.2f m mapBearing=%s rotation=%s heading=%.0f° screen=%s | north via %s".format(
-                fix.x, fix.y, Engine.sourceDistanceMetres() ?: -1f, f(Engine.sourceBearing()), f(rot), Engine.headingDeg, f(srcAngle), Engine.alignSource.ifEmpty { "-" })
+            "ARROW target=SOURCE (%.2f, %.2f) dist=%.2f m mapBearing=%s rotation=%s heading=%.0f° screen=%s | dots from A: %s | north via %s".format(
+                fix.x, fix.y, Engine.sourceDistanceMetres() ?: -1f, f(Engine.sourceBearing()), f(rot), Engine.headingDeg, f(srcAngle),
+                Engine.mapDots.keys.filter { it != "A" }.sorted().joinToString(" ") { "$it=${f(Engine.mapBearing("A", it))}" }, Engine.alignSource.ifEmpty { "-" })
         } else if (target != null) {
             "ARROW target=Sensor $target dist=%s mapBearing=%s rotation=%s heading=%.0f° screen=%s%s | north via %s".format(
                 Engine.mapDistanceMetres("A", target)?.let { "%.2f m".format(it) } ?: "-", f(Engine.mapBearing("A", target)), f(rot), Engine.headingDeg, f(angle),
@@ -92,6 +93,23 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
         com.hush.HLog.d(line)
     }
     private val placeRow: android.widget.LinearLayout = activity.findViewById(R.id.placeRow)
+    private val alignRow: android.widget.LinearLayout = activity.findViewById(R.id.alignRow)
+
+    /** One "Align X" button per sensor on the map: point this phone's top at X, then tap (sets north). */
+    private fun renderAlignButtons() {
+        alignRow.removeAllViews()
+        for (l in peers.map { it.letter }.filter { Engine.mapDots.containsKey(it) }.sorted()) {
+            val b = Button(activity)
+            b.text = activity.getString(R.string.align_button, l)
+            b.layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            b.setOnClickListener {
+                val msg = Engine.alignByPointing(l)
+                android.widget.Toast.makeText(activity, msg, android.widget.Toast.LENGTH_LONG).show()
+                render()
+            }
+            alignRow.addView(b)
+        }
+    }
 
     /** One "place X" button per known letter; tapping it arms the map for that letter. */
     private fun renderPlaceButtons() {
@@ -105,6 +123,7 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
             b.setOnClickListener { map.placing = l }
             placeRow.addView(b)
         }
+        renderAlignButtons()
     }
 
     init {
@@ -131,6 +150,7 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
             val flipped = Engine.mapDots.mapValues { (_, p) -> p.first to (1f - p.second) }
             Engine.mapDots.clear(); Engine.mapDots.putAll(flipped)
             map.dots.clear(); map.dots.putAll(flipped); map.invalidate()
+            Engine.applyPointedAlign()
         }
         renderPlaceButtons()
         renderMode()

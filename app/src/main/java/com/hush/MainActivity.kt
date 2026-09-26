@@ -40,6 +40,7 @@ class MainActivity : AppCompatActivity() {
         const val EXTRA_PROBE = "probe"
         const val EXTRA_HUSH = "hush"
         const val EXTRA_RANGE = "range"
+        const val EXTRA_ALIGN = "align"
         const val EXTRA_PLAY = "play"
         const val EXTRA_PLAY_LEVEL = "level"
     }
@@ -101,13 +102,17 @@ class MainActivity : AppCompatActivity() {
             HLog.d("Hook: range")
             if (Engine.role == Engine.ROLE_COMMANDER) Engine.autoPlace() else HLog.d("Hook: range ignored, not a commander")
         }
+        intent.getStringExtra(EXTRA_ALIGN)?.let { l ->
+            HLog.d("Hook: align $l")
+            HLog.d("Hook: align result: " + Engine.alignByPointing(l))
+        }
         intent.getStringExtra(EXTRA_PLAY)?.let { name ->
             val fraction = intent.getFloatExtra(EXTRA_PLAY_LEVEL, 0.5f)
             HLog.d("Hook: play $name at $fraction")
             if (Engine.isRunning) Engine.playFile(name, fraction) else HLog.d("Hook: play ignored, engine not running")
         }
         intent.removeExtra(EXTRA_ROLE); intent.removeExtra(EXTRA_PROBE); intent.removeExtra(EXTRA_HUSH)
-        intent.removeExtra(EXTRA_RANGE); intent.removeExtra(EXTRA_PLAY); intent.removeExtra(EXTRA_PLAY_LEVEL)
+        intent.removeExtra(EXTRA_RANGE); intent.removeExtra(EXTRA_PLAY); intent.removeExtra(EXTRA_PLAY_LEVEL); intent.removeExtra(EXTRA_ALIGN)
     }
 
     private fun showRolePicker() {
