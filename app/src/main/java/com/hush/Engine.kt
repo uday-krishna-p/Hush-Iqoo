@@ -103,11 +103,15 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private val hushEvents = HashMap<String, MutableList<SensorEvent>>()   // letter → events during the window
     val sessionLog = com.hush.log.SessionLog()
 
+    /** Commander's map: letter → (x, y) fractions of the square. Kept here so it survives screen changes. */
+    val mapDots = LinkedHashMap<String, Pair<Float, Float>>()
+
     /** Commander: write the session log to Downloads. Returns the file name or null. */
     fun exportLog(): String? {
         val ctx = appContext ?: return null
         val sensors = org.json.JSONObject().apply { lettersByName.forEach { (name, letter) -> put(letter, name) } }
-        return sessionLog.export(ctx, mapOf("commander" to localName, "sensors" to sensors, "mode" to mode.name, "lastBrief" to lastBrief))
+        val dots = org.json.JSONObject().apply { mapDots.forEach { (l, p) -> put(l, org.json.JSONObject().put("x", p.first.toDouble()).put("y", p.second.toDouble())) } }
+        return sessionLog.export(ctx, mapOf("commander" to localName, "sensors" to sensors, "dots" to dots, "mode" to mode.name, "lastBrief" to lastBrief))
     }
     private var hushStartMs = 0L
     var lastRanking: List<Rank> = emptyList()

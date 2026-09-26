@@ -34,6 +34,22 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
     private var peers: List<Engine.Peer> = emptyList()
     private val latest = LinkedHashMap<String, SensorEvent>()   // letter → newest event
     private var ranks: List<Engine.Rank> = emptyList()
+    private val map: MapView = activity.findViewById(R.id.map)
+    private val placeRow: android.widget.LinearLayout = activity.findViewById(R.id.placeRow)
+
+    /** One "place X" button per known letter; tapping it arms the map for that letter. */
+    private fun renderPlaceButtons() {
+        val letters = (listOf("A") + peers.map { it.letter } + Engine.mapDots.keys).distinct().sorted()
+        placeRow.removeAllViews()
+        for (l in letters) {
+            val b = Button(activity)
+            b.text = activity.getString(R.string.place_button, l)
+            b.layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            b.alpha = if (Engine.mapDots.containsKey(l)) 0.6f else 1f
+            b.setOnClickListener { map.placing = l }
+            placeRow.addView(b)
+        }
+    }
 
     init {
         btnHush.setOnClickListener { Engine.hush(20) }
@@ -43,6 +59,11 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
             android.widget.Toast.makeText(activity, msg, android.widget.Toast.LENGTH_LONG).show()
         }
         modeButtons.forEach { (mode, btn) -> btn.setOnClickListener { Engine.mode = mode; renderMode() } }
+        // Dots live in Engine so they survive the screen being recreated.
+        map.dots.putAll(Engine.mapDots)
+        map.onPlaced = { letter -> Engine.mapDots[letter] = map.dots[letter]!!; renderPlaceButtons() }
+        map.strongest = Engine.lastRanking.firstOrNull()?.takeIf { it.score > 0f }?.letter
+        renderPlaceButtons()
         renderMode()
         render()
     }
@@ -67,7 +88,7 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
             bigCountdown.text = secondsLeft.toString()
             btnHush.isEnabled = false
             btnHush.text = activity.getString(R.string.hush_running)
-            if (secondsLeft >= 19) { ranks = emptyList(); briefText.text = activity.getString(R.string.brief_listening) }
+            if (secondsLeft >= 19) { ranks = emptyList(); map.strongest = null; briefText.text = activity.getString(R.string.brief_listening) }
         }
     }
 
@@ -78,11 +99,13 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
 
     override fun onPeers(peers: List<Engine.Peer>) {
         this.peers = peers
+        renderPlaceButtons()
         render()
     }
 
     override fun onRanking(ranks: List<Engine.Rank>, brief: String) {
         this.ranks = ranks
+        map.strongest = ranks.firstOrNull()?.takeIf { it.score > 0f }?.letter
         briefText.text = brief
         briefText.setTextColor(if (ranks.firstOrNull()?.let { it.evidence >= 0.9f } == true) 0xFF1B8A3A.toInt() else 0xFF333333.toInt())
         render()
