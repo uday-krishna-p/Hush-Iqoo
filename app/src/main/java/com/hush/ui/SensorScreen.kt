@@ -106,7 +106,8 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
     }
 
     override fun onLinkStatus(text: String) {
-        linkStatus.text = text
+        // A sensor shows a heard rescuer probe under its link line (the commander screen has its own status block).
+        linkStatus.text = if (Engine.role == Engine.ROLE_SENSOR && Engine.probeStatus.isNotEmpty()) text + "\n" + Engine.probeStatus else text
     }
 
     override fun onCountdown(secondsLeft: Int) {

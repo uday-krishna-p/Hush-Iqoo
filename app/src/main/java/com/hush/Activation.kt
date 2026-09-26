@@ -27,7 +27,13 @@ object Activation {
 
     fun onProbe(context: Context, commander: String, rssi: Int) {
         val app = context.applicationContext
-        if (Engine.isRunning) { HLog.d("Activation: probe from $commander while already running as ${Engine.role}, ignored"); return }
+        if (Engine.isRunning) {
+            // Already a sensor or the commander: no alert screen, but buzz and say so (27 Sep 02:39: the team pressed
+            // the sweep with every phone already in a role and nothing visible happened anywhere).
+            HLog.d("Activation: probe from $commander while already running as ${Engine.role}: acknowledged on screen, no alert")
+            Engine.noteProbeHeard(commander, rssi)
+            return
+        }
         val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
         if (now - prefs.getLong(KEY_LAST_PROBE, 0L) < DEBOUNCE_MS) { HLog.d("Activation: probe from $commander within ${DEBOUNCE_MS / 1000} s of the last one, ignored"); return }

@@ -46,6 +46,8 @@ object KnockBearing {
     const val SIGMA_DEG = 12.0
     /** The best peak must be this many times the second peak (≥ 30° away) to count as resolved. */
     const val RESOLVE_RATIO = 1.5
+    /** While the second peak is at least this share of the best, the previous choice stays the solid arrow. */
+    const val STICKY_RATIO = 0.8
     const val BINS = 72   // 5° each
 
     data class Estimate(
@@ -64,6 +66,8 @@ object KnockBearing {
     private class Knock(val tMs: Long, val thetaDeg: Double, val headingDeg: Float, val weight: Double, val felt: Boolean)
     private val knocks = ArrayDeque<Knock>()
     private val lock = Any()
+    /** World bearing chosen last time, for the hysteresis. */
+    @Volatile private var lastChoiceDeg: Double? = null
 
     fun maxDelaySamples(): Double = micSpacingM * FS / C
 
@@ -101,7 +105,7 @@ object KnockBearing {
         return true
     }
 
-    fun reset() = synchronized(lock) { knocks.clear() }
+    fun reset() = synchronized(lock) { knocks.clear(); lastChoiceDeg = null }
 
     /** The arrow now, or null while fewer than [MIN_KNOCKS] usable knocks were heard in the last [ACTIVE_MS]. */
     fun estimate(nowMs: Long, headingNow: Float): Estimate? {
@@ -109,17 +113,23 @@ object KnockBearing {
             while (knocks.isNotEmpty() && nowMs - knocks.first().tMs > ACTIVE_MS) knocks.removeFirst()
             knocks.toList()
         }
-        if (recent.size < MIN_KNOCKS) return null
+        if (recent.size < MIN_KNOCKS) { lastChoiceDeg = null; return null }
         val hist = DoubleArray(BINS)
         for (k in recent) {
             val w = k.weight * exp(-(nowMs - k.tMs) / TAU_MS)
             vote(hist, k.headingDeg + k.thetaDeg, w)   // knock on the right of the phone...
             vote(hist, k.headingDeg - k.thetaDeg, w)   // ...or on the left: the mirror
         }
-        val best = peakBin(hist, exclude = -1)
+        var best = peakBin(hist, exclude = -1)
+        var second = peakBin(hist, exclude = best)
+        // Hysteresis (27 Sep 02:40, Sensor C with the knock beside it: two equal candidates 180° apart swapped
+        // every second): keep the previous choice as the solid arrow while it is within STICKY_RATIO of the best.
+        val prev = lastChoiceDeg
+        if (prev != null && hist[second] >= STICKY_RATIO * hist[best] &&
+            angDiff(prev, second * 360.0 / BINS) < angDiff(prev, best * 360.0 / BINS)) { val t = best; best = second; second = t }
         val bearing = refine(hist, best)
-        val second = peakBin(hist, exclude = best)
         val secondBearing = refine(hist, second)
+        lastChoiceDeg = bearing
         val resolved = hist[second] * RESOLVE_RATIO <= hist[best]
         // Mass within ±2σ of the best peak as a share of everything: 0.5 while the mirrors are equal, → 1 when one wins.
         var near = 0.0; var all = 0.0

@@ -160,6 +160,16 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     }
     private val probeToken = Any()
 
+    /** A rescuer's probe reached this phone while it already runs a role: a short buzz and a status line for 10 s. */
+    fun noteProbeHeard(commander: String, rssi: Int) {
+        val ctx = appContext ?: return
+        try { com.hush.audio.Haptics.vibrate(ctx, longArrayOf(0, 150, 100, 150), "probe heard") } catch (e: Exception) { HLog.d("probe buzz failed: $e") }
+        val text = "Rescuer probe heard from $commander ($rssi dBm) · this phone is already ${if (role == ROLE_COMMANDER) "the commander" else "Sensor $letter"}"
+        probeStatus = text
+        main.post { listener?.onLinkStatus(lastStatus) }
+        main.postDelayed({ if (probeStatus == text) { probeStatus = ""; listener?.onLinkStatus(lastStatus) } }, 10_000L)
+    }
+
     /** Commander: every Hush tag sighting lands here (several per second per phone while scanning). */
     private fun onTagSeen(suffix: String, address: String, rssi: Int, flags: Int, battery: Int) {
         val now = SystemClock.elapsedRealtime()
