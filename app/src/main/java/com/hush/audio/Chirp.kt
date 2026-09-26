@@ -65,11 +65,12 @@ object Chirp {
         }
     }
 
-    data class Detection(val offset: Int, val peak: Float, val ratio: Float)
+    data class Detection(val offset: Int, val peak: Float, val ratio: Float, val fine: Double = offset.toDouble())
 
     /**
      * Matched filter over [audio]: returns the sample offset where the chirp starts, the peak correlation,
-     * and how far the peak stands above the typical correlation level (a detection is credible when ratio > 6).
+     * how far the peak stands above the typical correlation level (credible when ratio > 6), and the
+     * sub-sample peak position from a parabola through the three highest points (for direction of arrival).
      */
     fun detect(audio: ShortArray, n: Int): Detection {
         val t = template
@@ -93,7 +94,13 @@ object Chirp {
             if (a > best) { best = a; bestAt = i }
         }
         val mean = (sumAbs / (n - m)).toFloat().coerceAtLeast(1e-9f)
-        return Detection(bestAt, best, best / mean)
+        var fine = bestAt.toDouble()
+        if (bestAt in 1 until out.size - 1) {
+            val y0 = out[bestAt - 1].toDouble(); val y1 = out[bestAt].toDouble(); val y2 = out[bestAt + 1].toDouble()
+            val denom = y0 - 2 * y1 + y2
+            if (denom < 0) fine = bestAt + 0.5 * (y0 - y2) / denom
+        }
+        return Detection(bestAt, best, best / mean, fine)
     }
 
     fun samplesToMetres(samples: Double): Double = samples / SAMPLE_RATE * SPEED_OF_SOUND

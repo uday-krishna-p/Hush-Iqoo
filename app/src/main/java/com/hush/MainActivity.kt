@@ -62,9 +62,9 @@ class MainActivity : AppCompatActivity() {
         }
         if (Build.VERSION.SDK_INT >= 33) {
             p += Manifest.permission.NEARBY_WIFI_DEVICES
-        } else {
-            p += Manifest.permission.ACCESS_FINE_LOCATION
         }
+        p += Manifest.permission.ACCESS_FINE_LOCATION      // GPS overlay for large sites
+        p += Manifest.permission.ACTIVITY_RECOGNITION      // step detector for placement dead reckoning
         return p
     }
 

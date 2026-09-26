@@ -71,18 +71,22 @@ class AudioCapture(private val context: Context, private val listener: Listener)
     @Volatile private var running = false
     private var thread: Thread? = null
 
-    // Ring buffer of the last RING_SECONDS of raw 48 kHz audio, with an absolute sample counter,
-    // so a chirp can be located to the sample on this phone's own clock.
+    // Ring buffers of the last RING_SECONDS of raw 48 kHz audio for each mic, with an absolute sample
+    // counter, so a chirp can be located to the sample on this phone's own clock, per microphone.
     private val ring = ShortArray(SAMPLE_RATE * RING_SECONDS)
+    private val ring2 = ShortArray(SAMPLE_RATE * RING_SECONDS)
     private var ringWrite = 0
     @Volatile var samplesCaptured = 0L
         private set
+    @Volatile var stereo = false
+        private set
     private val ringLock = Any()
 
-    private fun ringPush(chunk: ShortArray, n: Int) {
+    private fun ringPush(ch0: ShortArray, ch1: ShortArray?, n: Int) {
         synchronized(ringLock) {
             for (i in 0 until n) {
-                ring[ringWrite] = chunk[i]
+                ring[ringWrite] = ch0[i]
+                ring2[ringWrite] = if (ch1 != null) ch1[i] else ch0[i]
                 ringWrite = (ringWrite + 1) % ring.size
             }
             samplesCaptured += n
@@ -90,18 +94,19 @@ class AudioCapture(private val context: Context, private val listener: Listener)
     }
 
     /**
-     * Copies [count] samples starting at absolute sample [fromSample] into a new array.
+     * Copies [count] samples of microphone [channel] (0 or 1) starting at absolute sample [fromSample].
      * Returns null if that stretch is no longer (or not yet) in the buffer.
      */
-    fun snapshot(fromSample: Long, count: Int): ShortArray? {
+    fun snapshot(fromSample: Long, count: Int, channel: Int = 0): ShortArray? {
         synchronized(ringLock) {
-            val oldest = samplesCaptured - ring.size
-            if (fromSample < oldest || fromSample + count > samplesCaptured || count > ring.size) return null
+            val src = if (channel == 1) ring2 else ring
+            val oldest = samplesCaptured - src.size
+            if (fromSample < oldest || fromSample + count > samplesCaptured || count > src.size) return null
             val out = ShortArray(count)
-            var idx = ((fromSample % ring.size).toInt() + ring.size) % ring.size
+            var idx = ((fromSample % src.size).toInt() + src.size) % src.size
             for (i in 0 until count) {
-                out[i] = ring[idx]
-                idx = (idx + 1) % ring.size
+                out[i] = src[idx]
+                idx = (idx + 1) % src.size
             }
             return out
         }
@@ -144,20 +149,26 @@ class AudioCapture(private val context: Context, private val listener: Listener)
             MediaRecorder.AudioSource.MIC to "MIC",
         ) + if (unprocessedOk) listOf(MediaRecorder.AudioSource.UNPROCESSED to "UNPROCESSED") else emptyList()
 
-        val minBytes = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-        val bufferBytes = maxOf(minBytes, WINDOW * 2)
-        for ((source, name) in candidates) {
-            try {
-                val rec = AudioRecord(source, SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferBytes)
-                if (rec.state == AudioRecord.STATE_INITIALIZED) {
-                    sourceName = name
-                    HLog.d("AudioRecord opened with source $name, buffer $bufferBytes bytes")
-                    return rec
+        // Stereo first: the I2501 exposes two distinct mics, which gives chirp direction of arrival.
+        for (ch in listOf(AudioFormat.CHANNEL_IN_STEREO, AudioFormat.CHANNEL_IN_MONO)) {
+            val channels = if (ch == AudioFormat.CHANNEL_IN_STEREO) 2 else 1
+            val minBytes = AudioRecord.getMinBufferSize(SAMPLE_RATE, ch, AudioFormat.ENCODING_PCM_16BIT)
+            if (minBytes <= 0) continue
+            val bufferBytes = maxOf(minBytes, WINDOW * 2 * channels)
+            for ((source, name) in candidates) {
+                try {
+                    val rec = AudioRecord(source, SAMPLE_RATE, ch, AudioFormat.ENCODING_PCM_16BIT, bufferBytes)
+                    if (rec.state == AudioRecord.STATE_INITIALIZED) {
+                        sourceName = name + if (channels == 2) " (2 mics)" else ""
+                        stereo = channels == 2
+                        HLog.d("AudioRecord opened with source $name, channels=$channels, buffer $bufferBytes bytes")
+                        return rec
+                    }
+                    HLog.d("AudioRecord source $name channels=$channels failed to initialise, trying next")
+                    rec.release()
+                } catch (e: Exception) {
+                    HLog.d("AudioRecord source $name channels=$channels threw: $e")
                 }
-                HLog.d("AudioRecord source $name failed to initialise, trying next")
-                rec.release()
-            } catch (e: Exception) {
-                HLog.d("AudioRecord source $name threw: $e")
             }
         }
         return null
@@ -172,7 +183,10 @@ class AudioCapture(private val context: Context, private val listener: Listener)
             return
         }
         val window = ShortArray(WINDOW)
+        val channels = if (stereo) 2 else 1
+        val raw = ShortArray(CHUNK * channels)
         val chunk = ShortArray(CHUNK)
+        val chunk2 = if (stereo) ShortArray(CHUNK) else null
         val filtered = FloatArray(WINDOW)
         val pcm16 = FloatArray(WINDOW / 3)
         val bandPass = BandPass(SAMPLE_RATE)
@@ -181,14 +195,20 @@ class AudioCapture(private val context: Context, private val listener: Listener)
             rec.startRecording()
             wavOpen()
             while (running) {
-                val n = rec.read(chunk, 0, CHUNK)
-                if (n <= 0) {
-                    HLog.d("AudioRecord.read returned $n")
+                val got = rec.read(raw, 0, CHUNK * channels)
+                if (got <= 0) {
+                    HLog.d("AudioRecord.read returned $got")
                     Thread.sleep(50)
                     continue
                 }
+                val n = got / channels
+                if (stereo) {
+                    for (i in 0 until n) { chunk[i] = raw[2 * i]; chunk2!![i] = raw[2 * i + 1] }
+                } else {
+                    System.arraycopy(raw, 0, chunk, 0, n)
+                }
                 wavWrite(chunk, n)
-                ringPush(chunk, n)
+                ringPush(chunk, chunk2, n)
                 var i = 0
                 while (i < n) {
                     val take = minOf(n - i, WINDOW - filled)

@@ -224,6 +224,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         if (letters.size < 3) { setRangingStatus("Need at least 3 phones connected (have ${letters.size})"); return }
         rangingInProgress = true
         heard.clear()
+        doaThisRound.clear()
         setRangingStatus("Ranging: chirping ${letters.joinToString(" ")}…")
         sessionLog.addRecord("ranging_start", mapOf("letters" to letters.joinToString(" ")))
         letters.forEachIndexed { i, l ->
@@ -253,7 +254,22 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 val at = startSample + det.offset
                 HLog.d("Chirp from $letter heard by ${this.letter}: offset=${det.offset} sample=$at peak=%.2f ratio=%.1f (%d ms)".format(det.peak, det.ratio, SystemClock.elapsedRealtime() - t0))
                 if (det.offset < 0 || det.ratio < 5f) { HLog.d("Chirp from $letter: not credible, dropped"); return@Thread }
-                val report = com.hush.model.ChirpReport(this.letter, letter, at, det.ratio)
+                // Second mic: search only ±60 samples around the first mic's peak for the inter-mic delay.
+                var micDelay: Float? = null
+                if (cap.stereo && letter != this.letter) {
+                    val span = 60
+                    val from2 = startSample + det.offset - span
+                    val len2 = com.hush.audio.Chirp.template.size + 2 * span
+                    val a2 = cap.snapshot(from2, len2, 1)
+                    if (a2 != null) {
+                        val d2 = com.hush.audio.Chirp.detect(a2, len2)
+                        if (d2.offset >= 0) {
+                            micDelay = (d2.fine - span - (det.fine - det.offset)).toFloat()
+                            HLog.d("Chirp from $letter mic delay: %.2f samples (mic1 − mic0), ratio2=%.1f, heading=%.0f".format(micDelay, d2.ratio, headingDeg))
+                        }
+                    }
+                }
+                val report = com.hush.model.ChirpReport(this.letter, letter, at, det.ratio, micDelay, headingDeg)
                 main.post {
                     if (role == ROLE_COMMANDER) onChirpReport(report) else link?.broadcast(report.toJson())
                 }
@@ -261,9 +277,68 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         }, chirpToken, SEARCH_AFTER_MS + 100L)
     }
 
+    /** Commander's own two-mic delays this round: chirping letter → (delay samples, heading). */
+    private val doaThisRound = HashMap<String, Pair<Float, Float>>()
+
     private fun onChirpReport(r: com.hush.model.ChirpReport) {
         heard.getOrPut(r.hearer) { HashMap() }[r.from] = r.sample
         HLog.d("Chirp report: ${r.hearer} heard ${r.from} at ${r.sample} ratio=%.1f".format(r.ratio))
+        if (r.hearer == "A" && r.micDelay != null && r.heading != null) doaThisRound[r.from] = r.micDelay to r.heading
+    }
+
+    /**
+     * Direction of arrival on the commander: the inter-mic delay of each sensor's chirp gives the angle
+     * from the mic axis; the ranged triangle tells the true angle between the sensors, which fixes the
+     * unknown mic spacing and the left/right mirror. Result: map rotation to north with nobody moving.
+     */
+    private fun alignFromDoa(a: String, b: String, c: String, dAB: Double, dAC: Double, dBC: Double) {
+        val db = doaThisRound[b] ?: return
+        val dc = doaThisRound[c] ?: return
+        // True angle at A between B and C from the triangle.
+        val cosG = ((dAB * dAB + dAC * dAC - dBC * dBC) / (2 * dAB * dAC)).coerceIn(-1.0, 1.0)
+        val gamma = Math.toDegrees(kotlin.math.acos(cosG))
+        val fs = com.hush.audio.Chirp.SAMPLE_RATE.toDouble(); val cs = com.hush.audio.Chirp.SPEED_OF_SOUND.toDouble()
+        // Try candidate mic spacings and both mirror choices; keep the one whose DoA angles match gamma.
+        var bestErr = 1e9; var bestD = 0.0; var bestMirrorC = false; var bestThB = 0.0; var bestThC = 0.0
+        var d = 0.06
+        while (d <= 0.20) {
+            val maxDelay = d * fs / cs
+            val cb = (db.first / maxDelay).coerceIn(-1.0, 1.0); val cc = (dc.first / maxDelay).coerceIn(-1.0, 1.0)
+            val thB = Math.toDegrees(kotlin.math.acos(cb)); val thC = Math.toDegrees(kotlin.math.acos(cc))
+            for (mirrorC in listOf(false, true)) {
+                val angleBetween = kotlin.math.abs(thB - (if (mirrorC) -thC else thC))
+                val err = kotlin.math.abs(angleBetween - gamma) + 200.0 * kotlin.math.abs(d - 0.14)   // prefer plausible spacing
+                if (err < bestErr) { bestErr = err; bestD = d; bestMirrorC = mirrorC; bestThB = thB; bestThC = if (mirrorC) -thC else thC }
+            }
+            d += 0.005
+        }
+        if (bestErr > 25.0) { HLog.d("DoA align: no consistent solution (err %.1f°, gamma %.1f°)".format(bestErr, gamma)); return }
+        // Angles are measured from the mic axis (phone top). The sign of the mic order is unknown, so two
+        // world bearings are possible; the ranged map decides which by comparing map bearings.
+        val mapB = mapBearing(a, b) ?: return; val mapC = mapBearing(a, c) ?: return
+        var chosenRot = 0f; var chosenSpread = 1e9
+        for (signFlip in listOf(1.0, -1.0)) {
+            val wb = (db.second + signFlip * bestThB + 720.0) % 360.0
+            val wc = (dc.second + signFlip * bestThC + 720.0) % 360.0
+            for (mir in listOf(false, true)) {
+                val mb = if (mir) (360.0 - mapB) % 360.0 else mapB.toDouble()
+                val mc = if (mir) (360.0 - mapC) % 360.0 else mapC.toDouble()
+                val r1 = (wb - mb + 720.0) % 360.0; val r2 = (wc - mc + 720.0) % 360.0
+                var diff = kotlin.math.abs(r1 - r2); if (diff > 180) diff = 360 - diff
+                if (diff < chosenSpread) {
+                    chosenSpread = diff
+                    val rr = Math.toRadians(r1); val ss = Math.toRadians(r2)
+                    chosenRot = ((Math.toDegrees(kotlin.math.atan2(kotlin.math.sin(rr) + kotlin.math.sin(ss), kotlin.math.cos(rr) + kotlin.math.cos(ss))) + 360.0) % 360.0).toFloat()
+                    if (mir != mirror) { mirror = mir }
+                }
+            }
+        }
+        HLog.d("DoA align: spacing %.3f m, thetaB %.0f° thetaC %.0f° (gamma %.0f°, err %.1f°), rotation %.0f° (spread %.0f°, mirror=%b)".format(bestD, bestThB, bestThC, gamma, bestErr, chosenRot, chosenSpread, mirror))
+        if (chosenSpread <= 30.0) {
+            mapRotationDeg = chosenRot
+            alignSource = "two-mic direction (±%.0f°)".format(chosenSpread / 2)
+            setRangingStatus("Map aligned to north from chirp directions.")
+        }
     }
 
     // Sensors B and C define the map frame (they do not move); the commander A moves inside it.
@@ -306,6 +381,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 mapDots[c] = toMap(dBC to 0.0)
                 mapDots[a] = toMap(aPos)
                 autoAlign(aPos)
+                alignFromDoa(a, b, c, dAB, dAC, dBC)
+                doaThisRound.clear()
                 setRangingStatus("Placed by sound: $text")
                 listener?.onPeers(peers.values.toList())
                 placed = true
