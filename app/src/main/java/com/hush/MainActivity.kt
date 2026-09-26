@@ -31,6 +31,7 @@ import com.hush.ui.SensorScreen
  *   adb shell am start -n com.hush/.MainActivity --ez hush true           (commander: HUSH, solo allowed)
  *   adb shell am start -n com.hush/.MainActivity --ez range true          (commander: chirp ranging round)
  *   adb shell am start -n com.hush/.MainActivity --es play knocks.wav --ef level 0.5   (any role: play files/knocks.wav)
+ *   adb shell am start -n com.hush/.MainActivity --es layout clear                      (commander: drop the stored hand layout and pointing, so GPS may place the phones)
  *   adb shell am start -n com.hush/.MainActivity --es mic1top false                     (any role: recording channel 1 is the BOTTOM mic)
  *   adb shell am start -n com.hush/.MainActivity --ef micspacing 0.14                   (any role: distance between the two mics, metres)
  */

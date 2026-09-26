@@ -490,6 +490,61 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         sendFixDown(changed, now)
     }
 
+    // ---- Positions from GPS (compass plan step 3, 27 Sep): outdoors, phones 10 m+ apart, north-up map ----
+
+    private val gpsSamples = HashMap<String, ArrayDeque<GpsLayout.Sample>>()
+    /** True once the dots came from GPS: the map is north-up, A's dot follows its own fix, walking is ignored. */
+    @Volatile var gpsLayoutActive = false
+        private set
+    private var gpsLayoutCheckMs = 0L
+    private var gpsLayoutReason = ""
+
+    private fun recordGps(e: SensorEvent, now: Long) {
+        val lat = e.lat ?: return; val lon = e.lon ?: return
+        val q = gpsSamples.getOrPut(e.sensorId) { ArrayDeque() }
+        q.addLast(GpsLayout.Sample(lat, lon, e.gpsAcc ?: 99f, now))
+        while (q.size > 5) q.removeFirst()
+    }
+
+    /** Commander, every 5 s: put every phone on the map from its GPS fixes when that is good enough (GpsLayout rules). */
+    private fun applyGpsLayout(now: Long) {
+        if (now - gpsLayoutCheckMs < 5000L) return
+        gpsLayoutCheckMs = now
+        if (layoutByName.isNotEmpty()) {
+            val why = "a hand layout is stored, GPS not used (--es layout clear drops it)"
+            if (why != gpsLayoutReason) { gpsLayoutReason = why; HLog.d("GPS layout: $why") }
+            return
+        }
+        val letters = listOf("A") + peers.values.map { it.letter }.filter { it != "?" }
+        val (r, why) = try { GpsLayout.solve(gpsSamples, letters, now) } catch (e: Exception) { HLog.d("ERROR in GPS layout: $e"); return }
+        if (r == null) {
+            if (why != gpsLayoutReason) { gpsLayoutReason = why; HLog.d("GPS layout: not yet: $why") }
+            return
+        }
+        gpsLayoutReason = ""
+        // Same map construction as the hand layout: centred, 1.6 × the largest side per map width.
+        var maxSide = 0.0
+        for (a in r.positions.values) for (b in r.positions.values) maxSide = maxOf(maxSide, kotlin.math.hypot(a.first - b.first, a.second - b.second))
+        val scale = (1.6 * maxSide).toFloat()
+        val cx = r.positions.values.map { it.first }.average(); val cy = r.positions.values.map { it.second }.average()
+        mapDots.clear()
+        for ((l, p) in r.positions) mapDots[l] = (0.5 + (p.first - cx) / scale).toFloat() to (0.5 - (p.second - cy) / scale).toFloat()
+        mapMetresPerUnit = scale
+        mirror = false
+        if (!gpsLayoutActive) {
+            gpsLayoutActive = true
+            if (pointedHeading.isNotEmpty()) { HLog.d("GPS layout: pointing at ${pointedHeading.keys} not needed, the GPS map is north-up"); pointedHeading.clear() }
+        }
+        mapRotationDeg = 0f    // east/north frame: map-up is north, so compass bearing = map bearing
+        alignSource = "GPS (±%.0f m)".format(r.worstAccM)
+        try { syncLocatorPositions() } catch (e: Exception) { HLog.d("ERROR in locator after GPS layout: $e") }
+        val text = r.positions.entries.joinToString(" ") { "%s(%.1f,%.1f)".format(it.key, it.value.first, it.value.second) }
+        HLog.d("GPS layout: $text m east/north of A, worst ±%.0f m, nearest pair %.0f m, scale %.1f m per map".format(r.worstAccM, r.minPairM, scale))
+        val status = "Positions from GPS (±%.0f m): %s".format(r.worstAccM, text)
+        if (status != rangingStatus) setRangingStatus(status)
+        listener?.onPeers(peers.values.toList())
+    }
+
     // ---- Bearings from every phone → lines on the map → crossing (compass plan step 2, 27 Sep) ----
 
     /** Commander: what each phone's own two-mic arrow says (compass degrees), its mirror twin, confidence, when. */
@@ -773,6 +828,11 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
      */
     fun setLayout(spec: String): String {
         if (role != ROLE_COMMANDER) return "Only the commander sets the layout"
+        if (spec.trim().equals("clear", true)) {
+            layoutByName.clear(); pointedByName.clear(); pointedHeading.clear(); savePrefs()
+            HLog.d("LAYOUT: hand layout and pointing cleared")
+            return "Hand layout and pointing cleared (GPS may place the phones now)"
+        }
         val byName = LinkedHashMap<String, Pair<Double, Double>>()   // name suffix → metres
         try {
             for (part in spec.split(';').map { it.trim() }.filter { it.isNotEmpty() }) {
@@ -1235,6 +1295,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     /** Commander: between ranging rounds, move our own dot on the map by the steps we took (live arrow while walking). */
     private fun moveOwnDotByWalking() {
+        if (gpsLayoutActive) return   // A's dot comes from its own GPS fix every 5 s
         val dr = deadReckoning ?: return
         val rot = mapRotationDeg ?: return
         val scale = mapMetresPerUnit ?: return
@@ -1361,7 +1422,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         updateLive(e)
         val nowB = SystemClock.elapsedRealtime()
         if (e.bearing != null) peerBearing[e.sensorId] = PeerBearing(e.bearing, e.bearingTwin, e.bearingQ ?: 0f, nowB) else peerBearing.remove(e.sensorId)
-        if (e.sensorId == "A") crossBearings(nowB)
+        recordGps(e, nowB)
+        if (e.sensorId == "A") { applyGpsLayout(nowB); crossBearings(nowB) }
         if (e.human >= 0.3f) {
             locator.addVoice(e.sensorId, maxOf(0f, e.rms - e.floor) / gainOf(e.sensorId), e.micDelay, e.micQ,
                 if (e.sensorId == "A") headingDeg else (peerHeading[e.sensorId] ?: 0f), e.moving, SystemClock.elapsedRealtime())
@@ -1633,6 +1695,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         locator.reset(); peerHeading.clear(); doaAll.clear()
         com.hush.audio.KnockBearing.reset(); ownArrowUntilMs = 0L
         peerBearing.clear(); crossFix = null; crossFixMs = 0L; crossNoneLoggedMs = 0L
+        gpsSamples.clear(); gpsLayoutActive = false; gpsLayoutCheckMs = 0L; gpsLayoutReason = ""
         sightings.clear(); probeStatus = ""; activatedByProbe = false
         main.removeCallbacks(passiveWatchdog); main.removeCallbacks(tagRefresh); main.removeCallbacksAndMessages(probeToken)
         com.hush.net.Probe.stop()
