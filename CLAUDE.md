@@ -135,6 +135,8 @@ Build strictly in this order. Each block must run on both phones before the next
 ./gradlew installDebug          # builds and installs on every connected phone
 adb devices                     # should list both iQOOs
 adb logcat -s Hush              # all our logs use tag "Hush"
+# iQOO phones DROP all app logs by default (persist.sys.log.ctrl=no, cannot be changed over adb).
+# On each phone: open the Phone app, dial *#*#112#*#*, switch Log ON. Until then logcat stays empty.
 
 # Red Light = test on the phones only. Do not edit code from a phone.
 # Fallback if the laptop dies: download app-debug.apk from the latest GitHub Actions run and sideload it.
