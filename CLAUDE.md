@@ -144,6 +144,27 @@ knocks (phones on the same slab) arrive faster than through air: onsets tagged "
 
 ## Status (27 Sep 00:00)
 
+**Personas B and C built on branch `worktree-personas-bc`, 27 Sep 03:00–04:00 (docs/PLAN-personas-bc.md steps 1–5; NOT
+installed on the phones yet, another session was using them; laptop build + 53 unit tests pass):** the first screen has
+an "AT HOME" section with **ALERTS** (persona C) and **HOME** (persona B). Both roles run one phone alone: no Nearby, no
+Bluetooth, no GPS, no chirp warm-up, no debug WAV, and YAMNet only on seconds ≥ 1.5× the floor or with an onset
+(`Household classifier: ran N s, skipped M s` every 10 min). *ALERTS:* `SoundAlerts` folds each second into
+categories (table in the plan) → `Alerting` buzzes the category's pattern (alarm-class; a knock replays its own
+rhythm; ALARM repeats until dismissed), posts a high-importance notification on channel "alerts" whose full-screen
+intent opens `AlertActivity` (colour + word over the lock screen, 2 Hz flash for 3 s, tap to dismiss), appends to
+`files/alerts.jsonl`; the screen shows the last alert big, the history, a switch + TEST per category, TEACH rows,
+a sensitivity switch. *TEACH:* 3 loud seconds → mean YAMNet score vector in `files/sounds.txt`; cosine ≥ 0.85 →
+alert with the sound's name. *HOME → COUNT:* whistle second = whistle classes ≥ 0.3 + loud ≥ 4× + tonal ≥ 6×, or
+tonal ≥ 15× and loud ≥ 6× in 600–4500 Hz; 8 s refractory; DONE = green flash + buzz + notification + loud double
+beeps (60 % alarm volume); TIMER/ALARM alerts also shown. *HOME → FIND:* the own arrow (KnockBearing, tuned to
+τ 60 s / 90 s / 2 knocks, histogram reset on arriving at a new spot) + `DeadReckoning` position → `WalkLocator`
+marks when still ≥ 3 s with an arrow, ≥ 1.5 m apart → `Crossing.candidates` → fix, loudness (1/r) breaks a two-mark
+mirror tie by ≥ 3 dB; prompts; HUM mode uses the whole second's 60–1500 Hz two-mic delay. **All thresholds are
+start values from the plan, untested on real sounds: run step 0 of the plan first (what YAMNet says about a cooker
+whistle, a doorbell, a microwave beep, a door knock, a smoke alarm), then tune `SoundAlerts.Category` and
+`WhistleCounter` from the `window` and `ALERT`/`WHISTLE` log lines.** Laptop test without sounds:
+`--es role ALERT` then `--es alerttest DOORBELL` (phone locked: blue screen over the lock screen).
+
 **Phantom knocks, 27 Sep 02:50:** in a quiet room a third of all onsets (91 of 269 on 6a46 in 8 min) were clicks of
 about −38 dBFS (peak 0.011–0.016, ×5–8 the median frame) IDENTICAL in both microphone channels: two-mic delay 0.0,
 correlation 0.95–0.98, rise 0, no accelerometer jolt, at random moments in the second, on every phone, with or
@@ -558,7 +579,7 @@ data class Join(val name: String, val hops: Int, val leaving: Boolean, val ble: 
 
 ```
 app/src/main/java/com/hush/
-  MainActivity.kt          // first launch: permissions + arms the passive port; role buttons; back leaves the role
+  MainActivity.kt          // first launch: permissions + arms the passive port; role buttons (rescue + at home); back leaves the role
   BeaconActivity.kt        // red "rescuers nearby" screen over the lock screen; starts the sensor service
   Activation.kt            // the alert notification (full-screen intent) + haptic pulse when a probe is heard
   ProbeReceiver.kt         // system entry points: probe scan results, boot, app update, re-arm alarm
@@ -570,12 +591,19 @@ app/src/main/java/com/hush/
   Locator.kt               // WHERE the sound is: clock offsets from chirps, mic axes, onset matching, grid fusion
   Crossing.kt              // where the phones' own-arrow bearing lines cross (least squares, mirror combinations, in-front rule)
   GpsLayout.kt             // positions from every phone's GPS fix (median, east/north of A, accepted only when far enough apart)
+  Alerting.kt              // persona C effects: vibration pattern, notification + full-screen intent, alerts history, taught-sound file
+  AlertActivity.kt         // the colour screen with the word (DOORBELL, KNOCK x3, SMOKE ALARM...) over the lock screen
+  WalkLocator.kt           // persona B FIND: marks while standing still -> Crossing of the marks' bearing lines, loudness tie-break, prompts
+  SoundLibrary.kt          // TEACH a sound: fingerprint = mean YAMNet scores over 3 loud seconds, cosine match, one line per sound
   audio/AudioCapture.kt    // stereo AudioRecord loop, 1 s windows, ring buffers, debug WAV
   audio/Dsp.kt             // band-pass, RMS, downsample
   audio/Classifier.kt      // YAMNet + buckets
   audio/TapDetector.kt     // onsets with ring-down check, refined to the sample
   audio/Doa.kt             // two-mic cross-correlation → inter-mic delay (knock onsets and voice seconds)
   audio/KnockBearing.kt    // the phone's OWN arrow: two-mic knock delays → left/right candidates, resolved by turning (no chirps)
+  audio/SoundAlerts.kt     // persona C categories (ALARM, DISTRESS, CRASH, DOORBELL, KNOCK, TIMER, PHONE, DOG, WATER, SPEECH, TAUGHT, COOKER): rules, debounce
+  audio/WhistleCounter.kt  // persona B COUNT: whistle seconds (model + loud + tonal), refractory, target, DONE, "check the cooker"
+  audio/Tonality.kt        // 4 x 1024-point FFT on the 16 kHz second: strongest line / median of the 400-5000 Hz band
   audio/RhythmTracker.kt   // steady / pattern / tempo
   audio/AccelChannel.kt    // jolts, moving
   audio/Compass.kt, DeadReckoning.kt, Gps.kt, MicProbe.kt
@@ -587,11 +615,18 @@ app/src/main/java/com/hush/
   model/Events.kt          // all messages + JSON
   log/SessionLog.kt        // export
   ui/CommanderScreen.kt, SensorScreen.kt, MapView.kt, ArrowView.kt
+  ui/AlertScreen.kt        // persona C: last alert big and flashing, history, category switches + TEST, TEACH rows, sensitivity
+  ui/HomeScreen.kt         // persona B: FIND tab (arrow, prompt, warmer/colder, walk map, TICKS/HUM/ANY, MARK) and COUNT tab (whistles)
 app/src/main/assets/yamnet.tflite, yamnet_class_map.csv
 app/src/test/java/com/hush/LocatorTest.kt   // laptop-only synthetic test of the locator (JUnit 4.13.2)
 app/src/test/java/com/hush/KnockBearingTest.kt   // the own arrow: mirror resolved by turning, expiry, junk delays
 app/src/test/java/com/hush/CrossingTest.kt       // bearing lines → point: three lines, a mirrored phone, ambiguity, parallel, behind, range
 app/src/test/java/com/hush/GpsLayoutTest.kt      // GPS positions: wide triangle placed, table triangle refused, stale or poor fixes named
+app/src/test/java/com/hush/SoundAlertsTest.kt    // persona C rules: doorbell, quiet TV, warm-up, alarm 2-of-3, extend vs refire, knock rhythm, priorities
+app/src/test/java/com/hush/WhistleCounterTest.kt // 3 whistles -> DONE, double whistle once, frying/water/talk not counted, stale warning, tonality
+app/src/test/java/com/hush/WalkLocatorTest.kt    // three marks find the noise, mirrored marks need a third, moving never marks, warmer/colder, reset
+app/src/test/java/com/hush/DoaTest.kt            // a 100 Hz hum's two-mic delay in the low band, not in the voice band; a click to the sample
+app/src/test/java/com/hush/SoundLibraryTest.kt   // TEACH: 3 loud seconds, match same not others, timeout, file round trip
 docs/PLAN-compass.md                        // the compass plan (own arrow → bearings on the map → GPS → silent chirps)
 docs/PLAN-personas-bc.md                    // personas B and C: ALERT role (colour flash + haptics), whistle counter, walk-to-triangulate
 .github/workflows/build.yml
@@ -610,6 +645,10 @@ adb shell am start -n com.hush/.MainActivity --ez hush true         # commander:
 adb shell am start -n com.hush/.MainActivity --es layout clear      # commander: drop the stored hand layout and pointing so GPS may place the phones
 adb shell am start -n com.hush/.MainActivity --es mic1top false     # any role: channel 1 is the BOTTOM mic (use if the own arrow points backwards)
 adb shell am start -n com.hush/.MainActivity --ef micspacing 0.14   # any role: distance between the two mics, metres (default 0.155)
+adb shell am start -n com.hush/.MainActivity --es role ALERT        # persona C: household sound alerts (no radios)
+adb shell am start -n com.hush/.MainActivity --es role HOME         # persona B: FIND a noise / COUNT cooker whistles (no radios)
+adb shell am start -n com.hush/.MainActivity --es alerttest DOORBELL   # ALERT/HOME: flash + buzz + notification without a sound (any category name)
+adb -s <serial> shell "run-as com.hush cat files/hush.log" | grep 'ALERT\|WHISTLE\|WALK\|HUM DoA\|TEACH\|Household classifier'
 adb shell dumpsys bluetooth_manager | grep -A8 'com.hush (Registered)'   # Bluetooth's view of the port: scan time, results
 ./gradlew testDebugUnitTest -q          # locator maths on synthetic phones, no device needed
 adb -s <serial> exec-out run-as com.hush cat files/debug.wav > debug.wav   # first 90 s of raw audio, laptop analysis only
