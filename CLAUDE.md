@@ -140,9 +140,26 @@ knocks (phones on the same slab) arrive faster than through air: onsets tagged "
 | Radio ranging | `BleRanging` (Android 16 `RangingManager`). Capabilities on the I2501: CS enabled, RSSI enabled, UWB/RTT absent; own address read from the capabilities object's `toString`. Sensors advertise a connectable BLE tag (service UUID `0000A5A5-…`, data = name suffix); the commander scans for the tag to learn the sensor's **live** (rotating) address, opens a GATT link, then initiates; the sensor learns the commander's live address from its GATT server and answers it. **Result so far: CS opens, starts and closes with reason 3 (UNSUPPORTED) within 1 ms every time**, even over an open link with the responder ready; RSSI ranging then runs continuously but reads 6–14 m for phones 0.5 m apart. RSSI is displayed with "?" and never used to drop a chirp round. Latest build requests a one-time pairing and retries CS once bonded (untested). |
 | GPS | `Gps.kt`, framework `LocationManager`; `lat/lon/gacc` in events when a fix < 60 s old exists; in the export. Since 27 Sep the commander places the phones from it outdoors (`GpsLayout.kt`: 3 fixes each, ≤ 20 m accuracy, nearest pair ≥ 2× the worst accuracy), north-up map, hand layout wins if stored. |
 | Export | `SessionLog`: header (commander, sensors, dots, mode, last brief) + every event line + `hush`/`ranging_start`/`ranging`/`ranking`/`stop` records → `Downloads/hush-<date>-<time>.jsonl` via MediaStore. |
-| Permissions (declared, requested at role pick) | RECORD_AUDIO, BLUETOOTH_SCAN/ADVERTISE/CONNECT, NEARBY_WIFI_DEVICES, ACCESS_FINE/COARSE_LOCATION, ACTIVITY_RECOGNITION, RANGING (API 36), VIBRATE, FOREGROUND_SERVICE(+MICROPHONE), ACCESS/CHANGE_WIFI_STATE, legacy BLUETOOTH/ADMIN. |
+| Permissions (declared, requested at role pick) | RECORD_AUDIO, BLUETOOTH_SCAN/ADVERTISE/CONNECT, NEARBY_WIFI_DEVICES, ACCESS_FINE/COARSE_LOCATION, ACTIVITY_RECOGNITION, RANGING (API 36), VIBRATE, FOREGROUND_SERVICE(+MICROPHONE), ACCESS/CHANGE_WIFI_STATE, legacy BLUETOOTH/ADMIN, **SEND_SMS, CALL_PHONE, READ_PHONE_STATE** (crash escalation; refused → dialer only). |
 
 ## Status (27 Sep 00:00)
+
+**Crash / fall detection + emergency dialing (branch `crash-detection`, worktree `../Hush-Iqoo-crash`, 27 Sep, not yet
+installed on the phones):** `docs/PLAN-crash.md` has the plan and its status. Built: `CrashDetector` (free fall < 3 m/s²
+≥ 100 ms → impact ≥ 30 m/s², or ≥ 60 with no fall, or the sensor pinned at full scale; ≥ 3 of the 5 following seconds
+still; "carried before" gate so a resting sensor phone only triggers on saturation; gyroscope tumble / posture change
+break borderline ties; every candidate logged `Crash: candidate kind=… fall=…ms peak=… still=…/5 carried=… turn=…°/s
+posture=…° → DETECTED|rejected: …`), `CrashGuard` (30 s countdown with full-volume siren and buzz, red `CrashActivity`
+over the lock screen, then ESCALATED: `Alert` up the mesh every 10 s, SOS flag in the Bluetooth tag, texts and calls
+via `EmergencyDialer` with every attempt's outcome kept in a "what this phone did" list, dialer on 112; DRY RUN by
+default), the commander's red row + `CRASH RELAY … nearest=…` down to every phone (ranging distance → GPS → SOS-tag
+signal "~N m?" → "look around"), every other phone's `CrashAlarmActivity` (CALL <their contact>, CALL 112, I'M GOING →
+`Response` up, relayed to all, sirens stop, fallen phone shows who is coming), the contacts screen (PICK from the phone
+book, TEST, TEST CALL, dry/live toggle). Measured: both connected phones have **no SIM**, the accelerometer is an
+LSM6DSVX (non-wake-up, so detection needs a running role), a normal app cannot dial 112 itself. AccelChannel now also
+reads the gyroscope and writes `files/motion.csv` (300 s) for tuning; `Ping.play` takes a volume. Next: install,
+`--ez crashtest true`, the cushion-drop and staged-fall traces, then GUARD mode (build C) and the vehicle profile (D).
+
 
 **Phantom knocks, 27 Sep 02:50:** in a quiet room a third of all onsets (91 of 269 on 6a46 in 8 min) were clicks of
 about −38 dBFS (peak 0.011–0.016, ×5–8 the median frame) IDENTICAL in both microphone channels: two-mic delay 0.0,
@@ -552,6 +569,12 @@ data class Command(val type: String /* ASSIGN|HUSH|STOP|CHIRP */, val seconds: I
 data class ChirpReport(val hearer: String, val from: String, val sample: Long, val ratio: Float, val micDelay: Float?, val heading: Float?, val level: Float?)
 data class Placement(val letter: String, val east: Float, val north: Float, val steps: Int)
 data class Join(val name: String, val hops: Int, val leaving: Boolean, val ble: String?)
+// Crash / fall (docs/PLAN-crash.md): up from the fallen phone (COUNTDOWN / ESCALATED / CANCELLED, repeated every 10 s), relayed
+// down by the commander with nearest + distances + responders; contacts travel only once ESCALATED.
+data class Alert(val name: String, val letter: String?, val kind: String, val state: String, val seq: Int, val atMs: Long, val peak: Float,
+    val stillS: Int, val battery: Int, val lat: Double?, val lon: Double?, val gpsAcc: Float?, val cellular: Boolean,
+    val contacts: List<Pair<String, String>>, val actions: List<String>, val nearest: String?, val distances: Map<String, String>, val responders: List<String>)
+data class Response(val name: String, val letter: String?, val forName: String, val action: String /* GOING|CALLED_CONTACT|CALLED_112|SEEN */, val detail: String)
 ```
 
 ## File layout (single module `app`)
@@ -570,6 +593,11 @@ app/src/main/java/com/hush/
   Locator.kt               // WHERE the sound is: clock offsets from chirps, mic axes, onset matching, grid fusion
   Crossing.kt              // where the phones' own-arrow bearing lines cross (least squares, mirror combinations, in-front rule)
   GpsLayout.kt             // positions from every phone's GPS fix (median, east/north of A, accepted only when far enough apart)
+  CrashDetector.kt         // fall / impact of the OWNER from raw accelerometer + gyroscope (pure maths, docs/PLAN-crash.md)
+  CrashGuard.kt            // the 30 s countdown, siren, escalation (mesh alert, SOS tag, texts/calls), the alarm about another phone
+  CrashActivity.kt         // the fallen phone's red countdown screen over the lock screen (I'M OK / CALL NOW)
+  CrashAlarmActivity.kt    // every other phone's red "CRASH NEARBY" screen: who, how far, call their contact / 112, I'm going
+  EmergencyContacts.kt, EmergencyDialer.kt, ContactsActivity.kt   // contacts storage, real texts/calls with recorded outcomes, the contacts screen
   audio/AudioCapture.kt    // stereo AudioRecord loop, 1 s windows, ring buffers, debug WAV
   audio/Dsp.kt             // band-pass, RMS, downsample
   audio/Classifier.kt      // YAMNet + buckets
@@ -592,6 +620,8 @@ app/src/test/java/com/hush/LocatorTest.kt   // laptop-only synthetic test of the
 app/src/test/java/com/hush/KnockBearingTest.kt   // the own arrow: mirror resolved by turning, expiry, junk delays
 app/src/test/java/com/hush/CrossingTest.kt       // bearing lines → point: three lines, a mirrored phone, ambiguity, parallel, behind, range
 app/src/test/java/com/hush/GpsLayoutTest.kt      // GPS positions: wide triangle placed, table triangle refused, stale or poor fixes named
+app/src/test/java/com/hush/CrashDetectorTest.kt  // synthetic 200 Hz traces: drop passes, table slap / sitting down / getting up rejected, saturation, tumble tie-break
+docs/PLAN-crash.md                          // crash / fall detection + emergency dialing plan and its status (branch crash-detection)
 docs/PLAN-compass.md                        // the compass plan (own arrow → bearings on the map → GPS → silent chirps)
 docs/PLAN-personas-bc.md                    // personas B and C: ALERT role (colour flash + haptics), whistle counter, walk-to-triangulate
 .github/workflows/build.yml
@@ -610,6 +640,10 @@ adb shell am start -n com.hush/.MainActivity --ez hush true         # commander:
 adb shell am start -n com.hush/.MainActivity --es layout clear      # commander: drop the stored hand layout and pointing so GPS may place the phones
 adb shell am start -n com.hush/.MainActivity --es mic1top false     # any role: channel 1 is the BOTTOM mic (use if the own arrow points backwards)
 adb shell am start -n com.hush/.MainActivity --ef micspacing 0.14   # any role: distance between the two mics, metres (default 0.155)
+adb shell am start -n com.hush/.MainActivity --ez crashtest true     # any role: fire the fall alarm (countdown screen, siren, escalation)
+adb shell am start -n com.hush/.MainActivity --es crashmode dryrun   # or live: whether escalation really texts and calls (default dryrun)
+adb shell am start -n com.hush/.MainActivity --es contacts "Priya:+91…;Ravi:+91…"   # emergency contacts in calling order ("clear" empties)
+adb shell am start -n com.hush/.MainActivity --ez motionrec true     # restart the 300 s accelerometer + gyroscope trace, files/motion.csv
 adb shell dumpsys bluetooth_manager | grep -A8 'com.hush (Registered)'   # Bluetooth's view of the port: scan time, results
 ./gradlew testDebugUnitTest -q          # locator maths on synthetic phones, no device needed
 adb -s <serial> exec-out run-as com.hush cat files/debug.wav > debug.wav   # first 90 s of raw audio, laptop analysis only

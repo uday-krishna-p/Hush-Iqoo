@@ -21,6 +21,35 @@ the foreground service already guard).
 
 ---
 
+## Status (27 Sep, branch `crash-detection`, worktree `../Hush-Iqoo-crash`)
+
+Builds A, A2 and B are written, compile, and pass the laptop tests (32 unit tests, 8 of them `CrashDetectorTest`).
+**Not installed on the phones yet**: the phones were in use by another session. Build C (GUARD mode without a
+role) and D (vehicle profile, tuning from traces) are not started. To install and try:
+
+```bash
+cd ../Hush-Iqoo-crash && ./gradlew assembleDebug -q
+for s in $(adb devices | awk 'NR>1 && $2=="device"{print $1}'); do adb -s $s install -r app/build/outputs/apk/debug/app-debug.apk; done
+# first launch asks for three new permissions (SMS, phone, phone state); then:
+adb -s <sensor> shell am start -n com.hush/.MainActivity --es contacts "Priya:+91…;Ravi:+91…"   # or the EMERGENCY CONTACTS button
+adb -s <sensor> shell am start -n com.hush/.MainActivity --ez crashtest true                     # countdown screen, siren; let it expire
+adb -s <serial> shell "run-as com.hush cat files/hush.log" | grep -i 'Crash\|CRASH'
+```
+
+What to expect (dry run, no SIM): the sensor shows the red countdown over its lock screen with the siren; after 30 s
+`Crash: ESCALATED`, `DRY RUN: would SMS …` lines, the commander's red row and one buzz, `CRASH RELAY … nearest=…`
+on the commander, `CRASH NEARBY: from …` and the red "CRASH NEARBY" screen with a short siren on every other phone,
+I'M GOING on one of them → `CRASH RESPONSE` on the commander and "… is going to them" on the fallen phone's screen,
+I'M OK on the fallen phone clears every screen. Then the real drop tests of build A (§ Tests). LIVE mode
+(`--es crashmode live` or the toggle on the contacts screen) really texts and calls: only with contacts who agreed.
+
+Differences from the plan as written: the decision waits 6 s after the impact (one extra second so all five
+stillness seconds are complete); the nearby screen's contact buttons place the call directly when the phone
+permission is granted, 112 always goes through the dialer; sensors report the SOS tag's signal to the commander as a
+`Response(SEEN)` every 5 s instead of a new event field; GUARD (C) and the vehicle profile (D) are still to do.
+
+---
+
 ## What was measured today (27 Sep, two phones on USB)
 
 | Fact | Consequence |
