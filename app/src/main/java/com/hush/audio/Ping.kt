@@ -17,14 +17,18 @@ object Ping {
 
     private const val SAMPLE_RATE = 48_000
 
+    /** Fraction of maximum alarm volume for the beeps. 26 Sep: set to 10 % on request; raise for the demo if wanted. */
+    const val VOLUME_FRACTION = 0.10f
+
     /** [pattern]: list of (frequencyHz, durationMs). 0 Hz = silence. */
     fun play(context: Context, pattern: List<Pair<Int, Int>>) {
         try {
             val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
             try {
-                am.setStreamVolume(AudioManager.STREAM_ALARM, am.getStreamMaxVolume(AudioManager.STREAM_ALARM), 0)
+                val max = am.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+                am.setStreamVolume(AudioManager.STREAM_ALARM, (max * VOLUME_FRACTION).toInt().coerceAtLeast(1), 0)
             } catch (e: SecurityException) {
-                HLog.d("Ping: could not raise alarm volume (Do Not Disturb?): $e")
+                HLog.d("Ping: could not set alarm volume (Do Not Disturb?): $e")
             }
             val total = pattern.sumOf { it.second } * SAMPLE_RATE / 1000
             val buf = ShortArray(total)
