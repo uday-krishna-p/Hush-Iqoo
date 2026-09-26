@@ -5,6 +5,13 @@
     <string name="role_commander">COMMANDER</string>
     <string name="role_sensor">SENSOR</string>
     <string name="pick_role">Pick a role</string>
-    <string name="role_commander_placeholder">Commander screen arrives in step 2</string>
-    <string name="role_sensor_placeholder">Sensor screen arrives in step 1</string>
+    <string name="mic_denied">Microphone permission is required. Tap a role again to retry.</string>
+
+    <string name="loudness">Loudness (200–3000 Hz)</string>
+    <string name="mic_starting">Opening microphone…</string>
+    <string name="mic_source">Mic source: %1$s</string>
+    <string name="rms_value">RMS %1$.4f</string>
+    <string name="top_class_value">%1$s\nhuman %2$.2f · machine %3$.2f</string>
+    <string name="debug_top5">Top 5 raw classes (debug)</string>
+    <string name="classifier_failed">Classifier failed to load:\n%1$s</string>
 </resources>
