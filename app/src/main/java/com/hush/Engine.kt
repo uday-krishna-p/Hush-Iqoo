@@ -13,6 +13,7 @@ import com.hush.audio.Classifier
 import com.hush.audio.Ping
 import com.hush.audio.RhythmTracker
 import com.hush.audio.TapDetector
+import com.hush.model.Alert
 import com.hush.model.Command
 import com.hush.model.Messages
 import com.hush.model.SensorEvent
@@ -124,7 +125,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     /** One phone seen by its Hush Bluetooth tag. RSSI is a warmer/colder hint, never a distance. */
     data class Discovered(
         val suffix: String, val address: String, val rssi: Int, val medianRssi: Int, val trend: String,
-        val roughMetres: Float, val awakeByProbe: Boolean, val battery: Int, val letter: String?, val lastSeenMs: Long, val firstSeenMs: Long
+        val roughMetres: Float, val awakeByProbe: Boolean, val battery: Int, val letter: String?, val lastSeenMs: Long, val firstSeenMs: Long,
+        val sos: Boolean = false
     )
     private class Sighting(val suffix: String) {
         var address = ""; val rssi = ArrayDeque<Int>(); var flags = 0; var battery = -1; var lastMs = 0L; var firstMs = 0L; var announced = false
@@ -174,6 +176,11 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private fun onTagSeen(suffix: String, address: String, rssi: Int, flags: Int, battery: Int) {
         val now = SystemClock.elapsedRealtime()
         val s = sightings.getOrPut(suffix) { Sighting(suffix).also { it.firstMs = now } }
+        val sosNow = flags and com.hush.net.BleRanging.FLAG_SOS != 0
+        if (sosNow && s.flags and com.hush.net.BleRanging.FLAG_SOS == 0) {
+            HLog.d("Tag SOS: $suffix raised the SOS flag (rssi $rssi, battery $battery)")
+            sessionLog.addRecord("tag_sos", mapOf("suffix" to suffix, "rssi" to rssi, "battery" to battery))
+        }
         s.address = address; s.flags = flags; s.battery = battery; s.lastMs = now
         s.rssi.addLast(rssi); while (s.rssi.size > 12) s.rssi.removeFirst()
         if (!s.announced) {
@@ -199,7 +206,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 if (a - b >= 3) "↑ warmer" else if (b - a >= 3) "↓ colder" else "→"
             } else ""
             val letter = peers.values.firstOrNull { it.name.endsWith(s.suffix) }?.letter
-            Discovered(s.suffix, s.address, recent.last(), med, trend, roughMetres(med), s.flags and com.hush.net.BleRanging.FLAG_AWAKE_BY_PROBE != 0, s.battery, letter, s.lastMs, s.firstMs)
+            Discovered(s.suffix, s.address, recent.last(), med, trend, roughMetres(med), s.flags and com.hush.net.BleRanging.FLAG_AWAKE_BY_PROBE != 0, s.battery, letter, s.lastMs, s.firstMs,
+                s.flags and com.hush.net.BleRanging.FLAG_SOS != 0)
         }.sortedByDescending { it.medianRssi }
     }
 
@@ -229,7 +237,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         }
     }
 
-    private fun batteryPercent(): Int = try {
+    fun batteryPercent(): Int = try {
         (appContext?.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
     } catch (e: Exception) { HLog.d("battery level unavailable: $e"); -1 }
 
@@ -237,9 +245,81 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private val tagRefresh = object : Runnable {
         override fun run() {
             if (role != ROLE_SENSOR) return
-            ble?.advertiseConnectable(localName, if (activatedByProbe) com.hush.net.BleRanging.FLAG_AWAKE_BY_PROBE else 0, batteryPercent())
+            val flags = (if (activatedByProbe) com.hush.net.BleRanging.FLAG_AWAKE_BY_PROBE else 0) or (if (CrashGuard.sos) com.hush.net.BleRanging.FLAG_SOS else 0)
+            ble?.advertiseConnectable(localName, flags, batteryPercent())
             main.postDelayed(this, 120_000)
         }
+    }
+
+    /** Sensor: re-advertise the tag now (the SOS flag changed). */
+    fun refreshTag() { if (role == ROLE_SENSOR) { main.removeCallbacks(tagRefresh); main.post(tagRefresh) } }
+    fun gpsFix(): android.location.Location? = gps?.fix
+    fun meshRouted(): Boolean = role == ROLE_COMMANDER || link?.isRouted == true
+
+    // ---- Crash / fall alerts (docs/PLAN-crash.md): raised by CrashGuard, collected by the commander ----
+
+    private class CrashRow(var alert: Alert, var receivedMs: Long)
+    private val crashAlerts = LinkedHashMap<String, CrashRow>()   // sender name → newest alert
+    private const val CRASH_ROW_MS = 30 * 60_000L
+
+    /** This phone's own alert: the commander keeps it itself, a sensor sends it up the tree. */
+    fun sendAlert(a: Alert) {
+        if (role == ROLE_COMMANDER) { main.post { onAlert(a, "this phone") }; return }
+        val l = link
+        if (l == null || !l.isRouted) { HLog.d("Crash: alert ${a.state} seq ${a.seq} NOT sent: no route to the commander"); return }
+        l.sendUp(a.toJson())
+        HLog.d("Crash: alert ${a.state} seq ${a.seq} sent up (${a.actions.size} actions)")
+    }
+
+    /** Commander: an alert arrived (from a sensor, or its own). Row on screen, one buzz, export record. */
+    private fun onAlert(a: Alert, via: String) {
+        if (role != ROLE_COMMANDER) return
+        val now = SystemClock.elapsedRealtime()
+        val prev = crashAlerts[a.name]
+        val changed = prev == null || prev.alert.seq != a.seq || prev.alert.state != a.state
+        crashAlerts[a.name] = CrashRow(a, now)
+        if (changed) {
+            HLog.d("CRASH ALERT from ${a.name} (${a.letter ?: "?"}) via $via: ${a.kind} ${a.state} seq ${a.seq} peak %.1f still ${a.stillS} battery ${a.battery} gps=${a.lat != null} cellular=${a.cellular} actions=${a.actions.size}".format(a.peak))
+            sessionLog.addRecord("crash", mapOf("from" to a.name, "letter" to a.letter, "kind" to a.kind, "state" to a.state, "seq" to a.seq, "at" to a.atMs,
+                "peak" to a.peak, "still" to a.stillS, "battery" to a.battery, "lat" to a.lat, "lon" to a.lon, "gpsAcc" to a.gpsAcc, "cellular" to a.cellular, "actions" to a.actions))
+            if (a.state != Alert.CANCELLED && a.name != localName) appContext?.let { ctx ->
+                try { com.hush.audio.Haptics.vibrate(ctx, longArrayOf(0, 400, 150, 400, 150, 400), "Crash: alert buzz") } catch (e: Exception) { HLog.d("Crash: alert buzz failed $e") }
+            }
+        }
+        main.removeCallbacks(crashRefresh); main.post(crashRefresh)
+    }
+
+    private val crashRefresh = object : Runnable {
+        override fun run() {
+            val now = SystemClock.elapsedRealtime()
+            crashAlerts.values.removeAll { now - it.receivedMs > CRASH_ROW_MS || (it.alert.state == Alert.CANCELLED && now - it.receivedMs > 60_000) }
+            listener?.onLinkStatus(lastStatus)
+            if (crashAlerts.isNotEmpty()) main.postDelayed(this, 5000)
+        }
+    }
+
+    /** The red row(s) on the commander screen; empty when no alarm is active. */
+    fun crashAlertsText(): String {
+        val fmt = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+        return crashAlerts.values.joinToString("\n\n") { r ->
+            val a = r.alert
+            val who = (if (a.letter != null) "Sensor ${a.letter}" else "phone") + " (${a.name.takeLast(4)})"
+            val at = fmt.format(java.util.Date(a.atMs))
+            when (a.state) {
+                Alert.CANCELLED -> "✓ $who: ${a.kind} alarm cancelled, the person pressed I'M OK"
+                Alert.COUNTDOWN -> "⚠ $who: ${a.kind} at $at · counting down, no response yet"
+                else -> {
+                    val gps = if (a.lat != null) "GPS ±%.0f m".format(a.gpsAcc ?: 0f) else "no GPS"
+                    val cell = if (a.cellular) "can call" else "cannot call (no network)"
+                    "🚨 $who: ${a.kind} at $at · NO RESPONSE · peak %.0f m/s² · $gps · battery ${a.battery} %% · $cell".format(a.peak) +
+                        (if (a.actions.isEmpty()) "" else "\n   " + a.actions.takeLast(4).joinToString("\n   "))
+                }
+            }
+        }
+    }
+
+    private fun onResponse(r: com.hush.model.Response) {
+        HLog.d("Crash: response from ${r.name} (${r.letter ?: "?"}) for ${r.forName}: ${r.action} ${r.detail}")
     }
 
     @Volatile var mode: Mode = Mode.TAPPING
@@ -1763,6 +1843,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             HLog.d("ERROR loading classifier: $e")
         }
         accel = AccelChannel(context).also { it.start() }
+        accel?.let { CrashGuard.attach(context, it) }   // fall / crash detection on the same sensor stream
         val cmp = com.hush.audio.Compass(context).also { it.start() }
         compass = cmp
         deadReckoning = com.hush.audio.DeadReckoning(context, cmp).also { it.start() }
@@ -1788,7 +1869,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         if (role == null) { HLog.d("Engine stop: already stopped"); return }
         HLog.d("Engine stop")
         capture?.stop(); capture = null
+        CrashGuard.detach()
         accel?.stop(); accel = null
+        crashAlerts.clear(); main.removeCallbacks(crashRefresh)
         compass?.stop(); compass = null
         deadReckoning?.stop(); deadReckoning = null
         gps?.stop(); gps = null
@@ -2201,6 +2284,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 }
             }
             is com.hush.model.Join -> onJoin(msg, endpointId)
+            is Alert -> onAlert(msg, endpointId)
+            is com.hush.model.Response -> onResponse(msg)
             is com.hush.model.ChirpReport -> onChirpReport(msg)
             is com.hush.model.Placement -> onPlacement(msg)
             is com.hush.model.Fix -> {

@@ -25,6 +25,19 @@
     <string name="beacon_commander">Rescuer phone %1$s · signal %2$d dBm</string>
     <string name="beacon_open">OPEN HUSH</string>
     <string name="beacon_safe">I AM SAFE · STOP</string>
+    <string name="crash_notif_title">🚨 FALL DETECTED · are you OK?</string>
+    <string name="crash_notif_text">This phone thinks you have fallen. It calls for help in %1$d s unless you tap I\'M OK.</string>
+    <string name="crash_title_fall">FALL DETECTED</string>
+    <string name="crash_title_impact">HARD IMPACT DETECTED</string>
+    <string name="crash_title_test">TEST · CRASH ALARM</string>
+    <string name="crash_countdown_text">Calling for help in %1$d s unless you tap I\'M OK</string>
+    <string name="crash_imok">I\'M OK</string>
+    <string name="crash_callnow">CALL FOR HELP NOW</string>
+    <string name="crash_escalated">HELP CALLED</string>
+    <string name="crash_no_cell">No mobile network (%1$s): the rescue team is told over the mesh and this phone\'s Bluetooth tag says SOS. Texts and calls are not possible from this phone.</string>
+    <string name="crash_no_contacts">No emergency contacts set: the rescue team is told over the mesh, then the dialer opens on %1$s.</string>
+    <string name="crash_cell">Will text and call: %1$s, then open the dialer on %2$s. The rescue team is told over the mesh.</string>
+    <string name="crash_dry_run">(DRY RUN: texts and calls are only logged, nothing is sent)</string>
     <string name="perms_denied">Microphone and nearby-device permissions are required. Tap a role again to retry.</string>
 
     <string name="my_mic_a">My mic (Sensor A)</string>

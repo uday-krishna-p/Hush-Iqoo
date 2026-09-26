@@ -17,6 +17,18 @@
             android:textStyle="bold" />
 
         <TextView
+            android:id="@+id/crashRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:background="#B71C1C"
+            android:padding="12dp"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+        <TextView
             android:id="@+id/commanderStatus"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

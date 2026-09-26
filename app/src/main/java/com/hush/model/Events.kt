@@ -271,12 +271,76 @@ data class Fix(
     }
 }
 
+/**
+ * A phone whose owner may have fallen or been crushed (docs/PLAN-crash.md). Up the tree from the phone itself while it
+ * counts down, escalates or cancels; the commander relays it down to every phone with [nearest] and [distances] filled
+ * in. [contacts] (name + number) travel only once ESCALATED, so the nearest rescuer can call them. [actions] is what the
+ * phone did so far ("SMS Priya: no SIM", "call Ravi: rang 14 s"): the evidence, never the system call log.
+ */
+data class Alert(
+    val name: String, val letter: String?,
+    val kind: String,              // FALL | IMPACT | CRASH | MANUAL | TEST
+    val state: String,             // COUNTDOWN | ESCALATED | CANCELLED
+    val seq: Int,                  // per alert on the sender, so repeats replace the previous row
+    val atMs: Long,                // wall clock (System.currentTimeMillis) of the impact
+    val peak: Float, val stillS: Int, val battery: Int,
+    val lat: Double?, val lon: Double?, val gpsAcc: Float?,
+    val cellular: Boolean,         // whether the phone could also text/call
+    val contacts: List<Pair<String, String>> = emptyList(),
+    val actions: List<String> = emptyList(),
+    val nearest: String? = null,   // relay only: the letter the commander thinks is closest to the fallen phone
+    val distances: Map<String, String> = emptyMap(),   // relay only: letter → "4.1 m" / "~3 m?" / "?"
+    val responders: List<String> = emptyList()         // relay only: "Ravi (C) is going", "Priya (D) called +91…"
+) {
+    companion object {
+        const val COUNTDOWN = "COUNTDOWN"; const val ESCALATED = "ESCALATED"; const val CANCELLED = "CANCELLED"
+        fun fromJson(o: JSONObject): Alert? = try {
+            val cs = o.optJSONArray("contacts"); val acts = o.optJSONArray("actions"); val rs = o.optJSONArray("resp")
+            val dist = o.optJSONObject("dist")
+            Alert(o.getString("name"), o.optString("letter").ifEmpty { null }, o.getString("kind"), o.getString("state"), o.optInt("seq", 0),
+                o.getLong("at"), o.optDouble("peak", 0.0).toFloat(), o.optInt("still", 0), o.optInt("bat", -1),
+                if (o.has("lat")) o.getDouble("lat") else null, if (o.has("lon")) o.getDouble("lon") else null,
+                if (o.has("gacc")) o.getDouble("gacc").toFloat() else null, o.optBoolean("cell", false),
+                if (cs == null) emptyList() else (0 until cs.length()).map { val c = cs.getJSONObject(it); c.optString("n") to c.getString("num") },
+                if (acts == null) emptyList() else (0 until acts.length()).map { acts.getString(it) },
+                o.optString("nearest").ifEmpty { null },
+                if (dist == null) emptyMap() else dist.keys().asSequence().associateWith { dist.getString(it) },
+                if (rs == null) emptyList() else (0 until rs.length()).map { rs.getString(it) })
+        } catch (e: Exception) { HLog.d("bad Alert json: $e"); null }
+    }
+    fun toJson(): String = JSONObject().put("rep", "alert").put("name", name).put("kind", kind).put("state", state).put("seq", seq).put("at", atMs)
+        .put("peak", Math.round(peak * 10.0) / 10.0).put("still", stillS).put("bat", battery).put("cell", cellular)
+        .apply {
+            letter?.let { put("letter", it) }
+            if (lat != null && lon != null) { put("lat", lat); put("lon", lon); put("gacc", Math.round((gpsAcc ?: 0f) * 10.0) / 10.0) }
+            if (contacts.isNotEmpty()) put("contacts", JSONArray().apply { contacts.forEach { (n, num) -> put(JSONObject().put("n", n).put("num", num)) } })
+            if (actions.isNotEmpty()) put("actions", JSONArray(actions))
+            nearest?.let { put("nearest", it) }
+            if (distances.isNotEmpty()) put("dist", JSONObject().apply { distances.forEach { (k, v) -> put(k, v) } })
+            if (responders.isNotEmpty()) put("resp", JSONArray(responders))
+        }.toString()
+}
+
+/** A rescuer's phone answering a relayed [Alert]: "I'm going", "I called their contact", "I called 112". Up the tree. */
+data class Response(val name: String, val letter: String?, val forName: String, val action: String, val detail: String = "") {
+    companion object {
+        const val GOING = "GOING"; const val CALLED_CONTACT = "CALLED_CONTACT"; const val CALLED_112 = "CALLED_112"
+        fun fromJson(o: JSONObject): Response? = try {
+            Response(o.getString("name"), o.optString("letter").ifEmpty { null }, o.getString("for"), o.getString("action"), o.optString("detail"))
+        } catch (e: Exception) { HLog.d("bad Response json: $e"); null }
+    }
+    fun toJson(): String = JSONObject().put("rep", "resp").put("name", name).put("for", forName).put("action", action)
+        .apply { letter?.let { put("letter", it) }; if (detail.isNotEmpty()) put("detail", detail) }.toString()
+}
+
 object Messages {
-    /** Returns a [SensorEvent], a [Command], a [ChirpReport], a [Placement], a [Join], an [OnsetReport], a [Fix], or null. */
+    /** Returns a [SensorEvent], a [Command], a [ChirpReport], a [Placement], a [Join], an [OnsetReport], a [Fix], an [Alert], a [Response], or null. */
     fun parse(text: String): Any? = try {
         val o = JSONObject(text)
         when {
             o.has("cmd") -> Command.fromJson(o)
+            o.optString("rep") == "alert" -> Alert.fromJson(o)
+            o.optString("rep") == "resp" -> Response.fromJson(o)
             o.optString("rep") == "chirp" -> ChirpReport.fromJson(o)
             o.optString("rep") == "place" -> Placement.fromJson(o)
             o.optString("rep") == "onsets" -> OnsetReport.fromJson(o)

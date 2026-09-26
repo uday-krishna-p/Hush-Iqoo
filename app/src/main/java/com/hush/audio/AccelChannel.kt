@@ -37,8 +37,17 @@ class AccelChannel(context: Context) : SensorEventListener {
 
     private val manager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val sensor: Sensor? = manager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+    private val gyro: Sensor? = manager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
     private var thread: HandlerThread? = null
     private val lock = Any()
+
+    /**
+     * Raw samples for the crash detector (docs/PLAN-crash.md): (isGyro, tMs on the elapsedRealtime clock, x, y, z),
+     * accelerometer in m/s² WITH gravity, gyroscope in rad/s. Called on the sensor thread, 200 Hz each.
+     */
+    @Volatile var rawSink: ((Boolean, Long, Float, Float, Float) -> Unit)? = null
+    /** Full scale of the accelerometer in m/s² as Android configured it (the LSM6DSVX can do ±2..±16 g). */
+    val maxRangeMs2: Float get() = sensor?.maximumRange ?: 0f
 
     private var lowpass = 0f
     private var initialised = false
@@ -59,7 +68,12 @@ class AccelChannel(context: Context) : SensorEventListener {
             // 200 Hz (5000 µs) is the fastest rate allowed without the HIGH_SAMPLING_RATE_SENSORS permission.
             // SENSOR_DELAY_FASTEST crashed the service with a SecurityException on Android 16.
             val ok = manager.registerListener(this, sensor, 5000, Handler(t.looper))
-            HLog.d("Accel: started ok=$ok, ${sensor.name}, minDelay=${sensor.minDelay}us")
+            HLog.d("Accel: started ok=$ok, ${sensor.name}, minDelay=${sensor.minDelay}us, maxRange=%.1f m/s² (%.1f g)".format(sensor.maximumRange, sensor.maximumRange / 9.81f))
+            // The gyroscope only feeds the crash detector (tumble during a fall); the knock channel ignores it.
+            if (gyro != null) {
+                val okG = manager.registerListener(this, gyro, 5000, Handler(t.looper))
+                HLog.d("Gyro: started ok=$okG, ${gyro.name}, maxRange=%.0f °/s".format(Math.toDegrees(gyro.maximumRange.toDouble())))
+            } else HLog.d("Gyro: no gyroscope on this phone")
         } catch (e: Exception) {
             HLog.d("Accel: failed to start, continuing without it: $e")
             thread?.quitSafely()
@@ -74,12 +88,17 @@ class AccelChannel(context: Context) : SensorEventListener {
     }
 
     override fun onSensorChanged(e: SensorEvent) {
+        // Sensor timestamps share the elapsedRealtime clock on this hardware; convert to ms on that clock.
+        val tMs = SystemClock.elapsedRealtime() - (SystemClock.elapsedRealtimeNanos() - e.timestamp) / 1_000_000
+        if (e.sensor.type == Sensor.TYPE_GYROSCOPE) {
+            try { rawSink?.invoke(true, tMs, e.values[0], e.values[1], e.values[2]) } catch (ex: Exception) { HLog.d("Gyro sink threw $ex") }
+            return
+        }
+        try { rawSink?.invoke(false, tMs, e.values[0], e.values[1], e.values[2]) } catch (ex: Exception) { HLog.d("Accel sink threw $ex") }
         val mag = sqrt(e.values[0] * e.values[0] + e.values[1] * e.values[1] + e.values[2] * e.values[2])
         if (!initialised) { lowpass = mag; initialised = true }
         lowpass += LOWPASS_ALPHA * (mag - lowpass)
         val hp = abs(mag - lowpass)
-        // Sensor timestamps share the elapsedRealtime clock on this hardware; convert to ms on that clock.
-        val tMs = SystemClock.elapsedRealtime() - (SystemClock.elapsedRealtimeNanos() - e.timestamp) / 1_000_000
         synchronized(lock) {
             samplesSeen++
             if (hp > maxHp) maxHp = hp

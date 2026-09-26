@@ -34,6 +34,10 @@ import com.hush.ui.SensorScreen
  *   adb shell am start -n com.hush/.MainActivity --es layout clear                      (commander: drop the stored hand layout and pointing, so GPS may place the phones)
  *   adb shell am start -n com.hush/.MainActivity --es mic1top false                     (any role: recording channel 1 is the BOTTOM mic)
  *   adb shell am start -n com.hush/.MainActivity --ef micspacing 0.14                   (any role: distance between the two mics, metres)
+ *   adb shell am start -n com.hush/.MainActivity --ez crashtest true                    (any role: fire the fall alarm: countdown screen, siren, escalation)
+ *   adb shell am start -n com.hush/.MainActivity --es crashmode dryrun|live             (any role: whether escalation really texts and calls; default dryrun)
+ *   adb shell am start -n com.hush/.MainActivity --es contacts "Priya:+919…;Ravi:+919…" (any role: emergency contacts, in calling order; "clear" empties)
+ *   adb shell am start -n com.hush/.MainActivity --ez motionrec true                    (any role: restart the 300 s accelerometer + gyroscope trace, files/motion.csv)
  */
 class MainActivity : AppCompatActivity() {
 
@@ -49,6 +53,10 @@ class MainActivity : AppCompatActivity() {
         const val EXTRA_PLAY_LEVEL = "level"
         const val EXTRA_MIC1TOP = "mic1top"
         const val EXTRA_MICSPACING = "micspacing"
+        const val EXTRA_CRASHTEST = "crashtest"
+        const val EXTRA_CRASHMODE = "crashmode"
+        const val EXTRA_CONTACTS = "contacts"
+        const val EXTRA_MOTIONREC = "motionrec"
     }
 
     private var role: String? = null
@@ -127,6 +135,17 @@ class MainActivity : AppCompatActivity() {
             HLog.d("Hook: play $name at $fraction")
             if (Engine.isRunning) Engine.playFile(name, fraction) else HLog.d("Hook: play ignored, engine not running")
         }
+        if (intent.getBooleanExtra(EXTRA_CRASHTEST, false)) {
+            HLog.d("Hook: crashtest")
+            CrashGuard.trigger(this, "TEST", null)
+        }
+        intent.getStringExtra(EXTRA_CRASHMODE)?.let { m -> HLog.d("Hook: " + CrashGuard.setMode(this, m)) }
+        intent.getStringExtra(EXTRA_CONTACTS)?.let { spec ->
+            EmergencyContacts.save(this, EmergencyContacts.parse(spec))
+            HLog.d("Hook: contacts set, now ${EmergencyContacts.list(this).size}")
+        }
+        if (intent.getBooleanExtra(EXTRA_MOTIONREC, false)) HLog.d("Hook: motionrec: " + CrashGuard.startTrace())
+        intent.removeExtra(EXTRA_CRASHTEST); intent.removeExtra(EXTRA_CRASHMODE); intent.removeExtra(EXTRA_CONTACTS); intent.removeExtra(EXTRA_MOTIONREC)
         intent.removeExtra(EXTRA_ROLE); intent.removeExtra(EXTRA_PROBE); intent.removeExtra(EXTRA_HUSH)
         intent.removeExtra(EXTRA_RANGE); intent.removeExtra(EXTRA_PLAY); intent.removeExtra(EXTRA_PLAY_LEVEL); intent.removeExtra(EXTRA_ALIGN); intent.removeExtra(EXTRA_LAYOUT)
         intent.removeExtra(EXTRA_MIC1TOP); intent.removeExtra(EXTRA_MICSPACING)
