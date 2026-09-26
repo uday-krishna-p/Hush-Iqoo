@@ -564,6 +564,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         private set
     private var gpsLayoutCheckMs = 0L
     private var gpsLayoutReason = ""
+    /** The previous GPS solution: a new one is applied only when every phone agrees with it within the worst accuracy. */
+    private var gpsPending: Map<String, Pair<Double, Double>>? = null
 
     private fun recordGps(e: SensorEvent, now: Long) {
         val lat = e.lat ?: return; val lon = e.lon ?: return
@@ -588,6 +590,15 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             return
         }
         gpsLayoutReason = ""
+        // Stability (27 Sep 03:08, indoor noise placed a 0.5 m cluster 14 m apart): two consecutive solutions 5 s apart
+        // must agree for every phone within the worst accuracy before the map moves.
+        val prev = gpsPending
+        gpsPending = r.positions
+        val jump = prev?.let { p -> r.positions.entries.maxOfOrNull { (l, xy) -> p[l]?.let { q -> kotlin.math.hypot(xy.first - q.first, xy.second - q.second) } ?: Double.MAX_VALUE } }
+        if (jump == null || jump > r.worstAccM) {
+            HLog.d("GPS layout: waiting for a stable solution (%s)".format(if (jump == null) "first one" else "a phone moved %.0f m in 5 s, accuracy ±%.0f m".format(jump, r.worstAccM)))
+            return
+        }
         // Same map construction as the hand layout: centred, 1.6 × the largest side per map width.
         var maxSide = 0.0
         for (a in r.positions.values) for (b in r.positions.values) maxSide = maxOf(maxSide, kotlin.math.hypot(a.first - b.first, a.second - b.second))
@@ -1827,7 +1838,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         com.hush.audio.KnockBearing.reset(); ownArrowUntilMs = 0L
         peerBearing.clear(); crossFix = null; crossFixMs = 0L; crossNoneLoggedMs = 0L
         sharedBearing = null; sharedBearingMs = 0L; sharedLogged = ""; synchronized(loudOnsetMs) { loudOnsetMs.clear() }
-        gpsSamples.clear(); gpsLayoutActive = false; gpsLayoutCheckMs = 0L; gpsLayoutReason = ""
+        gpsSamples.clear(); gpsLayoutActive = false; gpsLayoutCheckMs = 0L; gpsLayoutReason = ""; gpsPending = null
         sightings.clear(); probeStatus = ""; activatedByProbe = false
         main.removeCallbacks(passiveWatchdog); main.removeCallbacks(tagRefresh); main.removeCallbacksAndMessages(probeToken)
         com.hush.net.Probe.stop()

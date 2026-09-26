@@ -36,7 +36,7 @@ class GpsLayoutTest {
     @Test
     fun aTableTriangleIsRefused() {
         val now = 100_000L
-        val samples = mapOf("A" to fixes(0.0, 0.0, 4f, now), "B" to fixes(2.0, 0.0, 4f, now), "C" to fixes(0.0, 1.5, 4f, now))
+        val samples = mapOf("A" to fixes(0.0, 0.0, 4f, now), "B" to fixes(6.0, 0.0, 4f, now), "C" to fixes(0.0, 5.0, 4f, now))
         val (r, why) = GpsLayout.solve(samples, listOf("A", "B", "C"), now)
         assertNull(why, r)
         assertTrue(why, why.contains("too close"))
