@@ -69,6 +69,10 @@ class HomeScreen(private val activity: Activity) : Engine.Listener {
         tabCount.setOnClickListener { showTab(find = false) }
         activity.findViewById<Button>(R.id.findMark).setOnClickListener { prompt.text = Engine.walkMark(); refreshFind() }
         activity.findViewById<Button>(R.id.findReset).setOnClickListener { Engine.walkReset(); refreshFind() }
+        activity.findViewById<Button>(R.id.findModeTicks).setOnClickListener { setMode(Engine.FindMode.TICKS) }
+        activity.findViewById<Button>(R.id.findModeHum).setOnClickListener { setMode(Engine.FindMode.HUM) }
+        activity.findViewById<Button>(R.id.findModeAny).setOnClickListener { setMode(Engine.FindMode.ANY) }
+        showMode()
         activity.findViewById<Button>(R.id.homeTargetMinus).setOnClickListener { setTarget(Engine.whistles.target - 1) }
         activity.findViewById<Button>(R.id.homeTargetPlus).setOnClickListener { setTarget(Engine.whistles.target + 1) }
         activity.findViewById<Button>(R.id.homeReset).setOnClickListener {
@@ -81,6 +85,19 @@ class HomeScreen(private val activity: Activity) : Engine.Listener {
         refreshCount()
         arrow.post(arrowTick)
     }
+
+    private fun setMode(m: Engine.FindMode) { Engine.findMode = m; showMode() }
+
+    private fun showMode() {
+        val m = Engine.findMode
+        activity.findViewById<Button>(R.id.findModeTicks).alpha = if (m == Engine.FindMode.TICKS) 1f else 0.5f
+        activity.findViewById<Button>(R.id.findModeHum).alpha = if (m == Engine.FindMode.HUM) 1f else 0.5f
+        activity.findViewById<Button>(R.id.findModeAny).alpha = if (m == Engine.FindMode.ANY) 1f else 0.5f
+    }
+
+    /** What YAMNet calls the noise, for the status line: the household classes worth naming. */
+    private val noiseNames = setOf("Hum", "Mains hum", "Mechanical fan", "Vacuum cleaner", "Boiling", "Water", "Drip", "Water tap, faucet",
+        "Tick", "Tick-tock", "Clock", "Beep, bleep", "Knock", "Squeak", "Creak", "Buzzer", "Alarm clock", "Smoke detector, smoke alarm", "Sizzle", "Air conditioning")
 
     private fun showTab(find: Boolean) {
         findShowing = find
@@ -208,7 +225,9 @@ class HomeScreen(private val activity: Activity) : Engine.Listener {
     }
 
     override fun onOwnWindow(w: Engine.Window) {
-        status.text = activity.getString(if (findShowing) R.string.home_find_status else R.string.home_status)
+        val named = w.cls?.top5?.firstOrNull { (n, s) -> n in noiseNames && s >= 0.15f }?.first
+        status.text = if (findShowing) activity.getString(R.string.home_find_status) + (named?.let { "\nSounds like: $it" } ?: "")
+                      else activity.getString(R.string.home_status)
         val above = if (w.floor > 0f) w.rms / w.floor else 0f
         hearing.text = if (findShowing) {
             "loud ×%.1f above the room · onsets this second %d (peak ×%.0f)%s\n%s".format(above, w.tap.taps, w.tap.peakRatio,

@@ -64,6 +64,15 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     fun walkReset() { walk.reset(); walkState = walk.state }
     /** Where the walker stands, metres east/north of where the role started (step counting along the compass). */
     fun walkerPosition(): Pair<Double, Double> = deadReckoning.let { (it?.east?.toDouble() ?: 0.0) to (it?.north?.toDouble() ?: 0.0) }
+    /** FIND: which kind of noise feeds the arrow. TICKS = sharp onsets (drip, tick, knock, beep); HUM = a continuous sound (fridge, fan, pump); ANY = both. */
+    enum class FindMode { TICKS, HUM, ANY }
+    @Volatile var findMode: FindMode = FindMode.ANY
+        set(value) { field = value; HLog.d("FIND mode: $value"); com.hush.audio.KnockBearing.reset() }
+    /** Hum bearings: the whole second's two-mic delay in this band (a 100 Hz hum has a 3.4 m wavelength, so no cycle ambiguity, only a broad peak). */
+    private const val HUM_LOW_HZ = 60f
+    private const val HUM_HIGH_HZ = 1500f
+    private const val HUM_MIN_Q = 0.4f
+    private var humSeconds = 0L
     /** FIND listens for slow noises (a smoke-alarm chirp every 30–60 s) and holds a spot's knocks longer than the rescue arrow does. */
     private fun setWalkTuning() { com.hush.audio.KnockBearing.TAU_MS = 60_000.0; com.hush.audio.KnockBearing.ACTIVE_MS = 90_000L; com.hush.audio.KnockBearing.MIN_KNOCKS = 2 }
     /** How many seconds the classifier was skipped as too quiet (household roles), for the battery note in the log. */
@@ -2117,6 +2126,19 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 now <= ownArrowUntilMs, loudCount, a.screenDeg, a.twinDeg?.let { "%.0f°".format(it) } ?: "-", a.bearingDeg, a.confidence, a.knocks, a.felt, a.resolved, a.turnedDeg, headingDeg))
         }
         val own = ownArrowRaw()   // this phone's own estimate (not the shared choice); goes to the commander in the event
+        // HOME → FIND, hums: a fridge or fan has no onsets, so the whole second's two-mic delay in a low band votes
+        // for a direction, weighted by how loud it is against the room. Skipped in TICKS mode and on seconds with knocks.
+        if (role == ROLE_HOME && findMode != FindMode.TICKS && tap.onsets.isEmpty() && !selfNoise && !acc.moving && floor > 0f && rms >= floor * 2f) {
+            val cap = capture
+            val m1 = if (cap != null && cap.stereo) cap.snapshot(startSample, n48, 1) else null
+            if (m1 != null) {
+                val d = com.hush.audio.Doa.delayBandPassed(pcm48k, m1, n48, AudioCapture.SAMPLE_RATE, HUM_LOW_HZ, HUM_HIGH_HZ)
+                val used = d != null && d.quality >= HUM_MIN_Q && com.hush.audio.KnockBearing.add(d.delay, d.quality, rms / floor, false, headingDeg, now)
+                humSeconds++
+                if (used || humSeconds % 10 == 0L) HLog.d("HUM DoA: delay=%s q=%s loud=x%.1f heading=%.0f used=%b".format(
+                    d?.let { "%.2f".format(it.delay) } ?: "-", d?.let { "%.2f".format(it.quality) } ?: "-", rms / floor, headingDeg, used))
+            }
+        }
         // Part 2, voices: the two-mic delay over the whole second (no sharp onset to time).
         var voiceDelay: Float? = null; var voiceQ: Float? = null
         if (!selfNoise && !acc.moving && (cls?.human ?: 0f) >= 0.3f && rms > floor * 1.5f) {
@@ -2241,7 +2263,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             val ms = windowStartMs + o.sampleInWindow / 48
             val felt = acc.spikeTimesMs.any { kotlin.math.abs(it - ms) <= RhythmTracker.MERGE_MS }
             // The phone's own arrow (compass plan step 1): this knock's two-mic delay votes for a direction.
-            val used = com.hush.audio.KnockBearing.add(delay, q, o.ratio, felt, headingDeg, ms)
+            // (In the HOME role's HUM mode sharp onsets are not the noise being looked for, so they do not vote.)
+            val used = if (role == ROLE_HOME && findMode == FindMode.HUM) false else com.hush.audio.KnockBearing.add(delay, q, o.ratio, felt, headingDeg, ms)
             if (used && o.ratio >= LOUD_KNOCK_RATIO) synchronized(loudOnsetMs) { loudOnsetMs.addLast(ms) }
             out.add(com.hush.model.Onset(abs, o.peak, o.ratio, delay, q, felt))
             HLog.d("Onset @%d (+%d ms) peak=%.3f x%.0f rise=%d dl=%s q=%s%s heading=%.0f%s".format(abs, o.sampleInWindow / 48, o.peak, o.ratio, o.riseSamples,

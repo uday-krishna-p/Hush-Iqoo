@@ -126,4 +126,7 @@
     <string name="home_warmer">warmer · %1$.0f dB louder than at the last mark</string>
     <string name="home_colder">colder · %1$.0f dB quieter than at the last mark</string>
     <string name="home_same">about as loud as at the last mark</string>
+    <string name="home_mode_ticks">TICKS · drip, beep, knock</string>
+    <string name="home_mode_hum">HUM · fridge, fan</string>
+    <string name="home_mode_any">ANY</string>
 </resources>

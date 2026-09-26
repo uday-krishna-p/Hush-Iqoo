@@ -47,6 +47,40 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
+            <!-- Which kind of noise: sharp repeating (drip, tick, beep, knock), a steady hum (fridge, fan), or both -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/findModeTicks"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:text="@string/home_mode_ticks"
+                    android:textSize="14sp" />
+
+                <Button
+                    android:id="@+id/findModeHum"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="6dp"
+                    android:text="@string/home_mode_hum"
+                    android:textSize="14sp" />
+
+                <Button
+                    android:id="@+id/findModeAny"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="6dp"
+                    android:text="@string/home_mode_any"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
             <com.hush.ui.ArrowView
                 android:id="@+id/findArrow"
                 android:layout_width="match_parent"

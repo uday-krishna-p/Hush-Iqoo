@@ -44,11 +44,14 @@ object Doa {
         return Result((fine - MAX_LAG).toFloat(), bestVal.toFloat())
     }
 
-    /** Same, on band-passed copies (for voice: keeps the speech band, drops rumble that smears the peak). */
-    fun delayBandPassed(x0: ShortArray, x1: ShortArray, n: Int, sampleRate: Int): Result? {
+    /**
+     * Same, on band-passed copies (for voice: keeps the speech band, drops rumble that smears the peak).
+     * A different band can be given: the HOME role's FIND uses 60–1500 Hz for a fridge or fan hum.
+     */
+    fun delayBandPassed(x0: ShortArray, x1: ShortArray, n: Int, sampleRate: Int, lowHz: Float = 300f, highHz: Float = 3000f): Result? {
         val f0 = FloatArray(n); val f1 = FloatArray(n)
-        BandPass(sampleRate, 300f, 3000f).process(x0, n, f0)
-        BandPass(sampleRate, 300f, 3000f).process(x1, n, f1)
+        BandPass(sampleRate, lowHz, highHz).process(x0, n, f0)
+        BandPass(sampleRate, lowHz, highHz).process(x1, n, f1)
         val s0 = ShortArray(n) { (f0[it] * 32767f).toInt().coerceIn(-32768, 32767).toShort() }
         val s1 = ShortArray(n) { (f1[it] * 32767f).toInt().coerceIn(-32768, 32767).toShort() }
         return delay(s0, s1, n)
