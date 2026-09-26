@@ -37,6 +37,11 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
 
     init {
         btnHush.setOnClickListener { Engine.hush(20) }
+        activity.findViewById<Button>(R.id.btnExport).setOnClickListener {
+            val name = Engine.exportLog()
+            val msg = if (name != null) activity.getString(R.string.export_ok, name) else activity.getString(R.string.export_failed)
+            android.widget.Toast.makeText(activity, msg, android.widget.Toast.LENGTH_LONG).show()
+        }
         modeButtons.forEach { (mode, btn) -> btn.setOnClickListener { Engine.mode = mode; renderMode() } }
         renderMode()
         render()

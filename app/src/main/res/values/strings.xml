@@ -18,6 +18,9 @@
     <string name="mode_any">ANY</string>
     <string name="brief_idle">Press HUSH to run a 20 s listening window</string>
     <string name="brief_listening">Listening…</string>
+    <string name="export_button">EXPORT LOG to Downloads</string>
+    <string name="export_ok">Saved Downloads/%1$s</string>
+    <string name="export_failed">Export failed, see log</string>
     <string name="hush_running">HUSH RUNNING</string>
 
     <string name="loudness">Loudness (200–3000 Hz)</string>

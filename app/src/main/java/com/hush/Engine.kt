@@ -101,6 +101,14 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         set(value) { field = value; HLog.d("Listen mode: $value") }
 
     private val hushEvents = HashMap<String, MutableList<SensorEvent>>()   // letter → events during the window
+    val sessionLog = com.hush.log.SessionLog()
+
+    /** Commander: write the session log to Downloads. Returns the file name or null. */
+    fun exportLog(): String? {
+        val ctx = appContext ?: return null
+        val sensors = org.json.JSONObject().apply { lettersByName.forEach { (name, letter) -> put(letter, name) } }
+        return sessionLog.export(ctx, mapOf("commander" to localName, "sensors" to sensors, "mode" to mode.name, "lastBrief" to lastBrief))
+    }
     private var hushStartMs = 0L
     var lastRanking: List<Rank> = emptyList()
         private set
@@ -115,6 +123,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     /** Commander: every event, own or received, lands here. */
     private fun recordEvent(e: SensorEvent) {
+        sessionLog.add(e.toJson())
         if (!inHush) return
         // Skip the first second: the start beep and buzz are in it.
         if (SystemClock.elapsedRealtime() < hushStartMs + 1000) return
@@ -150,6 +159,14 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         }
         HLog.d("RANKING ($mode): " + ranks.joinToString(" | ") { "%s score=%.5f ev=%.2f rh=%s n=%d".format(it.letter, it.score, it.evidence, it.rhythm, it.windows) })
         HLog.d("BRIEF: $lastBrief")
+        sessionLog.addRecord("ranking", mapOf(
+            "mode" to mode.name,
+            "brief" to lastBrief,
+            "ranks" to org.json.JSONArray(ranks.map { r ->
+                org.json.JSONObject().put("id", r.letter).put("score", r.score.toDouble()).put("evidence", r.evidence.toDouble())
+                    .put("rhythm", r.rhythm ?: org.json.JSONObject.NULL).put("windows", r.windows).put("moving", r.moving)
+            })
+        ))
         listener?.onRanking(ranks, lastBrief)
     }
 
@@ -250,6 +267,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     fun hush(seconds: Int = 20) {
         if (role != ROLE_COMMANDER) return
         HLog.d("HUSH pressed: $seconds s to ${peers.size} sensors")
+        sessionLog.addRecord("hush", mapOf("seconds" to seconds, "sensors" to peers.size + 1, "mode" to mode.name))
         link?.broadcast(Command(Command.HUSH, seconds).toJson())
         startHushLocal(seconds)
     }

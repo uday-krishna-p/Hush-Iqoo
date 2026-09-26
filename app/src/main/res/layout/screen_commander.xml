@@ -89,9 +89,16 @@
             android:id="@+id/peersText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="24dp"
+            android:layout_marginBottom="16dp"
             android:fontFamily="monospace"
             android:textSize="15sp" />
+
+        <Button
+            android:id="@+id/btnExport"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="24dp"
+            android:text="@string/export_button" />
 
         <include layout="@layout/block_sensor" />
     </LinearLayout>
