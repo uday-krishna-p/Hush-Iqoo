@@ -47,7 +47,8 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
             val sharedRaw = Engine.sharedArrow()
             val shared = if (Engine.preferShared(sharedRaw, own)) sharedRaw else null
             val cross = Engine.crossingArrow()
-            arrow.twinAngleDeg = if (shared != null) shared.twinDeg else own?.twinDeg
+            arrow.twinAngleDeg = null   // one arrow only (team, 27 Sep 03:30)
+            arrow.confidence = shared?.confidence ?: own?.confidence ?: 1f
             val lines = Engine.bearingLines()
             if (lines != map.bearings) { map.bearings.clear(); map.bearings.putAll(lines); map.invalidate() }
             if (shared != null) {
@@ -55,7 +56,7 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
                 // of the bearing lines adds a distance when the map has positions.
                 arrow.active = true
                 arrow.angleDeg = shared.screenDeg
-                var label = activity.getString(if (shared.twinDeg == null) R.string.arrow_shared else R.string.arrow_shared_unresolved, shared.phones)
+                var label = activity.getString(if (shared.twinDeg == null) R.string.arrow_shared else R.string.arrow_shared_unresolved, shared.phones, (shared.confidence * 100).toInt())
                 if (cross != null && angDiff(cross.screenDeg, shared.screenDeg) <= 30f) label += activity.getString(R.string.arrow_cross_dist, cross.metres, cross.radius)
                 arrow.label = label
             } else if (own != null) {

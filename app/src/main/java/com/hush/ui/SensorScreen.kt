@@ -37,12 +37,13 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
             val sharedRaw = Engine.sharedArrow()
             val shared = if (Engine.preferShared(sharedRaw, own)) sharedRaw else null
             val a = Engine.sensorArrow()
-            v.twinAngleDeg = if (shared != null) shared.twinDeg else own?.twinDeg
+            v.twinAngleDeg = null   // one arrow only (team, 27 Sep 03:30); the mirror shows as low confidence instead
+            v.confidence = shared?.confidence ?: own?.confidence ?: 1f
             if (shared != null) {
                 // The network's estimate (every phone's mics, fused by the commander, mirrors resolved across phones),
                 // drawn through this phone's own compass. Team, 27 Sep 03:10: this comes first, not the single phone.
                 v.active = true; v.angleDeg = shared.screenDeg
-                v.label = activity.getString(if (shared.twinDeg == null) R.string.arrow_shared else R.string.arrow_shared_unresolved, shared.phones)
+                v.label = activity.getString(if (shared.twinDeg == null) R.string.arrow_shared else R.string.arrow_shared_unresolved, shared.phones, (shared.confidence * 100).toInt())
             } else if (own != null) {
                 // No fusion yet (or this phone is the only one hearing it): its own two mics.
                 v.active = true; v.angleDeg = own.screenDeg
@@ -135,7 +136,8 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
             e.resolved -> activity.getString(R.string.arrow_knock, e.knocks)
             else -> activity.getString(R.string.arrow_knock_unresolved, e.knocks)
         }
-        return if (e.felt * 2 > e.knocks) base + activity.getString(R.string.arrow_knock_table) else base
+        val withConf = base + activity.getString(R.string.arrow_conf, (e.confidence * 100).toInt())
+        return if (e.felt * 2 > e.knocks) withConf + activity.getString(R.string.arrow_knock_table) else withConf
     }
 
     /** Maps RMS to a 0..100 bar on a decibel scale. Phone mics sit around -70 dB in a quiet room: -85 dB → 0, -15 dB → 100. */

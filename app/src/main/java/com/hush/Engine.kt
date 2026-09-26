@@ -715,6 +715,11 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         private set
     @Volatile private var sharedBearingMs = 0L
     private var sharedLogged = ""
+    /** The accumulating vote histogram (5° bins) and when it was last decayed. */
+    private val sharedHist = DoubleArray(com.hush.audio.KnockBearing.BINS)
+    private var sharedHistMs = 0L
+    /** Votes fade with this time constant: agreeing phones pile up over ~10 s, a swing of one phone barely moves the peak. */
+    private const val SHARED_TAU_MS = 10_000.0
 
     /**
      * Commander, once a second. Every phone whose own arrow shows votes with its compass bearing in a 5° histogram:
@@ -724,32 +729,41 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
      * a knock a metre away in nearly the same direction, so the phones that hear nothing draw this bearing through
      * their own compass, and a hearing phone with an open twin takes the candidate nearer to it (ownArrow).
      */
-    private fun fuseBearings(now: Long) {
-        val fresh = peerBearing.filter { now - it.value.atMs <= CROSS_FRESH_MS }
-        if (fresh.isEmpty()) {
-            if (sharedBearing != null && now - sharedBearingMs > CROSS_HOLD_MS) { sharedBearing = null; sharedLogged = ""; HLog.d("SHARED: nobody hears it any more, cleared") }
-            return
-        }
+    /**
+     * [voted] is the phone whose event just arrived: its current bearing is added as ONE vote (its events come once a
+     * second). The histogram decays with [SHARED_TAU_MS], so the estimate is an accumulation over the last ~10 s of
+     * everyone's readings (27 Sep 03:30, team: "instead of jumping around, increase confidence from the other phones").
+     */
+    private fun fuseBearings(now: Long, voted: String? = null) {
         val kb = com.hush.audio.KnockBearing
-        val hist = DoubleArray(kb.BINS)
-        for ((_, b) in fresh) {
+        if (sharedHistMs > 0L) { val k = kotlin.math.exp(-(now - sharedHistMs) / SHARED_TAU_MS); for (i in sharedHist.indices) sharedHist[i] *= k }
+        sharedHistMs = now
+        val v = voted?.let { peerBearing[it] }
+        if (v != null && now - v.atMs <= CROSS_FRESH_MS) {
             // Rhythm over class (team, 27 Sep 03:15): a phone hearing steady or patterned tapping (0.9–1.0) counts
             // up to twice one that only heard stray loud onsets (0.2–0.5).
-            val w = b.q.coerceAtLeast(0.2f).toDouble() * (0.5 + b.rhythm.coerceIn(0f, 1f))
-            if (b.twin == null) kb.vote(hist, b.bearing.toDouble(), w)
-            else { kb.vote(hist, b.bearing.toDouble(), w / 2); kb.vote(hist, b.twin.toDouble(), w / 2) }
+            val w = v.q.coerceAtLeast(0.2f).toDouble() * (0.5 + v.rhythm.coerceIn(0f, 1f))
+            if (v.twin == null) kb.vote(sharedHist, v.bearing.toDouble(), w)
+            else { kb.vote(sharedHist, v.bearing.toDouble(), w / 2); kb.vote(sharedHist, v.twin.toDouble(), w / 2) }
+            sharedBearingMs = now
         }
-        val best = kb.peakBin(hist, -1)
-        val second = kb.peakBin(hist, best)
-        val bearing = kb.refine(hist, best).toFloat()
-        val twin = kb.refine(hist, second).toFloat()
-        val resolved = hist[second] * kb.RESOLVE_RATIO <= hist[best]
-        val all = hist.sum().coerceAtLeast(1e-9)
+        val fresh = peerBearing.filter { now - it.value.atMs <= CROSS_FRESH_MS }
+        val all = sharedHist.sum()
+        if (fresh.isEmpty() && sharedBearing != null && now - sharedBearingMs > CROSS_HOLD_MS) {
+            sharedBearing = null; sharedLogged = ""; sharedHist.fill(0.0)
+            HLog.d("SHARED: nobody has heard it for ${CROSS_HOLD_MS / 1000} s, cleared")
+            return
+        }
+        if (all < 0.05 || (fresh.isEmpty() && sharedBearing == null)) return
+        val best = kb.peakBin(sharedHist, -1)
+        val second = kb.peakBin(sharedHist, best)
+        val bearing = kb.refine(sharedHist, best).toFloat()
+        val twin = kb.refine(sharedHist, second).toFloat()
+        val resolved = sharedHist[second] * kb.RESOLVE_RATIO <= sharedHist[best]
         var near = 0.0
-        for (i in hist.indices) if (kb.angDiff(bearing.toDouble(), i * 360.0 / kb.BINS) <= 24.0) near += hist[i]
-        val phones = fresh.keys.sorted().joinToString(",")
+        for (i in sharedHist.indices) if (kb.angDiff(bearing.toDouble(), i * 360.0 / kb.BINS) <= 24.0) near += sharedHist[i]
+        val phones = if (fresh.isNotEmpty()) fresh.keys.sorted().joinToString(",") else (sharedBearing?.phones ?: "")
         sharedBearing = Shared(bearing, if (resolved) null else twin, (near / all).toFloat(), phones)
-        sharedBearingMs = now
         val keyText = "%.0f %s %b".format(bearing / 10f, phones, resolved)
         if (keyText != sharedLogged) {
             sharedLogged = keyText
@@ -1561,11 +1575,11 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val hadBearing = peerBearing.containsKey(e.sensorId)
         if (e.bearing != null) peerBearing[e.sensorId] = PeerBearing(e.bearing, e.bearingTwin, e.bearingQ ?: 0f, nowB, e.rhythmScore) else peerBearing.remove(e.sensorId)
         recordGps(e, nowB)
-        if (e.sensorId == "A") { applyGpsLayout(nowB); fuseBearings(nowB); crossBearings(nowB) }
+        if (e.sensorId == "A") { applyGpsLayout(nowB); fuseBearings(nowB, "A"); crossBearings(nowB) }
         else if (e.bearing != null || hadBearing) {
             // Relay latency (27 Sep 03:05, team: "the relay is not that fast"): a sensor's bearing used to wait for the
             // commander's own next second before it was fused and sent on. Fuse and send the moment it arrives.
-            fuseBearings(nowB)
+            fuseBearings(nowB, e.sensorId)
             sendFixDown(false, nowB)
         }
         if (e.human >= 0.3f) {
@@ -1839,7 +1853,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         locator.reset(); peerHeading.clear(); doaAll.clear()
         com.hush.audio.KnockBearing.reset(); ownArrowUntilMs = 0L
         peerBearing.clear(); crossFix = null; crossFixMs = 0L; crossNoneLoggedMs = 0L
-        sharedBearing = null; sharedBearingMs = 0L; sharedLogged = ""; synchronized(loudOnsetMs) { loudOnsetMs.clear() }
+        sharedBearing = null; sharedBearingMs = 0L; sharedLogged = ""; sharedHist.fill(0.0); sharedHistMs = 0L; synchronized(loudOnsetMs) { loudOnsetMs.clear() }
         gpsSamples.clear(); gpsLayoutActive = false; gpsLayoutCheckMs = 0L; gpsLayoutReason = ""; gpsPending = null
         sightings.clear(); probeStatus = ""; activatedByProbe = false
         main.removeCallbacks(passiveWatchdog); main.removeCallbacks(tagRefresh); main.removeCallbacksAndMessages(probeToken)

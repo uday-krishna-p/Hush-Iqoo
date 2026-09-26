@@ -26,9 +26,12 @@ class ArrowView(context: Context, attrs: AttributeSet? = null) : View(context, a
         set(value) { field = value; invalidate() }
     var active: Boolean = false
         set(value) { field = value; invalidate() }
-    /** A second, faint arrow: the mirror candidate while the two-mic direction is not yet resolved. */
+    /** A second, faint arrow: the mirror candidate while the two-mic direction is not yet resolved (unused since 27 Sep 03:30: one arrow only). */
     var twinAngleDeg: Float? = null
         set(value) { field = value; startAnimating() }
+    /** 0..1: how sure the estimate is; the arrow goes from pale to full green with it. */
+    var confidence: Float = 1f
+        set(value) { field = value.coerceIn(0f, 1f); invalidate() }
 
     companion object {
         /** Seconds for the gap to shrink to 37 %: about 0.6 s to settle within a degree or two. */
@@ -93,6 +96,7 @@ class ArrowView(context: Context, attrs: AttributeSet? = null) : View(context, a
         val r = min(width, height) * 0.38f
         canvas.drawCircle(cx, cy, r, ring)
         shownTwinDeg?.let { drawArrow(canvas, cx, cy, r, it, twin) }
+        if (active) fill.alpha = (90 + 165 * confidence).toInt()
         drawArrow(canvas, cx, cy, r, shownDeg, if (active) fill else dim)
         canvas.drawText(label, cx, height - 12f, text)
     }

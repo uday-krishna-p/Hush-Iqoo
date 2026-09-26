@@ -144,6 +144,20 @@ knocks (phones on the same slab) arrive faster than through air: onsets tagged "
 
 ## Status (27 Sep 00:00)
 
+**One arrow, accumulating confidence, 27 Sep 03:35 (team: "instead of jumping around, increase confidence based on
+the readings of the other phones", "why two arrows, it should be one"):** the commander's fusion is no longer a
+snapshot of each phone's latest bearing but an accumulating 5° histogram that decays with τ = 10 s: each phone's
+event adds one vote (weight = correlation quality × (0.5 + rhythm score), a resolved phone one vote, an unresolved
+one half a vote per candidate). Agreeing phones pile up, one phone's swing barely moves the peak, and confidence =
+the share of votes within ±24° of the peak (about 0.35 while a mirror is open, 0.8+ when three phones agree). The
+faint twin arrow is gone on every screen: one arrow, whose green deepens with confidence, and "confidence N%" in
+the label ("turn a phone to firm up" while the mirror is open). Rhythm over class (03:15): knocks in a steady or
+patterned rhythm count up to twice a stray loud onset in each phone's arrow and in the fusion; the listen mode was
+already TAPPING. GPS layout tightened (03:20): never closer than 8 m or 3× the accuracy, and only after two
+solutions 5 s apart agree, after indoor noise placed the 0.5 m cluster 14 m apart at ±7 m. Open: the commander and
+Sensor B disagreed on a world bearing by ~50° half a metre apart, likely compass error between phones (cables,
+laptop, table): check by laying the phones parallel and comparing `heading=` in their logs.
+
 **Fused bearing first, faster relay, Bluetooth-only mesh, 27 Sep 03:15 (team: "it keeps concentrating on a single
 phone", "the relay between the phones is not that fast"):** every phone now draws the commander's FUSED bearing
 first (all phones' microphones, mirrors resolved across phones, drawn through the phone's own compass) and its own
