@@ -14,7 +14,16 @@ class TapDetector(sampleRate: Int) {
         val intervalsMs: List<Int>, // gaps between consecutive taps, including across the window edge
         val score: Float,           // 0..1 "this window contains deliberate tapping"
         val onsetsAbsMs: List<Long>, // absolute onset times (windowStartMs + offset) for the rhythm tracker
-        val rejectedSustained: Int = 0 // sharp onsets that did not ring down (cough, syllable, chair)
+        val rejectedSustained: Int = 0, // sharp onsets that did not ring down (cough, syllable, chair)
+        val onsets: List<Onset> = emptyList()   // the same onsets, timed to the sample (for locating the source)
+    )
+
+    /** One onset inside the window, refined from its 10 ms frame to the first sample of the arrival. */
+    data class Onset(
+        val sampleInWindow: Int,   // index into the window where the sound first crossed the threshold
+        val peak: Float,           // 0..1 largest |sample| in the 30 ms around the onset frame
+        val ratio: Float,          // peak / background (window median frame RMS)
+        val riseSamples: Int       // samples from the threshold crossing to the peak (sharpness)
     )
 
     companion object {
@@ -55,6 +64,7 @@ class TapDetector(sampleRate: Int) {
         var rejected = 0
         var lastOnset = -REFRACTORY_FRAMES
         val onsetsMs = ArrayList<Int>()
+        val onsetFrames = ArrayList<Int>()
         for (f in 1 until frames) {
             val ratio = energy[f] / median
             if (ratio > peakRatio) peakRatio = ratio
@@ -67,6 +77,7 @@ class TapDetector(sampleRate: Int) {
                 val rangDown = later >= frames || energy[later] <= energy[f] * DECAY_MAX
                 if (rangDown) {
                     onsetsMs.add(f * 10)
+                    onsetFrames.add(f)
                     lastOnset = f
                 } else {
                     rejected++
@@ -91,6 +102,27 @@ class TapDetector(sampleRate: Int) {
             taps == 0 || taps > MAX_TAPS_PER_SEC -> 0f
             else -> (0.4f + 0.2f * taps).coerceAtMost(1f)
         }
-        return Result(taps, peakRatio, intervals, score, onsetsMs.map { windowStartMs + it }, rejected)
+        return Result(taps, peakRatio, intervals, score, onsetsMs.map { windowStartMs + it }, rejected, onsetFrames.map { refine(pcm, n, it, median) })
+    }
+
+    /**
+     * From "frame f is loud" to "the sound arrived at this sample". The attack may start late in the frame
+     * before, so search from there: the onset is the first sample whose magnitude clears both a noise
+     * threshold (6x the window's median frame RMS) and 25 % of the local peak. The 25 % rule makes the
+     * pick independent of how loud the knock is at this phone, so two phones agree on the same point of
+     * the attack and their time difference is a distance difference. (Sound moves 7 mm per sample.)
+     */
+    private fun refine(pcm: ShortArray, n: Int, f: Int, median: Float): Onset {
+        val from = maxOf(0, (f - 1) * frame)
+        val to = minOf(n, (f + 2) * frame)
+        var peak = 0f; var peakAt = from
+        for (i in from until to) {
+            val v = kotlin.math.abs(pcm[i] / 32768f)
+            if (v > peak) { peak = v; peakAt = i }
+        }
+        val thr = maxOf(median * 6f, peak * 0.25f)
+        var at = from
+        while (at < peakAt && kotlin.math.abs(pcm[at] / 32768f) < thr) at++
+        return Onset(at, peak, if (median > 0f) peak / median else 0f, peakAt - at)
     }
 }

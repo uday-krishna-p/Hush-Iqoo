@@ -38,9 +38,21 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
     private val arrow: ArrowView = activity.findViewById(R.id.arrow)
     private val arrowTick = object : Runnable {
         override fun run() {
+            val fix = Engine.sourceFix
             val target = ranks.firstOrNull()?.takeIf { it.score > 0f }?.letter
             val angle = target?.let { Engine.arrowAngleTo(it) }
-            if (target == null) {
+            val srcAngle = if (fix != null) Engine.arrowAngleToSource() else null
+            if (fix != null && srcAngle != null) {
+                // A located source beats "the nearest sensor": point at the sound itself.
+                arrow.active = true
+                arrow.angleDeg = srcAngle
+                val d = Engine.sourceDistanceMetres() ?: 0f
+                val n = if (fix.knocks > 0) fix.knocks else fix.voiceSeconds
+                arrow.label = if (fix.edge) activity.getString(R.string.arrow_source_far, fix.nearest.toFloat(), fix.bearingSpreadDeg.toFloat())
+                              else activity.getString(R.string.arrow_source, d, fix.radius.toFloat(), n)
+            } else if (fix != null && Engine.mapRotationDeg == null) {
+                arrow.active = false; arrow.label = activity.getString(R.string.arrow_walk_to_align)
+            } else if (target == null) {
                 arrow.active = false; arrow.label = activity.getString(R.string.arrow_no_target)
             } else if (angle == null) {
                 arrow.active = false
@@ -84,6 +96,7 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
         map.dots.putAll(Engine.mapDots)
         map.onPlaced = { letter -> Engine.mapDots[letter] = map.dots[letter]!!; renderPlaceButtons() }
         map.strongest = Engine.lastRanking.firstOrNull()?.takeIf { it.score > 0f }?.letter
+        renderSource()
         activity.findViewById<Button>(R.id.btnAutoPlace).setOnClickListener { Engine.autoPlace() }
         activity.findViewById<Button>(R.id.btnStop).setOnClickListener { Engine.stopAll() }
         arrow.post(arrowTick)
@@ -105,8 +118,17 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
     override fun onLinkStatus(text: String) {
         super.onLinkStatus(text)
         commanderStatus.text = listOf(text, Engine.rangingStatus, if (Engine.radioStatus.isEmpty()) "" else "Radio: ${Engine.radioStatus}").filter { it.isNotEmpty() }.joinToString("\n")
-        // Ranging may have replaced the dots.
-        map.dots.clear(); map.dots.putAll(Engine.mapDots); map.invalidate()
+        // Ranging may have replaced the dots, and the locator may have moved the source.
+        map.dots.clear(); map.dots.putAll(Engine.mapDots)
+        renderSource()
+        map.invalidate()
+    }
+
+    private fun renderSource() {
+        val fix = Engine.sourceFix
+        map.source = Engine.sourceOnMap()
+        map.sourceRadius = if (fix != null && Engine.mapMetresPerUnit != null) (fix.radius / Engine.mapMetresPerUnit!!).toFloat() else 0f
+        map.sourceFar = fix?.edge == true || (map.source?.let { it.first < 0f || it.first > 1f || it.second < 0f || it.second > 1f } == true)
     }
 
     override fun onCountdown(secondsLeft: Int) {

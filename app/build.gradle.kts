@@ -32,6 +32,11 @@ android {
     androidResources {
         noCompress += listOf("tflite")
     }
+
+    // Plain JVM unit tests (the locator maths). Android calls such as Log.d return defaults instead of throwing.
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 kotlin {
@@ -45,4 +50,5 @@ dependencies {
     implementation(libs.androidx.core.ktx)       // small Kotlin helpers (ContextCompat etc.)
     implementation(libs.play.services.nearby)    // Nearby Connections (offline phone-to-phone link)
     implementation(libs.tensorflow.lite)         // runs yamnet.tflite on the CPU
+    testImplementation("junit:junit:4.13.2")     // laptop-only tests of the source-locator maths (synthetic knocks)
 }

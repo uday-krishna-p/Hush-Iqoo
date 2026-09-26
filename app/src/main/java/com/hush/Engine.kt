@@ -125,6 +125,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         set(value) { field = value; HLog.d("Listen mode: $value") }
 
     private val hushEvents = HashMap<String, MutableList<SensorEvent>>()   // letter → events during the window
+    private val peerHeading = HashMap<String, Float>()                     // letter → last compass heading a sensor reported
     val sessionLog = com.hush.log.SessionLog()
 
     /** Commander's map: letter → (x, y) fractions of the square. Kept here so it survives screen changes. */
@@ -227,6 +228,82 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     var mapMetresPerUnit: Float? = null
         private set
 
+    // ---- Source location (where the knocking / voice comes from, not which sensor is nearest) ----
+
+    /** Commander only. Fed by every phone's onset reports; read by the map, the arrow and the brief. */
+    val locator = Locator()
+    val sourceFix: Locator.Fix? get() = locator.fix
+
+    /** A dot's position in metres (x right, y up, origin at the map centre), or null before the map has a scale. */
+    fun posMetres(letter: String): Pair<Double, Double>? {
+        val s = mapMetresPerUnit ?: return null
+        val p = mapDots[letter] ?: return null
+        return ((p.first - 0.5) * s).toDouble() to ((0.5 - p.second) * s).toDouble()
+    }
+
+    /** Metres → map fractions (may fall outside 0..1 when the source is off the square). */
+    fun metresToMap(x: Double, y: Double): Pair<Float, Float>? {
+        val s = mapMetresPerUnit ?: return null
+        return (0.5 + x / s).toFloat() to (0.5 - y / s).toFloat()
+    }
+
+    /** The source fix as map fractions, or null. */
+    fun sourceOnMap(): Pair<Float, Float>? = sourceFix?.let { metresToMap(it.x, it.y) }
+
+    private fun syncLocatorPositions() {
+        val pos = HashMap<String, Pair<Double, Double>>()
+        for (l in mapDots.keys) posMetres(l)?.let { pos[l] = it }
+        locator.setPositions(pos)
+    }
+
+    /** Commander, once a second: match the knocks heard across phones and refresh the source fix. */
+    private fun runLocator() {
+        val cap = capture ?: return
+        val now = SystemClock.elapsedRealtime()
+        val useKnocks = mode != Mode.VOICE
+        val useVoice = mode != Mode.TAPPING
+        val changed = try {
+            locator.process(cap.samplesCaptured, now, mirror, { micGain[it] ?: 1f }, useKnocks, useVoice)
+        } catch (e: Exception) { HLog.d("ERROR in locator: $e"); false }
+        if (changed) {
+            sourceFix?.let { f ->
+                sessionLog.addRecord("locate", mapOf("x" to f.x, "y" to f.y, "radius" to f.radius, "spread" to f.bearingSpreadDeg,
+                    "knocks" to f.knocks, "voice" to f.voiceSeconds, "edge" to f.edge, "distA" to sourceDistanceMetres()))
+            }
+            listener?.onLinkStatus(lastStatus)   // redraws the map with the source marker
+        }
+    }
+
+    /** Distance from the commander's dot to the source fix, metres, or null. */
+    fun sourceDistanceMetres(): Float? {
+        val f = sourceFix ?: return null
+        val a = posMetres("A") ?: return null
+        return kotlin.math.hypot(f.x - a.first, f.y - a.second).toFloat()
+    }
+
+    /** Map bearing from the commander's dot to the source fix. */
+    fun sourceBearing(): Float? {
+        val f = sourceFix ?: return null
+        val a = posMetres("A") ?: return null
+        return ((Math.toDegrees(kotlin.math.atan2(f.x - a.first, f.y - a.second)).toFloat()) + 360f) % 360f
+    }
+
+    /** Screen angle of the arrow that points at the source, or null (needs a fix and north). */
+    fun arrowAngleToSource(): Float? {
+        val bearing = sourceBearing() ?: return null
+        val rot = mapRotationDeg ?: return null
+        return ((bearing + rot - headingDeg) + 720f) % 360f
+    }
+
+    /** Short text for the brief: how far the source is from the commander. */
+    private fun sourceText(): String {
+        val f = sourceFix ?: return ""
+        val d = sourceDistanceMetres() ?: return ""
+        val what = if (f.knocks > 0) "${f.knocks} knock" + (if (f.knocks > 1) "s" else "") else "${f.voiceSeconds} s voice"
+        return if (f.edge) " · source ≥ %.0f m away, direction ±%.0f° (%s)".format(f.nearest, f.bearingSpreadDeg, what)
+               else " · source %.1f m from you ±%.1f (%s)".format(d, f.radius, what)
+    }
+
 
     /** Screen angle (clockwise from the phone's top) of the arrow that points at [letter], or null. */
     fun arrowAngleTo(letter: String): Float? {
@@ -292,6 +369,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         retriedThisRound = false
         heard.clear()
         doaThisRound.clear()
+        doaAll.clear()
         setRangingStatus("Ranging: chirping ${letters.joinToString(" ")}…")
         sessionLog.addRecord("ranging_start", mapOf("letters" to letters.joinToString(" ")))
         letters.forEachIndexed { i, l ->
@@ -353,6 +431,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     /** Commander's own two-mic delays this round: chirping letter → (delay samples, heading). */
     private val doaThisRound = HashMap<String, Pair<Float, Float>>()
+    /** Every phone's two-mic delays this round: hearer → chirping letter → (delay, hearer's heading). For the locator's mic axes. */
+    private val doaAll = HashMap<String, HashMap<String, Pair<Float, Float>>>()
     /** level[hearer][from] = received chirp RMS this round, for mic calibration. */
     private val chirpLevel = HashMap<String, HashMap<String, Float>>()
     /** Mic gain of each sensor relative to the commander (1.0 = same). Loudness is divided by this. */
@@ -363,6 +443,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         if (r.level != null) chirpLevel.getOrPut(r.hearer) { HashMap() }[r.from] = r.level
         HLog.d("Chirp report: ${r.hearer} heard ${r.from} at ${r.sample} ratio=%.1f level=%s".format(r.ratio, r.level?.let { "%.5f".format(it) } ?: "-"))
         if (r.hearer == "A" && r.micDelay != null && r.heading != null) doaThisRound[r.from] = r.micDelay to r.heading
+        if (r.micDelay != null && r.heading != null) doaAll.getOrPut(r.hearer) { HashMap() }[r.from] = r.micDelay to r.heading
     }
 
     /**
@@ -512,6 +593,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             }
         }
         retriedThisRound = false
+        // The same chirps measure how each sensor's audio clock differs from ours (needed to time knocks).
+        try { locator.updateClocks(heard, dist, letters) } catch (e: Exception) { HLog.d("ERROR in clock update: $e") }
         // Fuse with the silent radio baseline: a chirp pair that disagrees with Bluetooth by > 30 % is dropped.
         for (key in dist.keys.toList()) {
             val radio = radioDistance[key] ?: radioDistance[key.reversed()] ?: continue
@@ -563,6 +646,13 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 autoAlign(aPos)
                 alignFromDoa(a, b, c, dAB, dAC, dBC)
                 doaThisRound.clear()
+                // Source locator: fresh positions, and each phone's mic line learnt from the chirps it heard.
+                try {
+                    if (micSpacingHistory.size >= 3) locator.micSpacing = micSpacingHistory.sorted()[micSpacingHistory.size / 2]
+                    syncLocatorPositions()
+                    locator.calibrateAxes(doaAll, dist)
+                } catch (e: Exception) { HLog.d("ERROR in locator setup: $e") }
+                doaAll.clear()
                 setRangingStatus("Placed by sound: $text")
                 listener?.onPeers(peers.values.toList())
                 placed = true
@@ -602,6 +692,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val mapB = Math.toRadians(worldB - rot)
         val u = len / scale
         mapDots["A"] = (a.first + (kotlin.math.sin(mapB) * u).toFloat()) to (a.second - (kotlin.math.cos(mapB) * u).toFloat())
+        syncLocatorPositions()
         listener?.onPeers(peers.values.toList())
     }
 
@@ -695,6 +786,11 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private fun recordEvent(e: SensorEvent) {
         sessionLog.add(e.toJson())
         updateLive(e)
+        if (e.human >= 0.3f) {
+            locator.addVoice(e.sensorId, maxOf(0f, e.rms - e.floor) / (micGain[e.sensorId] ?: 1f), e.micDelay, e.micQ,
+                if (e.sensorId == "A") headingDeg else (peerHeading[e.sensorId] ?: 0f), e.moving, SystemClock.elapsedRealtime())
+        }
+        if (e.sensorId == "A") runLocator()
         emitLive()
         if (!inHush) return
         // Skip the start buzz and beep: they rattle the phone and were once scored as tapping.
@@ -832,6 +928,10 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     private fun briefFor(ranks: List<Rank>, sources: Int): String {
         val top = ranks.firstOrNull() ?: return "No sensor data"
+        return briefCore(ranks, sources, top) + sourceText()
+    }
+
+    private fun briefCore(ranks: List<Rank>, sources: Int, top: Rank): String {
         return when {
             sources >= 2 -> (1..sources).joinToString("  |  ") { s ->
                 val members = ranks.filter { it.source == s }
@@ -910,6 +1010,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         link?.stop(); link = null
         ble?.stop(); ble = null
         radioDistance.clear(); peerBleAddress.clear(); radioStatus = ""
+        locator.reset(); peerHeading.clear(); doaAll.clear()
         peers.clear()
         recentRms.clear()
         rhythmTracker.reset()
@@ -1040,7 +1141,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     // ---- Own microphone ----
 
-    override fun onWindow(pcm48k: ShortArray, n48: Int, pcm16k: FloatArray, n16: Int, rms: Float) {
+    override fun onWindow(pcm48k: ShortArray, n48: Int, startSample: Long, pcm16k: FloatArray, n16: Int, rms: Float) {
         val now = SystemClock.elapsedRealtime()
         val tap = tapDetector.analyse(pcm48k, n48, now - 1000)
         val acc = accel?.drain() ?: AccelChannel.Result(0, 0f, 0f, emptyList(), false)
@@ -1057,6 +1158,20 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val cls = classifier?.classify(pcm16k, n16)
         val label = fuseLabel(rhythm, cls)
         main.post { trackWalking(acc); trackPlacement(acc) }
+        // Source location, part 1 (every phone): each knock timed to the sample, its loudness, and the
+        // two-mic delay that says which side of this phone it came from. Sent to the commander.
+        val onsetReport = if (!selfNoise && tap.onsets.isNotEmpty()) buildOnsetReport(tap, startSample, now - 1000, acc) else null
+        // Part 2, voices: the two-mic delay over the whole second (no sharp onset to time).
+        var voiceDelay: Float? = null; var voiceQ: Float? = null
+        if (!selfNoise && !acc.moving && (cls?.human ?: 0f) >= 0.3f && rms > floor * 1.5f) {
+            val cap = capture
+            val m1 = if (cap != null && cap.stereo) cap.snapshot(startSample, n48, 1) else null
+            if (m1 != null) {
+                val d = com.hush.audio.Doa.delayBandPassed(pcm48k, m1, n48, AudioCapture.SAMPLE_RATE)
+                if (d != null) { voiceDelay = d.delay; voiceQ = d.quality }
+                HLog.d("Voice DoA: delay=%s q=%s heading=%.0f".format(d?.let { "%.2f".format(it.delay) } ?: "-", d?.let { "%.2f".format(it.quality) } ?: "-", headingDeg))
+            }
+        }
         val battery = try {
             (appContext?.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
         } catch (_: Exception) { -1 }
@@ -1087,7 +1202,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             tempoMs = rhythm.tempoMs,
             lat = gps?.fix?.latitude,
             lon = gps?.fix?.longitude,
-            gpsAcc = gps?.fix?.accuracy
+            gpsAcc = gps?.fix?.accuracy,
+            micDelay = voiceDelay,
+            micQ = voiceQ
         )
         val w = Window(rms, event.floor, classifier?.lastGain ?: 1f, tap, rhythm, acc, structure, cls, event)
         HLog.d("window id=$letter hush=$inHush label=$label rms=%.4f floor=%.4f taps=%d rej=%d peak=x%.0f acc=%d accMax=%.3f accRms=%.3f struct=%b rhythm=%.1f/%s(%d) voice=%.2f impact=%.2f machine=%.2f | %s".format(
@@ -1097,10 +1214,39 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         main.post {
             listener?.onOwnWindow(w)
             when (role) {
-                ROLE_SENSOR -> link?.sendUp(event.toJson())
-                ROLE_COMMANDER -> { recordEvent(event); listener?.onEvent(event, localName) }
+                ROLE_SENSOR -> { onsetReport?.let { link?.sendUp(it.toJson()) }; link?.sendUp(event.toJson()) }
+                ROLE_COMMANDER -> { onsetReport?.let { locator.addReport(it) }; recordEvent(event); listener?.onEvent(event, localName) }
             }
         }
+    }
+
+    /**
+     * Audio thread. For each knock this second: absolute sample of its first arrival, peak, and the delay
+     * between the two mics over the first 12 ms (before the room's echoes arrive). "felt" marks knocks
+     * that also shook the phone (accelerometer): those travelled through the floor, faster than through
+     * air, so the commander trusts their timing less.
+     */
+    private fun buildOnsetReport(tap: TapDetector.Result, startSample: Long, windowStartMs: Long, acc: AccelChannel.Result): com.hush.model.OnsetReport {
+        val cap = capture
+        val out = ArrayList<com.hush.model.Onset>()
+        for (o in tap.onsets) {
+            val abs = startSample + o.sampleInWindow
+            var delay: Float? = null; var q: Float? = null
+            if (cap != null && cap.stereo) {
+                val from = abs - 48; val count = 48 + 576
+                val x0 = cap.snapshot(from, count, 0); val x1 = cap.snapshot(from, count, 1)
+                if (x0 != null && x1 != null) {
+                    val d = com.hush.audio.Doa.delay(x0, x1, count)
+                    if (d != null) { delay = d.delay; q = d.quality }
+                }
+            }
+            val ms = windowStartMs + o.sampleInWindow / 48
+            val felt = acc.spikeTimesMs.any { kotlin.math.abs(it - ms) <= RhythmTracker.MERGE_MS }
+            out.add(com.hush.model.Onset(abs, o.peak, o.ratio, delay, q, felt))
+            HLog.d("Onset @%d (+%d ms) peak=%.3f x%.0f rise=%d dl=%s q=%s%s heading=%.0f".format(abs, o.sampleInWindow / 48, o.peak, o.ratio, o.riseSamples,
+                delay?.let { "%.2f".format(it) } ?: "-", q?.let { "%.2f".format(it) } ?: "-", if (felt) " felt" else "", headingDeg))
+        }
+        return com.hush.model.OnsetReport(letter, headingDeg, acc.moving, out)
     }
 
     // ---- Nearby link ----
@@ -1181,6 +1327,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             is com.hush.model.Join -> onJoin(msg, endpointId)
             is com.hush.model.ChirpReport -> onChirpReport(msg)
             is com.hush.model.Placement -> onPlacement(msg)
+            is com.hush.model.OnsetReport -> { peerHeading[msg.letter] = msg.heading; locator.addReport(msg) }
             is SensorEvent -> {
                 val name = peers.values.firstOrNull { it.letter == msg.sensorId }?.name ?: msg.sensorId
                 recordEvent(msg)

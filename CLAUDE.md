@@ -30,12 +30,49 @@ audio ever crosses the network; only small JSON events (see contract below).
    window on every phone and cancels chirps. HUSH refuses with zero sensors unless long-pressed.
 6. **Map + arrow.** Sensors are placed on a square map automatically by acoustic ranging (or by hand as a fallback).
    North comes, in order of preference, from the two-mic direction of the chirps, from the commander's own walk, or from
-   how sensors were carried out. A compass arrow points at the strongest sensor with the distance in metres; the
-   commander's dot walks between rangings by step counting.
-7. **Radio ranging.** Bluetooth sessions run silently to every sensor. Channel Sounding is refused by the phones so far
+   how sensors were carried out. The commander's dot walks between rangings by step counting.
+7. **Source location (added 26 Sep evening).** The commander no longer just points at the strongest sensor: it works
+   out where the knocking (or voice) itself is and draws it as a red cross-hair with an uncertainty disc; the arrow
+   points at that spot with the distance ("→ SOURCE · 3.4 m ±0.5 · 6 knocks"). Falls back to the strongest sensor
+   until a fix exists. See "How the source is located" below.
+8. **Radio ranging.** Bluetooth sessions run silently to every sensor. Channel Sounding is refused by the phones so far
    (see Status); signal-strength ranging works but is far too coarse and is shown with "?" and never trusted.
-8. **Export.** One JSON-lines file per session to `Downloads/` (header with sensors, dots, mode; every event; hush,
+9. **Export.** One JSON-lines file per session to `Downloads/` (header with sensors, dots, mode; every event; hush,
    ranging, ranking and stop records).
+
+## How the source is located (`Locator.kt`, commander only)
+
+Three kinds of evidence about every knock, all scored on a grid of candidate positions (0.25 m cells, at least
+±12 m around the phones) and added up knock after knock; the best cell is the source, the cells within 3 nats of it
+are the "likely region" (its RMS radius, its nearest distance and its angular spread from A are what the screen shows).
+Nothing but small JSON crosses the network.
+
+1. **Time difference of arrival (the strong cue).** Every phone finds the exact sample at which each knock first
+   arrived (`TapDetector.refine`: first sample above max(6 × window median, 25 % of the local peak), so the pick does
+   not depend on how loud the knock is at that phone). Sound moves 7 mm per sample at 48 kHz. Phones' audio clocks are
+   unrelated, so the chirp round measures them: chirp j is heard by sensor i and by A at a known distance each, so
+   `offset_i = (t_i(j) − t_A(j)) − (d(i,j) − d(A,j)) · fs / c`, one estimate per chirp, median, drift rate fitted over
+   rounds (`Clock:` log lines). A sensor's onsets are ignored until its clock is known. Onsets that reached the
+   phones within (largest phone spacing / c + 4 ms) of each other are the same knock; the difference for each pair of
+   phones is a hyperbola; σ = 0.5 ms (≈ 17 cm). Heavy-tailed loss, so one echo or a missed knock cannot drag the answer.
+2. **Loudness ratios (weak, weight 0.5, σ 6 dB).** Onset peak ÷ chirp-calibrated mic gain, 1/r law; the unknown source
+   level cancels in the mean. Tells front from back when timing alone cannot, and it is the only distance cue for voices.
+3. **Two-mic direction per phone (medium, σ 12°).** Cross-correlation of the two mics over the first 12 ms of the
+   knock (`Doa.kt`, same sign convention as the chirp code) gives the angle from the phone's mic line; a line cannot
+   tell left from right, so each phone contributes two candidate bearings and the other cues decide. Which way each
+   phone's mic line points on the map is learnt from the chirps it heard from the other phones (`Axis:` log lines,
+   needs 2 chirps from ≥ 0.8 m); its compass only tracks turning after that, so a constant magnetic error does not
+   matter and the top/bottom mic order does not matter either. Skipped for phones without a calibrated axis.
+4. **Voices** have no sharp onset, so they use cues 2 and 3 only, once a second, over the whole second (band-passed
+   300–3000 Hz): coarse. Mode TAPPING uses knocks, VOICE uses voice seconds, ANY both.
+
+**Measured on synthetic data (`app/src/test/java/com/hush/LocatorTest.kt`, run with `./gradlew testDebugUnitTest`):**
+phones 2.2 m apart, ±0.2 ms onset noise, 5 knocks: a source 3 m outside the triangle is found within 0.1–0.3 m, a
+source 11 m away gets its bearing within 1° (±3° spread, flagged EDGE = "≥ N m away, direction ±3°"), a source 0.3 m from
+sensor B lands on the source and not on B. **Physics to remember:** with phones 2 m apart, timing pins the direction
+of anything beyond ~2 array-widths but not its distance; spread the phones wider for distance. Structure-borne
+knocks (phones on the same slab) arrive faster than through air: onsets tagged "felt" (accelerometer jolt within
+100 ms) get 3× the timing sigma; put cloth under the phones. Not tested on the real phones yet: see open tests.
 
 ## Devices and environment
 
@@ -94,7 +131,8 @@ audio ever crosses the network; only small JSON events (see contract below).
 | Acoustic ranging | `Chirp.kt` 80 ms 2–6 kHz Hann sweep at 90 % alarm volume; matched filter with parabolic sub-sample peak (≈ 200 ms per search). Chirps A, B, C 1.8 s apart. Pair distance `D = c/2·[(t_i(j)−t_i(i)) − (t_j(j)−t_j(i))]/fs + 0.12 m` (clock offsets cancel). Measured: AB 0.91 (real ≈ 1.0), AC 0.56 (real ≈ 0.5), later rounds 0.54–0.58 for the same layout. Detection strength 95–1780× vs threshold 5. Self-checks: timing filter ±0.35 s (a wrong peak once produced 59.7 m), triangle inequality and ≤ 30 m, one retry of lost pairs, **two rounds within 20 % before the map moves**. Only the first three letters form the map (N > 3 solver not built). |
 | Map frame | B origin, C on +x, A (commander) moves inside; scale fixed at first ranging (1.6 × the largest side). A's dot moves by step counting between rangings. A settled sensor (moved, then still 3 s) triggers a re-ranging. |
 | North | Ranging alone cannot know rotation. Sources, best first: (1) **two-mic direction of arrival** of B's and C's chirps at the commander (sub-sample inter-mic delay; mic spacing solved against the triangle's known angle, then held as a median; skipped when phones < 0.8 m apart; rotation smoothed over 5 rounds); (2) the commander's walk (A's shift on the map vs compass bearing walked; moves > 10 m ignored); (3) placement walk (step detector + compass on carried-out sensors); (4) manual Place buttons. First DoA run: spacing 0.10 m, angles 44°/8° vs true 38°, spread 1°. Physical direction test still failing at 50 cm spacing (near field) — needs ≥ 1 m. |
-| Compass arrow | `ArrowView` + rotation-vector `Compass`; angle = mapBearing(A→target) + rotation − heading; label shows distance and which source aligned north. |
+| Compass arrow | `ArrowView` + rotation-vector `Compass`; angle = mapBearing(A→target) + rotation − heading. Target = the located source when there is a fix < 60 s old, else the strongest sensor. |
+| Source locator | `Locator.kt`, see "How the source is located". Constants: cell 0.25 m, σ_t 0.5 ms, σ_amp 6 dB (weight 0.5), σ_doa 12° (voice 20°), decay 25 s, hold 3.5 s for late reports, mic spacing = median solved by the chirp rounds else 0.10 m. `LOCATE knock #n heard by A,B,C: A:+0.0ms B:+3.1ms …` and `LOCATE fix: peak (x, y) region … radius … nearest … spread …` in the log. Export gets a `locate` record per update. |
 | Radio ranging | `BleRanging` (Android 16 `RangingManager`). Capabilities on the I2501: CS enabled, RSSI enabled, UWB/RTT absent; own address read from the capabilities object's `toString`. Sensors advertise a connectable BLE tag (service UUID `0000A5A5-…`, data = name suffix); the commander scans for the tag to learn the sensor's **live** (rotating) address, opens a GATT link, then initiates; the sensor learns the commander's live address from its GATT server and answers it. **Result so far: CS opens, starts and closes with reason 3 (UNSUPPORTED) within 1 ms every time**, even over an open link with the responder ready; RSSI ranging then runs continuously but reads 6–14 m for phones 0.5 m apart. RSSI is displayed with "?" and never used to drop a chirp round. Latest build requests a one-time pairing and retries CS once bonded (untested). |
 | GPS | `Gps.kt`, framework `LocationManager`; `lat/lon/gacc` in events when a fix < 60 s old exists; in the export. Not yet used for alignment. |
 | Export | `SessionLog`: header (commander, sensors, dots, mode, last brief) + every event line + `hush`/`ranging_start`/`ranging`/`ranking`/`stop` records → `Downloads/hush-<date>-<time>.jsonl` via MediaStore. |
@@ -109,7 +147,10 @@ two-mic north → window → ranking → brief, repeatedly; live brief; radio se
 direction wrong in a test with phones 50–60 cm apart (inside the near-field skip; must be re-run at ≥ 1 m); "Sensor C
 more sensitive than B" traced to the chirp-inflated noise floor (fixed) plus phones sharing one tabletop.
 
-**Open tests (each independent):** live tracking without HUSH; direction at ≥ 1 m while turning the commander; quiet
+**Open tests (each independent):** source locator on real knocks (after a HUSH/ranging: knock 2 m outside the
+triangle, expect `LOCATE knock` lines with B/C a few ms apart, a red cross-hair, and the arrow on the knock, not on the
+nearest sensor; then knock beside B and expect the cross-hair on the knock, still not on B's dot); `Clock:` spread
+< 10 samples and `Axis:` spread < 15° in the log after a round; live tracking without HUSH; direction at ≥ 1 m while turning the commander; quiet
 window ("No human signal detected"); two-source window; B takes the star when knocked beside; multi-hop ("2 hops" on
 the far sensor); pairing prompts and whether "Radio:" loses its "?".
 
@@ -156,8 +197,12 @@ data class SensorEvent(          // every phone, once a second
     val accel: Int, val accelMax: Float, val moving: Boolean,
     val battery: Int, val tempoMs: Int,
     val lat: Double?, val lon: Double?, val gpsAcc: Float?,
-    val chirpTs: Long? = null
+    val chirpTs: Long? = null,
+    val micDelay: Float? = null, val micQ: Float? = null   // two-mic delay over the second, voice only
 )
+// Every phone, once a second and only when it heard knocks: each knock to the sample, on the sender's own audio clock.
+data class Onset(val sample: Long, val peak: Float, val ratio: Float, val micDelay: Float?, val micQ: Float?, val felt: Boolean)
+data class OnsetReport(val letter: String, val heading: Float, val moving: Boolean, val onsets: List<Onset>)
 data class Command(val type: String /* ASSIGN|HUSH|STOP|CHIRP */, val seconds: Int = 20, val letter: String?, val to: String?, val ble: String?)
 data class ChirpReport(val hearer: String, val from: String, val sample: Long, val ratio: Float, val micDelay: Float?, val heading: Float?, val level: Float?)
 data class Placement(val letter: String, val east: Float, val north: Float, val steps: Int)
@@ -174,10 +219,12 @@ app/src/main/java/com/hush/
                            // chirp ranging, map frame, alignment sources, radio ranging glue, export
   HLog.kt                  // logcat + private file logger (the phones drop logcat)
   Ranging.kt               // two-way acoustic distance maths, triangle
+  Locator.kt               // WHERE the sound is: clock offsets from chirps, mic axes, onset matching, grid fusion
   audio/AudioCapture.kt    // stereo AudioRecord loop, 1 s windows, ring buffers, debug WAV
   audio/Dsp.kt             // band-pass, RMS, downsample
   audio/Classifier.kt      // YAMNet + buckets
-  audio/TapDetector.kt     // onsets with ring-down check
+  audio/TapDetector.kt     // onsets with ring-down check, refined to the sample
+  audio/Doa.kt             // two-mic cross-correlation → inter-mic delay (knock onsets and voice seconds)
   audio/RhythmTracker.kt   // steady / pattern / tempo
   audio/AccelChannel.kt    // jolts, moving
   audio/Compass.kt, DeadReckoning.kt, Gps.kt, MicProbe.kt
@@ -189,6 +236,7 @@ app/src/main/java/com/hush/
   log/SessionLog.kt        // export
   ui/CommanderScreen.kt, SensorScreen.kt, MapView.kt, ArrowView.kt
 app/src/main/assets/yamnet.tflite, yamnet_class_map.csv
+app/src/test/java/com/hush/LocatorTest.kt   // laptop-only synthetic test of the locator (JUnit 4.13.2)
 .github/workflows/build.yml
 ```
 
@@ -198,7 +246,8 @@ app/src/main/assets/yamnet.tflite, yamnet_class_map.csv
 export JAVA_HOME=/c/Android/jdk17 ANDROID_HOME=/c/Android/Sdk   # if the shell predates the install
 ./gradlew assembleDebug -q
 for s in $(adb devices | awk 'NR>1 && $2=="device"{print $1}'); do adb -s $s install -r app/build/outputs/apk/debug/app-debug.apk; done
-adb -s <serial> shell "run-as com.hush cat files/hush.log" | grep -i 'RANKING\|BRIEF\|RANGING result\|DoA align\|BleRanging'
+adb -s <serial> shell "run-as com.hush cat files/hush.log" | grep -i 'RANKING\|BRIEF\|RANGING result\|DoA align\|BleRanging\|LOCATE\|Clock:\|Axis:'
+./gradlew testDebugUnitTest -q          # locator maths on synthetic phones, no device needed
 adb -s <serial> exec-out run-as com.hush cat files/debug.wav > debug.wav   # first 90 s of raw audio, laptop analysis only
 ```
 

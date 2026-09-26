@@ -26,7 +26,9 @@ data class SensorEvent(
     val lat: Double? = null,     // GPS, only when a fix < 60 s old exists
     val lon: Double? = null,
     val gpsAcc: Float? = null,   // metres
-    val chirpTs: Long? = null
+    val chirpTs: Long? = null,
+    val micDelay: Float? = null, // samples, mic 1 minus mic 0, over this whole second (voice direction of arrival)
+    val micQ: Float? = null      // 0..1 how well the two mics agreed on that delay
 ) {
     fun toJson(): String = JSONObject().apply {
         put("id", sensorId)
@@ -49,6 +51,8 @@ data class SensorEvent(
         if (lat != null && lon != null) { put("lat", lat); put("lon", lon); put("gacc", Math.round((gpsAcc ?: 0f) * 10.0) / 10.0) }
         rhythm?.let { put("rh", it) }
         chirpTs?.let { put("chirp", it) }
+        micDelay?.let { put("dl", Math.round(it * 100.0) / 100.0) }
+        micQ?.let { put("dq", r(it)) }
     }.toString()
 
     companion object {
@@ -77,7 +81,9 @@ data class SensorEvent(
                 lon = if (o.has("lon")) o.getDouble("lon") else null,
                 gpsAcc = if (o.has("gacc")) o.getDouble("gacc").toFloat() else null,
                 rhythm = o.optString("rh").ifEmpty { null },
-                chirpTs = if (o.has("chirp")) o.getLong("chirp") else null
+                chirpTs = if (o.has("chirp")) o.getLong("chirp") else null,
+                micDelay = if (o.has("dl")) o.getDouble("dl").toFloat() else null,
+                micQ = if (o.has("dq")) o.getDouble("dq").toFloat() else null
             )
         } catch (e: Exception) {
             HLog.d("bad SensorEvent json: $e")
@@ -158,14 +164,60 @@ data class Join(val name: String, val hops: Int, val leaving: Boolean = false, v
     }
 }
 
+/**
+ * One knock as one phone heard it, to the sample, on that phone's own audio clock. This is what the
+ * commander's source locator works from: WHEN each phone first heard the knock (time difference of
+ * arrival), HOW LOUD it was there, and from WHICH SIDE of the phone (its two mics).
+ */
+data class Onset(
+    val sample: Long,          // absolute sample index of the first arrival, sender's audio clock (48 kHz)
+    val peak: Float,           // 0..1 peak amplitude in the first 10 ms
+    val ratio: Float,          // peak over the phone's background level: how sharply the knock stood out
+    val micDelay: Float?,      // samples, mic 1 minus mic 0; null if the two mics did not agree
+    val micQ: Float?,          // 0..1 correlation quality of micDelay
+    val felt: Boolean          // an accelerometer jolt within 100 ms: the knock also reached the phone through the floor
+) {
+    fun toJson(): JSONObject = JSONObject().put("s", sample).put("pk", Math.round(peak * 10000.0) / 10000.0).put("ra", Math.round(ratio * 10.0) / 10.0).apply {
+        micDelay?.let { put("dl", Math.round(it * 100.0) / 100.0) }
+        micQ?.let { put("q", Math.round(it * 100.0) / 100.0) }
+        if (felt) put("felt", true)
+    }
+
+    companion object {
+        fun fromJson(o: JSONObject) = Onset(
+            o.getLong("s"), o.getDouble("pk").toFloat(), o.optDouble("ra", 0.0).toFloat(),
+            if (o.has("dl")) o.getDouble("dl").toFloat() else null, if (o.has("q")) o.getDouble("q").toFloat() else null,
+            o.optBoolean("felt", false)
+        )
+    }
+}
+
+/** Sensor → commander, at most once a second and only when there were knocks: the onsets of that second. */
+data class OnsetReport(val letter: String, val heading: Float, val moving: Boolean, val onsets: List<Onset>) {
+    fun toJson(): String = JSONObject().put("rep", "onsets").put("id", letter).put("hd", Math.round(heading * 10.0) / 10.0)
+        .apply { if (moving) put("mov", true) }
+        .put("on", org.json.JSONArray().apply { onsets.forEach { put(it.toJson()) } }).toString()
+
+    companion object {
+        fun fromJson(o: JSONObject): OnsetReport? = try {
+            val arr = o.getJSONArray("on")
+            OnsetReport(o.getString("id"), o.optDouble("hd", 0.0).toFloat(), o.optBoolean("mov", false),
+                (0 until arr.length()).map { Onset.fromJson(arr.getJSONObject(it)) })
+        } catch (e: Exception) {
+            HLog.d("bad OnsetReport json: $e"); null
+        }
+    }
+}
+
 object Messages {
-    /** Returns a [SensorEvent], a [Command], a [ChirpReport], a [Placement], a [Join], or null. */
+    /** Returns a [SensorEvent], a [Command], a [ChirpReport], a [Placement], a [Join], an [OnsetReport], or null. */
     fun parse(text: String): Any? = try {
         val o = JSONObject(text)
         when {
             o.has("cmd") -> Command.fromJson(o)
             o.optString("rep") == "chirp" -> ChirpReport.fromJson(o)
             o.optString("rep") == "place" -> Placement.fromJson(o)
+            o.optString("rep") == "onsets" -> OnsetReport.fromJson(o)
             o.optString("rep") == "join" || o.optString("rep") == "leave" -> Join.fromJson(o)
             else -> SensorEvent.fromJson(o)
         }

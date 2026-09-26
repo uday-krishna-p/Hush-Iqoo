@@ -15,8 +15,12 @@ import com.hush.HLog
 class AudioCapture(private val context: Context, private val listener: Listener) {
 
     interface Listener {
-        /** Called on the audio thread once per second. [rms] is the band-passed loudness, 0..1. */
-        fun onWindow(pcm48k: ShortArray, n48: Int, pcm16k: FloatArray, n16: Int, rms: Float)
+        /**
+         * Called on the audio thread once per second. [rms] is the band-passed loudness, 0..1.
+         * [startSample] is the absolute index (this phone's audio clock, see [samplesCaptured]) of pcm48k[0],
+         * so anything found inside the window can be timed to the sample and looked up in the ring buffers.
+         */
+        fun onWindow(pcm48k: ShortArray, n48: Int, startSample: Long, pcm16k: FloatArray, n16: Int, rms: Float)
     }
 
     companion object {
@@ -209,6 +213,7 @@ class AudioCapture(private val context: Context, private val listener: Listener)
                 }
                 wavWrite(chunk, n)
                 ringPush(chunk, chunk2, n)
+                val chunkEndSample = samplesCaptured          // absolute index just past this chunk
                 var i = 0
                 while (i < n) {
                     val take = minOf(n - i, WINDOW - filled)
@@ -220,7 +225,8 @@ class AudioCapture(private val context: Context, private val listener: Listener)
                         val rms = Dsp.rms(filtered, WINDOW)
                         val n16 = Dsp.downsample3(window, WINDOW, pcm16)
                         try {
-                            listener.onWindow(window, WINDOW, pcm16, n16, rms)
+                            // The window ends at chunk index i (exclusive): absolute = chunkEndSample - n + i.
+                            listener.onWindow(window, WINDOW, chunkEndSample - n + i - WINDOW, pcm16, n16, rms)
                         } catch (e: Exception) {
                             HLog.d("ERROR in audio window listener: $e")
                         }
