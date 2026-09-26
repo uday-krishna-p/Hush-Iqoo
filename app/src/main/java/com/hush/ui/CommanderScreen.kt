@@ -35,6 +35,25 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
     private val latest = LinkedHashMap<String, SensorEvent>()   // letter → newest event
     private var ranks: List<Engine.Rank> = emptyList()
     private val map: MapView = activity.findViewById(R.id.map)
+    private val arrow: ArrowView = activity.findViewById(R.id.arrow)
+    private val arrowTick = object : Runnable {
+        override fun run() {
+            val target = ranks.firstOrNull()?.takeIf { it.score > 0f }?.letter
+            val angle = target?.let { Engine.arrowAngleTo(it) }
+            if (target == null) {
+                arrow.active = false; arrow.label = activity.getString(R.string.arrow_no_target)
+            } else if (angle == null) {
+                arrow.active = false
+                arrow.label = if (Engine.mapDots.containsKey(target)) activity.getString(R.string.arrow_align_first) else activity.getString(R.string.arrow_place_first, target)
+            } else {
+                arrow.active = true
+                arrow.angleDeg = angle
+                val d = Engine.mapDistanceMetres("A", target)
+                arrow.label = if (d != null) activity.getString(R.string.arrow_target_dist, target, d) else activity.getString(R.string.arrow_target, target)
+            }
+            arrow.postDelayed(this, 100)
+        }
+    }
     private val placeRow: android.widget.LinearLayout = activity.findViewById(R.id.placeRow)
 
     /** One "place X" button per known letter; tapping it arms the map for that letter. */
@@ -65,6 +84,13 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
         map.onPlaced = { letter -> Engine.mapDots[letter] = map.dots[letter]!!; renderPlaceButtons() }
         map.strongest = Engine.lastRanking.firstOrNull()?.takeIf { it.score > 0f }?.letter
         activity.findViewById<Button>(R.id.btnAutoPlace).setOnClickListener { Engine.autoPlace() }
+        activity.findViewById<Button>(R.id.btnAlign).setOnClickListener {
+            // Align on the first placed sensor other than A; the user points the phone's top at it first.
+            val target = Engine.mapDots.keys.firstOrNull { it != "A" }
+            val ok = target != null && Engine.alignTo(target)
+            android.widget.Toast.makeText(activity, if (ok) activity.getString(R.string.aligned, target) else activity.getString(R.string.align_failed), android.widget.Toast.LENGTH_SHORT).show()
+        }
+        arrow.post(arrowTick)
         activity.findViewById<Button>(R.id.btnFlip).setOnClickListener {
             Engine.mirror = !Engine.mirror
             val flipped = Engine.mapDots.mapValues { (_, p) -> p.first to (1f - p.second) }

@@ -22,6 +22,14 @@
     <string name="place_button">Place %1$s</string>
     <string name="auto_place">AUTO-PLACE (chirps)</string>
     <string name="flip">FLIP</string>
+    <string name="align_button">ALIGN: point phone top at the first placed sensor, then tap</string>
+    <string name="aligned">Aligned on Sensor %1$s. Arrow is now a compass.</string>
+    <string name="align_failed">Place at least one sensor first (auto or manual).</string>
+    <string name="arrow_no_target">Run HUSH to get a target</string>
+    <string name="arrow_align_first">Tap ALIGN to turn the arrow into a compass</string>
+    <string name="arrow_place_first">Place Sensor %1$s on the map first</string>
+    <string name="arrow_target">→ Sensor %1$s</string>
+    <string name="arrow_target_dist">→ Sensor %1$s · %2$.1f m</string>
     <string name="export_ok">Saved Downloads/%1$s</string>
     <string name="export_failed">Export failed, see log</string>
     <string name="hush_running">HUSH RUNNING</string>

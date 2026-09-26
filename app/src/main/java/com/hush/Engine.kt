@@ -106,6 +106,47 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     /** Commander's map: letter → (x, y) fractions of the square. Kept here so it survives screen changes. */
     val mapDots = LinkedHashMap<String, Pair<Float, Float>>()
 
+    // ---- Compass / go-to arrow ----
+
+    private var compass: com.hush.audio.Compass? = null
+    /** Degrees to add to a map bearing to get a real compass bearing; set by ALIGN. Null until aligned. */
+    @Volatile var mapRotationDeg: Float? = null
+        private set
+    val headingDeg: Float get() = compass?.headingDeg ?: 0f
+
+    /** Bearing on the map from dot [from] to dot [to], degrees clockwise from map-up. */
+    fun mapBearing(from: String, to: String): Float? {
+        val a = mapDots[from] ?: return null
+        val b = mapDots[to] ?: return null
+        val dx = b.first - a.first; val dy = b.second - a.second   // map y grows downward
+        return ((Math.toDegrees(kotlin.math.atan2(dx.toDouble(), -dy.toDouble())).toFloat()) + 360f) % 360f
+    }
+
+    /** Map distance between dots in metres, using the last ranging scale (null if the map was placed by hand). */
+    fun mapDistanceMetres(from: String, to: String): Float? {
+        val scale = mapMetresPerUnit ?: return null
+        val a = mapDots[from] ?: return null
+        val b = mapDots[to] ?: return null
+        return kotlin.math.hypot((b.first - a.first).toDouble(), (b.second - a.second).toDouble()).toFloat() * scale
+    }
+    var mapMetresPerUnit: Float? = null
+        private set
+
+    /** Commander points the top of the phone at sensor [letter] and taps ALIGN: the map now knows north. */
+    fun alignTo(letter: String): Boolean {
+        val bearing = mapBearing("A", letter) ?: return false
+        mapRotationDeg = ((headingDeg - bearing) + 360f) % 360f
+        HLog.d("ALIGN: pointing at $letter, heading=%.0f mapBearing=%.0f rotation=%.0f".format(headingDeg, bearing, mapRotationDeg))
+        return true
+    }
+
+    /** Screen angle (clockwise from the phone's top) of the arrow that points at [letter], or null. */
+    fun arrowAngleTo(letter: String): Float? {
+        val bearing = mapBearing("A", letter) ?: return null
+        val rot = mapRotationDeg ?: return null
+        return ((bearing + rot - headingDeg) + 720f) % 360f
+    }
+
     // ---- Acoustic ranging (auto placement) ----
 
     /** heard[hearer letter][chirping letter] = sample index on the hearer's clock. Commander only. */
@@ -186,7 +227,12 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 if (tri != null) {
                     val flipped = if (mirror) tri.mapValues { (_, p) -> p.first to -p.second } else tri
                     mapDots.clear()
-                    mapDots.putAll(Ranging.toUnitSquare(flipped))
+                    val unit = Ranging.toUnitSquare(flipped)
+                    mapDots.putAll(unit)
+                    // Scale: metres per map unit, from pair AB.
+                    val ua = unit[a]!!; val ub = unit[b]!!
+                    val unitAB = kotlin.math.hypot((ub.first - ua.first).toDouble(), (ub.second - ua.second).toDouble()).toFloat()
+                    mapMetresPerUnit = if (unitAB > 0f) (dAB / unitAB).toFloat() else null
                     setRangingStatus("Placed by sound: $text")
                     listener?.onPeers(peers.values.toList())
                     return
@@ -334,6 +380,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             HLog.d("ERROR loading classifier: $e")
         }
         accel = AccelChannel(context).also { it.start() }
+        if (newRole == ROLE_COMMANDER) compass = com.hush.audio.Compass(context).also { it.start() }
         capture = AudioCapture(context, this).also {
             it.debugWav = File(context.filesDir, "debug.wav")   // debug capture, see CLAUDE.md
             it.start()
@@ -347,6 +394,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         HLog.d("Engine stop")
         capture?.stop(); capture = null
         accel?.stop(); accel = null
+        compass?.stop(); compass = null
+        mapRotationDeg = null
         classifier?.close(); classifier = null
         link?.stop(); link = null
         peers.clear()

@@ -78,6 +78,18 @@
             android:textSize="22sp"
             android:textStyle="bold" />
 
+        <com.hush.ui.ArrowView
+            android:id="@+id/arrow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp" />
+
+        <Button
+            android:id="@+id/btnAlign"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/align_button" />
+
         <com.hush.ui.MapView
             android:id="@+id/map"
             android:layout_width="match_parent"
