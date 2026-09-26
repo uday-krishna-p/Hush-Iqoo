@@ -144,6 +144,20 @@ knocks (phones on the same slab) arrive faster than through air: onsets tagged "
 
 ## Status (27 Sep 00:00)
 
+**Fused bearing first, faster relay, Bluetooth-only mesh, 27 Sep 03:15 (team: "it keeps concentrating on a single
+phone", "the relay between the phones is not that fast"):** every phone now draws the commander's FUSED bearing
+first (all phones' microphones, mirrors resolved across phones, drawn through the phone's own compass) and its own
+two-mic estimate only when the fusion is missing, older than 4 s or made of this phone alone (`Engine.preferShared`).
+Labels: "→ KNOCKING · all phones fused: A,B,C" / "fused from A,B · left or right? …". Relay: a sensor's bearing used
+to wait for the commander's own next second before it was fused and sent down, then only when it moved by 5° or
+every 5 s; now the commander fuses and sends the moment a bearing arrives, on a 2° change, at most ~3 times a
+second. Mesh: `ConnectionType.NON_DISRUPTIVE` on advertising and connection requests (Nearby 19.5.0), so links
+stay on Bluetooth instead of upgrading to a Wi-Fi hotspot: the commander logged 29 "nothing from … for 2.5–4 s"
+stalls in the 30 min before, every link at quality 3 (Wi-Fi). What "using every device" means without chirps: the
+fused bearing (weighted votes of every phone's own arrow), the crossing (needs positions: `--es layout` and Align
+for a fixed cluster, then knocks within ~1 m of a 0.5 m cluster get a point, farther ones a direction), and the
+timing locator only with clock sync (silent ultrasonic chirps, plan step 4).
+
 **Phantom knocks, 27 Sep 02:50:** in a quiet room a third of all onsets (91 of 269 on 6a46 in 8 min) were clicks of
 about −38 dBFS (peak 0.011–0.016, ×5–8 the median frame) IDENTICAL in both microphone channels: two-mic delay 0.0,
 correlation 0.95–0.98, rise 0, no accelerometer jolt, at random moments in the second, on every phone, with or

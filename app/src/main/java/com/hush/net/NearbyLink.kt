@@ -8,6 +8,8 @@ import com.google.android.gms.nearby.connection.AdvertisingOptions
 import com.google.android.gms.nearby.connection.BandwidthInfo
 import com.google.android.gms.nearby.connection.ConnectionInfo
 import com.google.android.gms.nearby.connection.ConnectionLifecycleCallback
+import com.google.android.gms.nearby.connection.ConnectionOptions
+import com.google.android.gms.nearby.connection.ConnectionType
 import com.google.android.gms.nearby.connection.ConnectionResolution
 import com.google.android.gms.nearby.connection.DiscoveredEndpointInfo
 import com.google.android.gms.nearby.connection.DiscoveryOptions
@@ -89,7 +91,9 @@ class NearbyLink(context: Context, private val localName: String, private val li
 
     private fun advertise() {
         if (stopped || advertising) return
-        val options = AdvertisingOptions.Builder().setStrategy(strategy).build()
+        // NON_DISRUPTIVE (27 Sep 03:05): no Bluetooth→Wi-Fi hotspot upgrade. The upgrade stalled links for 2.5–4 s at a
+        // time (29 such gaps in 30 min on the commander) and our traffic is a few hundred bytes a second.
+        val options = AdvertisingOptions.Builder().setStrategy(strategy).setConnectionType(ConnectionType.NON_DISRUPTIVE).build()
         client.startAdvertising(advertisedName(), SERVICE_ID, lifecycle, options)
             .addOnSuccessListener { advertising = true; HLog.d("Nearby: advertising as ${advertisedName()}"); refreshStatus() }
             .addOnFailureListener { e -> HLog.d("Nearby: advertising FAILED: $e"); retry { advertise() } }
@@ -147,7 +151,7 @@ class NearbyLink(context: Context, private val localName: String, private val li
         val (id, cand) = seen.minByOrNull { it.value.second }!!
         connectingTo = id
         listener.onLinkStatus("Found ${cand.first} (${cand.second} hops), connecting…")
-        client.requestConnection(advertisedName(), id, lifecycle)
+        client.requestConnection(advertisedName(), id, lifecycle, ConnectionOptions.Builder().setConnectionType(ConnectionType.NON_DISRUPTIVE).build())
             .addOnFailureListener { e ->
                 HLog.d("Nearby: requestConnection to ${cand.first} FAILED: $e")
                 connectingTo = null

@@ -301,14 +301,26 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private fun angDiffF(a: Float, b: Float): Float { val d = kotlin.math.abs(((a - b) % 360f + 360f) % 360f); return if (d > 180f) 360f - d else d }
 
     /** The bearing the hearing phones agree on, as seen from THIS phone through its own compass. */
-    data class SharedArrow(val screenDeg: Float, val twinDeg: Float?, val phones: String, val confidence: Float)
+    data class SharedArrow(val screenDeg: Float, val twinDeg: Float?, val phones: String, val confidence: Float,
+                           val ageMs: Long, val others: Boolean /* phones other than this one contributed */)
 
-    /** For a phone that hears nothing: the other phones' fused bearing on its own screen, or null. */
+    /**
+     * The network's estimate on this phone's screen, or null. Since 27 Sep 03:10 (team: use every phone's mics) this
+     * is what every phone draws first; its own two-mic estimate is the fallback when the fusion is missing, stale
+     * (> 4 s) or made of this phone alone (then the own estimate is the same thing, fresher).
+     */
     fun sharedArrow(): SharedArrow? {
         val s = currentShared() ?: return null
+        val now = SystemClock.elapsedRealtime()
+        val age = if (role == ROLE_COMMANDER) now - sharedBearingMs else now - receivedFixMs
+        val others = s.phones.split(',').any { it.isNotEmpty() && it != letter }
         fun screen(b: Float) = ((b - headingDeg) + 720f) % 360f
-        return SharedArrow(screen(s.bearingDeg), s.twinDeg?.let { screen(it) }, s.phones, s.confidence)
+        return SharedArrow(screen(s.bearingDeg), s.twinDeg?.let { screen(it) }, s.phones, s.confidence, age, others)
     }
+
+    /** True when the fused bearing should be drawn instead of this phone's own: fresh and not just this phone's echo. */
+    fun preferShared(shared: SharedArrow?, own: com.hush.audio.KnockBearing.Estimate?): Boolean =
+        shared != null && shared.ageMs <= 4000L && (shared.others || own == null)
 
     /** Commander: its own fusion (< 10 s old); sensor: the fusion carried by the latest Fix (< 15 s old). */
     private fun currentShared(): Shared? {
@@ -748,9 +760,10 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val shared = sharedBearing?.takeIf { now - sharedBearingMs <= CROSS_HOLD_MS }
         if (f == null && cross == null && near == null && shared == null) return
         val key = (if (f != null) "fix" else if (cross != null) "cross %.0f,%.0f".format(cross.x * 2, cross.y * 2) else if (near != null) "near $near" else "none") +
-            (shared?.let { " shared %.0f %s %b".format(it.bearingDeg / 5f, it.phones, it.twinDeg == null) } ?: "")
+            (shared?.let { " shared %.0f %s %b".format(it.bearingDeg / 2f, it.phones, it.twinDeg == null) } ?: "")
         val changed = changedFix || key != lastFixKey
         if (!changed && now - lastFixSentMs < 5000L) return
+        if (changed && now - lastFixSentMs < 300L) return   // a moving bearing still goes out at most ~3 times a second
         val point = if (f != null) sourceOnMap() else if (cross != null) metresToMap(cross.x, cross.y) else if (near != null) mapDots[near] else null
         if (point == null && shared == null) return
         val src = point ?: (0.5f to 0.5f)   // no map point: only the shared bearing travels (hasPoint = false)
@@ -1532,9 +1545,16 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         sessionLog.add(e.toJson())
         updateLive(e)
         val nowB = SystemClock.elapsedRealtime()
+        val hadBearing = peerBearing.containsKey(e.sensorId)
         if (e.bearing != null) peerBearing[e.sensorId] = PeerBearing(e.bearing, e.bearingTwin, e.bearingQ ?: 0f, nowB) else peerBearing.remove(e.sensorId)
         recordGps(e, nowB)
         if (e.sensorId == "A") { applyGpsLayout(nowB); fuseBearings(nowB); crossBearings(nowB) }
+        else if (e.bearing != null || hadBearing) {
+            // Relay latency (27 Sep 03:05, team: "the relay is not that fast"): a sensor's bearing used to wait for the
+            // commander's own next second before it was fused and sent on. Fuse and send the moment it arrives.
+            fuseBearings(nowB)
+            sendFixDown(false, nowB)
+        }
         if (e.human >= 0.3f) {
             locator.addVoice(e.sensorId, maxOf(0f, e.rms - e.floor) / gainOf(e.sensorId), e.micDelay, e.micQ,
                 if (e.sensorId == "A") headingDeg else (peerHeading[e.sensorId] ?: 0f), e.moving, SystemClock.elapsedRealtime())

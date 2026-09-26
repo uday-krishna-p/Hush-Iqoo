@@ -34,17 +34,19 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
         override fun run() {
             val v = sensorArrow ?: return
             val own = Engine.ownArrow()
-            val shared = if (own == null) Engine.sharedArrow() else null
+            val sharedRaw = Engine.sharedArrow()
+            val shared = if (Engine.preferShared(sharedRaw, own)) sharedRaw else null
             val a = Engine.sensorArrow()
-            v.twinAngleDeg = own?.twinDeg ?: shared?.twinDeg
-            if (own != null) {
-                // This phone hears knocking: its own two mics say where. First claim on the arrow, no commander needed.
-                v.active = true; v.angleDeg = own.screenDeg
-                v.label = ownArrowLabel(activity, own)
-            } else if (shared != null) {
-                // Other phones hear it: their fused bearing, turned to this screen by this phone's compass.
+            v.twinAngleDeg = if (shared != null) shared.twinDeg else own?.twinDeg
+            if (shared != null) {
+                // The network's estimate (every phone's mics, fused by the commander, mirrors resolved across phones),
+                // drawn through this phone's own compass. Team, 27 Sep 03:10: this comes first, not the single phone.
                 v.active = true; v.angleDeg = shared.screenDeg
                 v.label = activity.getString(if (shared.twinDeg == null) R.string.arrow_shared else R.string.arrow_shared_unresolved, shared.phones)
+            } else if (own != null) {
+                // No fusion yet (or this phone is the only one hearing it): its own two mics.
+                v.active = true; v.angleDeg = own.screenDeg
+                v.label = ownArrowLabel(activity, own)
             } else if (a != null && a.here) {
                 v.active = false; v.angleDeg = 0f
                 v.label = activity.getString(R.string.arrow_here)
