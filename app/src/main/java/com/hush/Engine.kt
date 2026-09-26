@@ -584,6 +584,12 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 if (det.offset >= 0 && det.ratio >= 5f) lastChirpDetectedSample = at
                 HLog.d("Chirp from $letter heard by ${this.letter}: offset=${det.offset} sample=$at peak=%.2f ratio=%.1f firstArrivalShift=%d (%d ms)".format(det.peak, det.ratio, det.firstArrivalShift, SystemClock.elapsedRealtime() - t0))
                 if (det.offset < 0 || det.ratio < 5f) { HLog.d("Chirp from $letter: not credible, dropped"); return@Thread }
+                if (letter == this.letter) {
+                    // Own chirp: log its envelope profile on both mics (which self-peak is the sound leaving the speaker?).
+                    val a1 = if (cap.stereo) cap.snapshot(startSample, count, 1) else null
+                    HLog.d("Chirp self-profile mic0: ${com.hush.audio.Chirp.envelopePeaks(audio, count, det.offset)}" +
+                        (a1?.let { " | mic1: ${com.hush.audio.Chirp.envelopePeaks(it, count, det.offset)}" } ?: ""))
+                }
                 // Second mic: the delay of the SAME arrival on mic 1 (matched-filter outputs of both mics
                 // cross-correlated around the direct arrival found on mic 0), for the direction of arrival.
                 var micDelay: Float? = null

@@ -313,6 +313,29 @@ object Chirp {
         return MicDelay(fine, margin, score[bi])
     }
 
+    /**
+     * Local maxima of the 48 kHz correlation envelope for lags [at]+[from]..[at]+[to] that reach [minRel] of the
+     * largest, as "offset:relative" text. Used on a phone's OWN chirp (27 Sep): ef39 and 991e show a second
+     * self-peak ~45 samples after the first, 6a46 hardly; which one is the sound leaving the speaker decides the
+     * ranging constant, and the line test needs these profiles in the log.
+     */
+    fun envelopePeaks(audio: ShortArray, n: Int, at: Int, from: Int = -100, to: Int = 160, minRel: Double = 0.03): String {
+        val t = template; val q = quadrature; val m = t.size
+        val lo = maxOf(0, at + from); val hi = minOf(n - m, at + to)
+        if (hi <= lo + 2) return "-"
+        val e = DoubleArray(hi - lo + 1)
+        for (lag in lo..hi) {
+            var si = 0.0; var sq = 0.0
+            for (k in 0 until m) { val v = audio[lag + k].toDouble(); si += v * t[k]; sq += v * q[k] }
+            e[lag - lo] = kotlin.math.sqrt(si * si + sq * sq)
+        }
+        val mx = e.maxOrNull() ?: return "-"
+        val sb = StringBuilder()
+        for (i in 1 until e.size - 1) if (e[i] >= e[i - 1] && e[i] >= e[i + 1] && e[i] >= minRel * mx)
+            sb.append("%+d:%.2f ".format(lo + i - at, e[i] / mx))
+        return sb.toString().trim()
+    }
+
     /** Builds the FFT tables and lets the runtime compile the search before the first chirp (the first call took 4 s). */
     fun warmUp() {
         val t0 = System.nanoTime()
