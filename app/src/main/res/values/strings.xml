@@ -79,4 +79,7 @@
     <string name="label_waiting">listening…</string>
     <string name="accel_value">ACCEL jolts %1$d  max %2$.2f  shake %3$.2f m/s²\nonsets in 8 s: %4$d   rejected (not a knock): %5$d</string>
     <string name="debug_top5">Top 5 raw classes (debug)</string>
+    <string name="sync_compass">SYNC COMPASS (all phones lying parallel)</string>
+    <string name="sensor_title">SENSOR %1$s</string>
+    <string name="map_edit_on_commander">The map is edited on the commander (A).</string>
 </resources>

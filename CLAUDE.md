@@ -171,6 +171,28 @@ brief sent down); (6) the 1 s audio window (a knock is reported at the end of it
 ~0.4 s); (7) silent ultrasonic chirps (plan step 4) to bring back ranging, clock sync and the timing locator.
 The paragraphs below are the chronological log, newest first.
 
+**Compass sync and one screen on every phone, 27 Sep 03:30 (team: "why does sensor A point the opposite way … they
+are all kept parallel"; "they all need to have the same UI (of commander)"):** cause of the backwards arrow: with
+the three phones parallel their compasses read A (6a46) 96–98°, B 236–238°, C 245–246°. Every phone draws the
+fused bearing minus its OWN heading, so A's 141° compass error turned its arrow almost around. A's rotation-vector
+sensor still reported accuracy 3 ("high"), so the phone's own flag cannot catch this. Fix: **SYNC COMPASS** (button
+under the arrow on every phone; `--ez sync true`): with the phones lying parallel, the commander takes every phone's
+current heading (its own plus `hd`, now in every event), picks the circular median (so one bad compass is outvoted;
+with two phones the commander's wins) and sends `SYNC hd=<ref>` down; each phone stores a correction
+(`compassOffset` in the `hush_mic` preferences, kept across restarts) and restarts its bearing votes. Long-press
+clears a phone's correction. Log: `COMPASS SYNC: headings A=96° B=237° C=246° -> every phone reads 237°`, then
+per phone `COMPASS SYNC (…): raw …, now … (correction +141°)`. Measured 03:30: A +141°, B +0°, C −9°, all read
+237°. The screen shows "Compass N° · correction ±N° · accuracy …" (figure-8 hint when the phone says low).
+A constant correction is only right while the disturbance stays the same: re-sync after moving the phones to a new
+place, and check whether A's error changes with its orientation (a magnet in a case would do that). **Same screen:**
+sensors now use the commander's layout. The commander sends a `Board` down once a second after its own second
+(brief, ranking, names, every phone's latest event, status lines, discovered phones); a sensor's HUSH (long-press
+= solo), STOP, ACTIVATE, mode buttons and SYNC go up as a `Request` and the commander runs them (`REQUEST from B:
+…`). The sensor's map shows the commander's dots and point from the Fix; Place / Align / Auto-place / Flip stay on
+the commander. A sensor's export now holds every phone's seconds from the board. Verified from the laptop: boards
+arrive every second (`BOARD brief:` on both sensors), SYNC requested from Sensor B ran on the commander and reached
+all three. Not yet tried by hand: HUSH/STOP from a sensor's screen, the screen itself (phones were locked).
+
 **One arrow, accumulating confidence, 27 Sep 03:35 (team: "instead of jumping around, increase confidence based on
 the readings of the other phones", "why two arrows, it should be one"):** the commander's fusion is no longer a
 snapshot of each phone's latest bearing but an accumulating 5° histogram that decays with τ = 10 s: each phone's
@@ -602,14 +624,20 @@ data class SensorEvent(          // every phone, once a second
     val lat: Double?, val lon: Double?, val gpsAcc: Float?,
     val chirpTs: Long? = null,
     val micDelay: Float? = null, val micQ: Float? = null,  // two-mic delay over the second, voice only
-    val bearing: Float? = null, val bearingQ: Float? = null, val bearingTwin: Float? = null   // the phone's own knock arrow (compass °), only while it shows
+    val bearing: Float? = null, val bearingQ: Float? = null, val bearingTwin: Float? = null,  // the phone's own knock arrow (compass °), only while it shows
+    val heading: Float? = null   // hd: compass heading of the top edge after SYNC COMPASS
 )
 // Bluetooth (not JSON): probe advertisement = service UUID 0xA5A7 + 4-char commander suffix; Hush tag = service data
 // under 0xA5A5 = 4-char suffix + flags byte (1 = woken by probe, 2 = SOS) + battery byte.
 // Every phone, once a second and only when it heard knocks: each knock to the sample, on the sender's own audio clock.
 data class Onset(val sample: Long, val peak: Float, val ratio: Float, val micDelay: Float?, val micQ: Float?, val felt: Boolean)
 data class OnsetReport(val letter: String, val heading: Float, val moving: Boolean, val onsets: List<Onset>)
-data class Command(val type: String /* ASSIGN|HUSH|STOP|CHIRP */, val seconds: Int = 20, val letter: String?, val to: String?, val ble: String?)
+data class Command(val type: String /* ASSIGN|HUSH|STOP|CHIRP|SYNC */, val seconds: Int = 20, val letter: String?, val to: String?, val ble: String?, val heading: Float?)
+// Sensor → commander: a button pressed on a sensor's screen (HUSH|HUSH_SOLO|STOP|SWEEP|MODE arg=TAPPING…|SYNC).
+data class Request(val type: String, val from: String, val arg: String?)
+// Commander → every phone, once a second: what the commander's screen shows (same UI on every phone).
+data class Board(val brief: String, val mode: String, val ranks: List<Rank /* l, s, e, src */>, val names: Map<String, String>,
+                 val events: List<SensorEvent>, val status: String, val discovered: String)
 data class ChirpReport(val hearer: String, val from: String, val sample: Long, val ratio: Float, val micDelay: Float?, val heading: Float?, val level: Float?)
 data class Placement(val letter: String, val east: Float, val north: Float, val steps: Int)
 data class Join(val name: String, val hops: Int, val leaving: Boolean, val ble: String?)
@@ -652,7 +680,8 @@ app/src/main/java/com/hush/
   net/Probe.kt             // passive port (PendingIntent BLE scan, re-arm alarm) and the commander's probe advertisement
   model/Events.kt          // all messages + JSON
   log/SessionLog.kt        // export
-  ui/CommanderScreen.kt, SensorScreen.kt, MapView.kt, ArrowView.kt
+  ui/CommanderScreen.kt     // the one screen every phone shows (sensors fill it from the commander's Board and Fix)
+  ui/SensorScreen.kt        // base: this phone's mic block + a sensor's arrow logic; ui/MapView.kt, ui/ArrowView.kt
 app/src/main/assets/yamnet.tflite, yamnet_class_map.csv
 app/src/test/java/com/hush/LocatorTest.kt   // laptop-only synthetic test of the locator (JUnit 4.13.2)
 app/src/test/java/com/hush/KnockBearingTest.kt   // the own arrow: mirror resolved by turning, expiry, junk delays
@@ -678,6 +707,7 @@ adb shell am start -n com.hush/.MainActivity --ez hush true         # commander:
 adb shell am start -n com.hush/.MainActivity --es layout clear      # commander: drop the stored hand layout and pointing so GPS may place the phones
 adb shell am start -n com.hush/.MainActivity --es mic1top false     # any role: channel 1 is the BOTTOM mic (use if the own arrow points backwards)
 adb shell am start -n com.hush/.MainActivity --ef micspacing 0.14   # any role: distance between the two mics, metres (default 0.155)
+adb shell am start -n com.hush/.MainActivity --ez sync true         # any role: SYNC COMPASS (phones lying parallel, tops the same way)
 adb shell dumpsys bluetooth_manager | grep -A8 'com.hush (Registered)'   # Bluetooth's view of the port: scan time, results
 ./gradlew testDebugUnitTest -q          # 24 laptop tests: knock bearing, crossing, GPS layout, locator, chirp
 adb -s <serial> exec-out run-as com.hush cat files/debug.wav > debug.wav   # first 300 s of raw stereo audio after a role start, laptop analysis only
@@ -685,9 +715,10 @@ adb -s <serial> exec-out run-as com.hush cat files/debug.wav > debug.wav   # fir
 
 ## Demo flow the code supports
 
-1. Three phones on cloth, within a metre of each other, at clearly different angles (so their left/right mirrors
-   differ). Airplane mode + Bluetooth + Wi-Fi radio on. Pick COMMANDER on one, SENSOR on the others; letters and
-   name suffixes appear. No chirps, no placing needed.
+1. Three phones on cloth, within a metre of each other. Airplane mode + Bluetooth + Wi-Fi radio on. Pick COMMANDER
+   on one, SENSOR on the others; letters and name suffixes appear. Lay them parallel (tops the same way) and tap
+   SYNC COMPASS on any phone; then turn them to clearly different angles (so their left/right mirrors differ).
+   No chirps, no placing needed.
 2. Someone knocks on the table 0.5–2 m away, one per second. Within 3–4 knocks every phone shows one arrow on the
    knock, "fused from A,B,C · confidence N%"; confidence climbs as the phones agree. Turn a phone: its arrow stays
    on the knock. The knocker walks: the arrows follow within a few knocks.

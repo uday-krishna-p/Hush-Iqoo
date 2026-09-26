@@ -27,8 +27,9 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
     private val topClass: TextView = activity.findViewById(R.id.topClass)
     private val top5: TextView = activity.findViewById(R.id.top5)
 
-    /** Only on the sensor screen: an arrow at the source the commander located (Engine.sensorArrow). */
+    /** Only on a sensor: the arrow (fused bearing, own two mics, or the commander's fix). The commander draws its own. */
     private val sensorArrow: ArrowView? = activity.findViewById(R.id.sensorArrow)
+        ?: if (Engine.role != Engine.ROLE_COMMANDER) activity.findViewById(R.id.arrow) else null
     private var arrowTicks = 0
     private val sensorArrowTick = object : Runnable {
         override fun run() {

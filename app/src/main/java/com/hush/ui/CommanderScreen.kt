@@ -15,10 +15,21 @@ import com.hush.R
 import com.hush.model.SensorEvent
 
 /**
- * Commander: mode switch, HUSH button, big countdown, the brief, the ranked sensor list,
- * plus the commander's own mic block (it is Sensor A).
+ * The one screen every phone shows (27 Sep, team: "they all need to have the same UI"): mode switch, HUSH button,
+ * big countdown, the brief, the arrow, the map, the ranked phone list, plus this phone's own mic block.
+ * On the commander everything is computed here; on a sensor the list, brief and status come from the commander's
+ * once-a-second Board, the map from its Fix, the arrow from [SensorScreen]'s logic, and the buttons ask the commander.
+ * Map editing (Place, Align, Auto-place, Flip) stays on the commander, which owns the map.
  */
-class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getString(R.string.my_mic_a)) {
+class CommanderScreen(activity: Activity) : SensorScreen(activity,
+    activity.getString(if (Engine.role == Engine.ROLE_COMMANDER) R.string.my_mic_a else R.string.role_sensor)) {
+
+    private val isCommander = Engine.role == Engine.ROLE_COMMANDER
+    private val screenTitle: TextView = activity.findViewById(R.id.screenTitle)
+    private val compassText: TextView = activity.findViewById(R.id.compassText)
+    private val compassTick = object : Runnable {
+        override fun run() { compassText.text = Engine.compassText(); compassText.postDelayed(this, 500) }
+    }
 
     private val btnHush: Button = activity.findViewById(R.id.btnHush)
     private val bigCountdown: TextView = activity.findViewById(R.id.bigCountdown)
@@ -130,6 +141,7 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
     /** One "Align X" button per sensor on the map: point this phone's top at X, then tap (sets north). */
     private fun renderAlignButtons() {
         alignRow.removeAllViews()
+        if (!isCommander) return
         for (l in peers.map { it.letter }.filter { Engine.mapDots.containsKey(it) }.sorted()) {
             val b = Button(activity)
             b.text = activity.getString(R.string.align_button, l)
@@ -147,6 +159,7 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
     private fun renderPlaceButtons() {
         val letters = (listOf("A") + peers.map { it.letter } + Engine.mapDots.keys).distinct().sorted()
         placeRow.removeAllViews()
+        if (!isCommander) { renderAlignButtons(); return }
         for (l in letters) {
             val b = Button(activity)
             b.text = activity.getString(R.string.place_button, l)
@@ -166,9 +179,13 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
             val msg = if (name != null) activity.getString(R.string.export_ok, name) else activity.getString(R.string.export_failed)
             android.widget.Toast.makeText(activity, msg, android.widget.Toast.LENGTH_LONG).show()
         }
-        modeButtons.forEach { (mode, btn) -> btn.setOnClickListener { Engine.mode = mode; renderMode() } }
-        // Dots live in Engine so they survive the screen being recreated.
-        map.dots.putAll(Engine.mapDots)
+        modeButtons.forEach { (mode, btn) -> btn.setOnClickListener { Engine.chooseMode(mode); renderMode() } }
+        val sync = activity.findViewById<Button>(R.id.btnSyncCompass)
+        sync.setOnClickListener { android.widget.Toast.makeText(activity, Engine.syncCompasses(), android.widget.Toast.LENGTH_LONG).show() }
+        sync.setOnLongClickListener { android.widget.Toast.makeText(activity, Engine.clearCompassSync(), android.widget.Toast.LENGTH_LONG).show(); true }
+        compassText.post(compassTick)
+        // Dots live in Engine so they survive the screen being recreated (a sensor gets them from the commander's Fix).
+        map.dots.putAll(Engine.screenDots())
         map.onPlaced = { letter -> Engine.mapDots[letter] = map.dots[letter]!!; renderPlaceButtons() }
         map.strongest = Engine.lastRanking.firstOrNull()?.takeIf { it.score > 0f }?.letter
         renderSource()
@@ -176,7 +193,12 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
         onDiscovered(Engine.discoveredPhones())
         activity.findViewById<Button>(R.id.btnAutoPlace).setOnClickListener { Engine.autoPlace() }
         activity.findViewById<Button>(R.id.btnStop).setOnClickListener { Engine.stopAll() }
-        arrow.post(arrowTick)
+        // A sensor's arrow is drawn by SensorScreen (fused bearing first, then its own two mics).
+        if (isCommander) arrow.post(arrowTick)
+        if (!isCommander) {
+            activity.findViewById<Button>(R.id.btnAutoPlace).apply { isEnabled = false; text = activity.getString(R.string.map_edit_on_commander) }
+            activity.findViewById<Button>(R.id.btnFlip).visibility = View.GONE
+        }
         activity.findViewById<Button>(R.id.btnFlip).setOnClickListener {
             Engine.mirror = !Engine.mirror
             val flipped = Engine.mapDots.mapValues { (_, p) -> p.first to (1f - p.second) }
@@ -195,14 +217,24 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
 
     override fun onLinkStatus(text: String) {
         super.onLinkStatus(text)
-        commanderStatus.text = listOf(text, Engine.probeStatus, Engine.rangingStatus, if (Engine.radioStatus.isEmpty()) "" else "Radio: ${Engine.radioStatus}").filter { it.isNotEmpty() }.joinToString("\n")
+        screenTitle.text = if (isCommander) activity.getString(R.string.role_commander) else activity.getString(R.string.sensor_title, Engine.letter)
+        commanderStatus.text = (if (isCommander) listOf(text, Engine.probeStatus, Engine.rangingStatus, if (Engine.radioStatus.isEmpty()) "" else "Radio: ${Engine.radioStatus}")
+                                else listOf(text, Engine.probeStatus, Engine.boardStatus)).filter { it.isNotEmpty() }.joinToString("\n")
         // Ranging may have replaced the dots, and the locator may have moved the source.
-        map.dots.clear(); map.dots.putAll(Engine.mapDots)
+        map.dots.clear(); map.dots.putAll(Engine.screenDots())
         renderSource()
         map.invalidate()
     }
 
     private fun renderSource() {
+        if (!isCommander) {
+            // The commander's located source or crossing, as carried by its Fix.
+            map.source = Engine.screenSource()
+            val f = Engine.receivedFix
+            map.sourceRadius = if (map.source != null && f?.scale != null && f.scale > 0f) f.radius / f.scale else 0f
+            map.sourceFar = f?.edge == true
+            return
+        }
         val fix = Engine.sourceFix
         val cross = if (fix == null) Engine.crossingOnMap() else null   // where the phones' bearing lines meet
         map.source = Engine.sourceOnMap() ?: cross
@@ -236,23 +268,13 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
     }
 
     override fun onDiscovered(phones: List<Engine.Discovered>) {
-        if (phones.isEmpty()) { discoveredText.text = activity.getString(R.string.discovered_none); return }
-        val now = android.os.SystemClock.elapsedRealtime()
-        discoveredText.text = phones.joinToString("\n") { p ->
-            val age = (now - p.lastSeenMs) / 1000
-            buildString {
-                append(p.suffix).append("  ").append(p.medianRssi).append(" dBm  ~").append("%.0f".format(p.roughMetres)).append(" m?  ").append(p.trend)
-                if (p.awakeByProbe) append("  · woken by probe")
-                if (p.battery >= 0) append("  · ").append(p.battery).append(" %")
-                append(if (p.letter != null) "  → Sensor ${p.letter}" else "  · not joined yet")
-                if (age > 5) append("  (${age} s ago)")
-            }
-        }
+        val text = if (isCommander) Engine.discoveredText(phones) else Engine.boardDiscovered
+        discoveredText.text = text.ifEmpty { activity.getString(R.string.discovered_none) }
     }
 
     override fun onPeers(peers: List<Engine.Peer>) {
         this.peers = peers
-        map.dots.clear(); map.dots.putAll(Engine.mapDots); map.invalidate()
+        map.dots.clear(); map.dots.putAll(Engine.screenDots()); map.invalidate()
         renderPlaceButtons()
         render()
     }
@@ -270,12 +292,13 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
         val sb = SpannableStringBuilder()
         val strongest = ranks.firstOrNull()?.takeIf { it.score > 0f }?.letter
         val rankByLetter = ranks.associateBy { it.letter }
+        val me = Engine.letter
         val letters = if (ranks.isNotEmpty()) ranks.map { it.letter } + (latest.keys - ranks.map { it.letter }.toSet())
-                      else (listOf("A") + peers.map { it.letter } + latest.keys).distinct().sorted()
+                      else (listOf("A", me) + peers.map { it.letter } + latest.keys).filter { it != "?" }.distinct().sorted()
         for (l in letters) {
             val e = latest[l]
             val r = rankByLetter[l]
-            val name = if (l == "A") "${activity.getString(R.string.this_phone)} ${Engine.name.takeLast(4)}" else names[l]?.takeLast(4) ?: activity.getString(R.string.offline)
+            val name = if (l == me) "${activity.getString(R.string.this_phone)} ${Engine.name.takeLast(4)}" else names[l]?.takeLast(4) ?: activity.getString(R.string.offline)
             val start = sb.length
             sb.append(if (l == strongest) "★ " else "   ").append(l).append("  ").append(name)
             if (r != null) sb.append("   score %.4f  evidence %.0f%%".format(r.score, r.evidence * 100))

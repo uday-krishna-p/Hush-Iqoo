@@ -7,7 +7,11 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import com.hush.HLog
 
-/** Heading of the phone's top edge, in degrees clockwise from magnetic north, smoothed. */
+/**
+ * Heading of the phone's top edge, in degrees clockwise from magnetic north, smoothed, plus [offsetDeg].
+ * The offset is set by SYNC COMPASS (27 Sep: three parallel phones read 98°, 238°, 245°; the odd one drew the
+ * fused arrow backwards), so every phone's heading agrees with the majority even when one compass is disturbed.
+ */
 class Compass(context: Context) : SensorEventListener {
 
     private val manager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
@@ -15,7 +19,14 @@ class Compass(context: Context) : SensorEventListener {
     private val rot = FloatArray(9)
     private val orient = FloatArray(3)
 
-    @Volatile var headingDeg: Float = 0f
+    /** Smoothed sensor heading before the offset. */
+    @Volatile var rawHeadingDeg: Float = 0f
+        private set
+    /** Degrees added to the sensor heading (SYNC COMPASS). */
+    @Volatile var offsetDeg: Float = 0f
+    val headingDeg: Float get() = ((rawHeadingDeg + offsetDeg) % 360f + 360f) % 360f
+    /** SensorManager accuracy: 0 unreliable, 1 low, 2 medium, 3 high; -1 not reported yet. */
+    @Volatile var accuracy: Int = -1
         private set
     @Volatile var available = false
         private set
@@ -35,11 +46,14 @@ class Compass(context: Context) : SensorEventListener {
         var deg = Math.toDegrees(orient[0].toDouble()).toFloat()
         if (deg < 0) deg += 360f
         // Smooth around the wrap-around.
-        var diff = deg - headingDeg
+        var diff = deg - rawHeadingDeg
         if (diff > 180) diff -= 360
         if (diff < -180) diff += 360
-        headingDeg = ((headingDeg + diff * 0.25f) + 360f) % 360f
+        rawHeadingDeg = ((rawHeadingDeg + diff * 0.25f) + 360f) % 360f
     }
 
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+        if (accuracy != this.accuracy) HLog.d("Compass: accuracy $accuracy (0 unreliable, 1 low, 2 medium, 3 high), raw heading %.0f°".format(rawHeadingDeg))
+        this.accuracy = accuracy
+    }
 }

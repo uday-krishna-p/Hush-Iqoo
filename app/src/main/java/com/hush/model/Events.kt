@@ -32,7 +32,8 @@ data class SensorEvent(
     val micQ: Float? = null,     // 0..1 how well the two mics agreed on that delay
     val bearing: Float? = null,  // compass degrees: where this phone's own two-mic arrow points (only while it shows)
     val bearingQ: Float? = null, // 0..1 confidence of that bearing (about 0.35 while left/right is still open)
-    val bearingTwin: Float? = null // the mirror candidate, present until the phone was turned to resolve it
+    val bearingTwin: Float? = null, // the mirror candidate, present until the phone was turned to resolve it
+    val heading: Float? = null   // compass heading of the phone's top edge (after SYNC COMPASS), for the commander's sync
 ) {
     fun toJson(): String = JSONObject().apply {
         put("id", sensorId)
@@ -60,6 +61,7 @@ data class SensorEvent(
         bearing?.let { put("br", Math.round(it * 10.0) / 10.0) }
         bearingQ?.let { put("bq", r(it)) }
         bearingTwin?.let { put("br2", Math.round(it * 10.0) / 10.0) }
+        heading?.let { put("hd", Math.round(it * 10.0) / 10.0) }
     }.toString()
 
     companion object {
@@ -93,7 +95,8 @@ data class SensorEvent(
                 micQ = if (o.has("dq")) o.getDouble("dq").toFloat() else null,
                 bearing = if (o.has("br")) o.getDouble("br").toFloat() else null,
                 bearingQ = if (o.has("bq")) o.getDouble("bq").toFloat() else null,
-                bearingTwin = if (o.has("br2")) o.getDouble("br2").toFloat() else null
+                bearingTwin = if (o.has("br2")) o.getDouble("br2").toFloat() else null,
+                heading = if (o.has("hd")) o.getDouble("hd").toFloat() else null
             )
         } catch (e: Exception) {
             HLog.d("bad SensorEvent json: $e")
@@ -103,13 +106,15 @@ data class SensorEvent(
 }
 
 /** Commander → sensors. [to] = the sensor's advertised name for ASSIGN; null = everyone. */
-data class Command(val type: String, val seconds: Int = 20, val letter: String? = null, val to: String? = null, val ble: String? = null) {
+data class Command(val type: String, val seconds: Int = 20, val letter: String? = null, val to: String? = null, val ble: String? = null,
+                   val heading: Float? = null /* SYNC: the heading every phone should read now */) {
     fun toJson(): String = JSONObject().apply {
         put("cmd", type)
         put("sec", seconds)
         letter?.let { put("letter", it) }
         to?.let { put("to", it) }
         ble?.let { put("ble", it) }
+        heading?.let { put("hd", Math.round(it * 10.0) / 10.0) }
     }.toString()
 
     companion object {
@@ -117,9 +122,11 @@ data class Command(val type: String, val seconds: Int = 20, val letter: String? 
         const val HUSH = "HUSH"
         const val STOP = "STOP"
         const val CHIRP = "CHIRP"
+        const val SYNC = "SYNC"
 
         fun fromJson(o: JSONObject): Command? = try {
-            Command(o.getString("cmd"), o.optInt("sec", 20), o.optString("letter").ifEmpty { null }, o.optString("to").ifEmpty { null }, o.optString("ble").ifEmpty { null })
+            Command(o.getString("cmd"), o.optInt("sec", 20), o.optString("letter").ifEmpty { null }, o.optString("to").ifEmpty { null }, o.optString("ble").ifEmpty { null },
+                if (o.has("hd")) o.getDouble("hd").toFloat() else null)
         } catch (e: Exception) {
             HLog.d("bad Command json: $e")
             null
@@ -271,12 +278,54 @@ data class Fix(
     }
 }
 
+/** Sensor → commander: a button pressed on a sensor's screen, run by the commander (HUSH, STOP, SWEEP, MODE, SYNC). */
+data class Request(val type: String, val from: String, val arg: String? = null) {
+    fun toJson(): String = JSONObject().put("req", type).put("from", from).apply { arg?.let { put("arg", it) } }.toString()
+
+    companion object {
+        const val HUSH = "HUSH"; const val HUSH_SOLO = "HUSH_SOLO"; const val STOP = "STOP"; const val SWEEP = "SWEEP"
+        const val MODE = "MODE"; const val SYNC = "SYNC"
+        fun fromJson(o: JSONObject): Request? = try {
+            Request(o.getString("req"), o.optString("from"), o.optString("arg").ifEmpty { null })
+        } catch (e: Exception) { HLog.d("bad Request json: $e"); null }
+    }
+}
+
+/**
+ * Commander → every phone, once a second: what the commander's screen shows, so every phone can show the same
+ * (team, 27 Sep: "they all need to have the same UI"). The brief, the ranking, each phone's latest event, the
+ * names behind the letters, the listen mode and the commander's status lines. Small JSON only, never audio.
+ */
+data class Board(val brief: String, val mode: String, val ranks: List<Rank>, val names: Map<String, String>,
+                 val events: List<SensorEvent>, val status: String, val discovered: String) {
+    data class Rank(val letter: String, val score: Float, val evidence: Float, val source: Int)
+
+    fun toJson(): String = JSONObject().put("rep", "board").put("brief", brief).put("mode", mode).put("st", status).put("disc", discovered)
+        .put("rk", JSONArray().apply { ranks.forEach { put(JSONObject().put("l", it.letter).put("s", it.score.toDouble()).put("e", Math.round(it.evidence * 100.0) / 100.0).put("src", it.source)) } })
+        .put("nm", JSONObject().apply { names.forEach { (l, n) -> put(l, n) } })
+        .put("ev", JSONArray().apply { events.forEach { put(JSONObject(it.toJson())) } })
+        .toString()
+
+    companion object {
+        fun fromJson(o: JSONObject): Board? = try {
+            val rk = o.getJSONArray("rk"); val nm = o.getJSONObject("nm"); val ev = o.getJSONArray("ev")
+            Board(o.optString("brief"), o.optString("mode", "TAPPING"),
+                (0 until rk.length()).map { val r = rk.getJSONObject(it); Rank(r.getString("l"), r.getDouble("s").toFloat(), r.getDouble("e").toFloat(), r.optInt("src", 0)) },
+                LinkedHashMap<String, String>().apply { for (k in nm.keys()) put(k, nm.getString(k)) },
+                (0 until ev.length()).mapNotNull { SensorEvent.fromJson(ev.getJSONObject(it)) },
+                o.optString("st"), o.optString("disc"))
+        } catch (e: Exception) { HLog.d("bad Board json: $e"); null }
+    }
+}
+
 object Messages {
     /** Returns a [SensorEvent], a [Command], a [ChirpReport], a [Placement], a [Join], an [OnsetReport], a [Fix], or null. */
     fun parse(text: String): Any? = try {
         val o = JSONObject(text)
         when {
             o.has("cmd") -> Command.fromJson(o)
+            o.has("req") -> Request.fromJson(o)
+            o.optString("rep") == "board" -> Board.fromJson(o)
             o.optString("rep") == "chirp" -> ChirpReport.fromJson(o)
             o.optString("rep") == "place" -> Placement.fromJson(o)
             o.optString("rep") == "onsets" -> OnsetReport.fromJson(o)
