@@ -70,6 +70,7 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
 
     override fun onEvent(event: SensorEvent, peerName: String) {}
     override fun onPeers(peers: List<Engine.Peer>) {}
+    override fun onRanking(ranks: List<Engine.Rank>, brief: String) {}
 
     /** Maps RMS to a 0..100 bar on a decibel scale. Phone mics sit around -70 dB in a quiet room: -85 dB → 0, -15 dB → 100. */
     private fun rmsToPercent(rms: Float): Int {

@@ -13,6 +13,11 @@
     <string name="no_data_yet">no data yet</string>
     <string name="sensors_heading">Sensors (letter, phone, last second)</string>
     <string name="hush_button">HUSH</string>
+    <string name="mode_tapping">TAPPING</string>
+    <string name="mode_voice">VOICE</string>
+    <string name="mode_any">ANY</string>
+    <string name="brief_idle">Press HUSH to run a 20 s listening window</string>
+    <string name="brief_listening">Listening…</string>
     <string name="hush_running">HUSH RUNNING</string>
 
     <string name="loudness">Loudness (200–3000 Hz)</string>

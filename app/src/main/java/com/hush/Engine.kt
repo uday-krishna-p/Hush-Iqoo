@@ -71,6 +71,19 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     data class Peer(val endpointId: String, val name: String, val letter: String)
 
+    /** What the commander is listening for. Decides which evidence feeds the rank score. */
+    enum class Mode { TAPPING, VOICE, ANY }
+
+    /** One sensor's result for one Hush window. */
+    data class Rank(
+        val letter: String,
+        val score: Float,        // mean of the 5 best windows of (rms above floor) × evidence
+        val evidence: Float,     // best evidence seen in the window, 0..1
+        val rhythm: String?,     // most frequent rhythm name, if any
+        val windows: Int,        // seconds of data received
+        val moving: Boolean      // flagged as handled/shaken during the window
+    )
+
     interface Listener {
         fun onOwnWindow(w: Window)
         fun onLinkStatus(text: String)
@@ -80,6 +93,64 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         fun onEvent(event: SensorEvent, peerName: String)
         /** Commander only: the connected sensor list changed. */
         fun onPeers(peers: List<Peer>)
+        /** Commander only: ranking after a Hush window, strongest first, plus the one-line brief. */
+        fun onRanking(ranks: List<Rank>, brief: String)
+    }
+
+    @Volatile var mode: Mode = Mode.TAPPING
+        set(value) { field = value; HLog.d("Listen mode: $value") }
+
+    private val hushEvents = HashMap<String, MutableList<SensorEvent>>()   // letter → events during the window
+    private var hushStartMs = 0L
+    var lastRanking: List<Rank> = emptyList()
+        private set
+    var lastBrief: String = ""
+        private set
+
+    private fun evidence(e: SensorEvent): Float = when (mode) {
+        Mode.TAPPING -> e.rhythmScore
+        Mode.VOICE -> e.human
+        Mode.ANY -> maxOf(e.rhythmScore, e.human)
+    }
+
+    /** Commander: every event, own or received, lands here. */
+    private fun recordEvent(e: SensorEvent) {
+        if (!inHush) return
+        // Skip the first second: the start beep and buzz are in it.
+        if (SystemClock.elapsedRealtime() < hushStartMs + 1000) return
+        hushEvents.getOrPut(e.sensorId) { ArrayList() }.add(e)
+    }
+
+    private fun computeRanking() {
+        val ranks = hushEvents.map { (letter, events) ->
+            val scores = events.map { maxOf(0f, it.rms - it.floor) * evidence(it) }.sortedDescending()
+            val best = scores.take(5)
+            val rhythm = events.mapNotNull { it.rhythm }.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key
+            Rank(
+                letter = letter,
+                score = if (best.isEmpty()) 0f else best.average().toFloat(),
+                evidence = events.maxOfOrNull { evidence(it) } ?: 0f,
+                rhythm = rhythm,
+                windows = events.size,
+                moving = events.count { it.moving } > events.size / 3
+            )
+        }.sortedByDescending { it.score }
+        lastRanking = ranks
+        val top = ranks.firstOrNull()
+        lastBrief = when {
+            top == null -> "No sensor data in this window"
+            top.evidence >= 0.9f && mode != Mode.VOICE && top.rhythm != null ->
+                "Human tapping · ${(top.evidence * 100).toInt()}% · strongest at Sensor ${top.letter} · rhythm ${top.rhythm}"
+            top.evidence >= 0.9f && mode != Mode.VOICE ->
+                "Human tapping · ${(top.evidence * 100).toInt()}% · strongest at Sensor ${top.letter}"
+            top.evidence >= 0.3f && mode != Mode.TAPPING ->
+                "Human voice · ${(top.evidence * 100).toInt()}% · strongest at Sensor ${top.letter}"
+            top.score > 0f -> "Weak signal · ${(top.evidence * 100).toInt()}% · loudest at Sensor ${top.letter}"
+            else -> "No human signal detected"
+        }
+        HLog.d("RANKING ($mode): " + ranks.joinToString(" | ") { "%s score=%.5f ev=%.2f rh=%s n=%d".format(it.letter, it.score, it.evidence, it.rhythm, it.windows) })
+        HLog.d("BRIEF: $lastBrief")
+        listener?.onRanking(ranks, lastBrief)
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -96,7 +167,10 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 main.post {
                     l.onLinkStatus(lastStatus)
                     l.onCountdown(if (inHush) secondsLeft() else -1)
-                    if (role == ROLE_COMMANDER) l.onPeers(peers.values.toList())
+                    if (role == ROLE_COMMANDER) {
+                        l.onPeers(peers.values.toList())
+                        if (lastRanking.isNotEmpty()) l.onRanking(lastRanking, lastBrief)
+                    }
                 }
             }
         }
@@ -161,6 +235,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         peers.clear()
         recentRms.clear()
         rhythmTracker.reset()
+        hushEvents.clear()
+        lastRanking = emptyList()
+        lastBrief = ""
         inHush = false
         role = null
         letter = "?"
@@ -180,7 +257,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private fun startHushLocal(seconds: Int) {
         floor = if (recentRms.isEmpty()) 0f else recentRms.average().toFloat()
         inHush = true
-        hushEndMs = SystemClock.elapsedRealtime() + seconds * 1000L
+        hushStartMs = SystemClock.elapsedRealtime()
+        hushEndMs = hushStartMs + seconds * 1000L
+        hushEvents.clear()
         HLog.d("Hush window started: $seconds s, noise floor %.5f".format(floor))
         vibrate(longArrayOf(0, 700, 150, 700, 150, 900))   // three long full-strength pulses at the start
         appContext?.let { Ping.play(it, listOf(2500 to 250, 0 to 100, 2500 to 250)) }
@@ -198,6 +277,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             vibrate(longArrayOf(0, 400, 120, 400))            // two pulses at the end
             appContext?.let { Ping.play(it, listOf(1800 to 400)) }
             listener?.onCountdown(-1)
+            // Give the last sensor events a moment to arrive, then rank.
+            if (role == ROLE_COMMANDER) main.postDelayed({ computeRanking() }, 1500)
         } else {
             listener?.onCountdown(left)
             main.postDelayed({ tick() }, 250)
@@ -281,7 +362,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             listener?.onOwnWindow(w)
             when (role) {
                 ROLE_SENSOR -> link?.broadcast(event.toJson())
-                ROLE_COMMANDER -> listener?.onEvent(event, localName)
+                ROLE_COMMANDER -> { recordEvent(event); listener?.onEvent(event, localName) }
             }
         }
     }
@@ -329,6 +410,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             }
             is SensorEvent -> {
                 val name = peers[endpointId]?.name ?: endpointId
+                recordEvent(msg)
                 listener?.onEvent(msg, name)
             }
         }

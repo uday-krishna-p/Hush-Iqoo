@@ -24,6 +24,34 @@
             android:textSize="16sp"
             android:textStyle="bold" />
 
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnModeTapping"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/mode_tapping" />
+
+            <Button
+                android:id="@+id/btnModeVoice"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/mode_voice" />
+
+            <Button
+                android:id="@+id/btnModeAny"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/mode_any" />
+        </LinearLayout>
+
         <Button
             android:id="@+id/btnHush"
             android:layout_width="match_parent"
@@ -40,6 +68,15 @@
             android:textSize="120sp"
             android:textStyle="bold"
             android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/briefText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/brief_idle"
+            android:textSize="22sp"
+            android:textStyle="bold" />
 
         <TextView
             android:layout_width="wrap_content"

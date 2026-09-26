@@ -1,6 +1,12 @@
 package com.hush.ui
 
 import android.app.Activity
+import android.graphics.Typeface
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
+import android.text.style.StyleSpan
 import android.view.View
 import android.widget.Button
 import android.widget.TextView
@@ -9,22 +15,35 @@ import com.hush.R
 import com.hush.model.SensorEvent
 
 /**
- * Commander: HUSH button, big countdown, list of connected sensors with their latest second,
- * plus the commander's own mic block (it is Sensor A). Ranking arrives in the Listen+Rank step.
+ * Commander: mode switch, HUSH button, big countdown, the brief, the ranked sensor list,
+ * plus the commander's own mic block (it is Sensor A).
  */
 class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getString(R.string.my_mic_a)) {
 
     private val btnHush: Button = activity.findViewById(R.id.btnHush)
     private val bigCountdown: TextView = activity.findViewById(R.id.bigCountdown)
+    private val briefText: TextView = activity.findViewById(R.id.briefText)
     private val peersText: TextView = activity.findViewById(R.id.peersText)
     private val commanderStatus: TextView = activity.findViewById(R.id.commanderStatus)
+    private val modeButtons = mapOf(
+        Engine.Mode.TAPPING to activity.findViewById<Button>(R.id.btnModeTapping),
+        Engine.Mode.VOICE to activity.findViewById<Button>(R.id.btnModeVoice),
+        Engine.Mode.ANY to activity.findViewById<Button>(R.id.btnModeAny)
+    )
 
     private var peers: List<Engine.Peer> = emptyList()
     private val latest = LinkedHashMap<String, SensorEvent>()   // letter → newest event
+    private var ranks: List<Engine.Rank> = emptyList()
 
     init {
         btnHush.setOnClickListener { Engine.hush(20) }
+        modeButtons.forEach { (mode, btn) -> btn.setOnClickListener { Engine.mode = mode; renderMode() } }
+        renderMode()
         render()
+    }
+
+    private fun renderMode() {
+        modeButtons.forEach { (mode, btn) -> btn.alpha = if (mode == Engine.mode) 1f else 0.45f }
     }
 
     override fun onLinkStatus(text: String) {
@@ -43,6 +62,7 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
             bigCountdown.text = secondsLeft.toString()
             btnHush.isEnabled = false
             btnHush.text = activity.getString(R.string.hush_running)
+            if (secondsLeft >= 19) { ranks = emptyList(); briefText.text = activity.getString(R.string.brief_listening) }
         }
     }
 
@@ -56,24 +76,43 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
         render()
     }
 
+    override fun onRanking(ranks: List<Engine.Rank>, brief: String) {
+        this.ranks = ranks
+        briefText.text = brief
+        briefText.setTextColor(if (ranks.firstOrNull()?.let { it.evidence >= 0.9f } == true) 0xFF1B8A3A.toInt() else 0xFF333333.toInt())
+        render()
+    }
+
     private fun render() {
-        val sb = StringBuilder()
         val names = HashMap<String, String>().apply { peers.forEach { put(it.letter, it.name) } }
-        val letters = (listOf("A") + peers.map { it.letter } + latest.keys).distinct().sorted()
+        val sb = SpannableStringBuilder()
+        val strongest = ranks.firstOrNull()?.takeIf { it.score > 0f }?.letter
+        val rankByLetter = ranks.associateBy { it.letter }
+        val letters = if (ranks.isNotEmpty()) ranks.map { it.letter } + (latest.keys - ranks.map { it.letter }.toSet())
+                      else (listOf("A") + peers.map { it.letter } + latest.keys).distinct().sorted()
         for (l in letters) {
             val e = latest[l]
+            val r = rankByLetter[l]
             val name = if (l == "A") activity.getString(R.string.this_phone) else names[l] ?: activity.getString(R.string.offline)
-            sb.append(l).append("  ").append(name).append('\n')
+            val start = sb.length
+            sb.append(if (l == strongest) "★ " else "   ").append(l).append("  ").append(name)
+            if (r != null) sb.append("   score %.4f  evidence %.0f%%".format(r.score, r.evidence * 100))
+            sb.append('\n')
+            if (l == strongest) {
+                sb.setSpan(StyleSpan(Typeface.BOLD), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                sb.setSpan(RelativeSizeSpan(1.25f), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                sb.setSpan(ForegroundColorSpan(0xFF1B8A3A.toInt()), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
             if (e != null) {
                 val rh = if (e.rhythm != null) " · ${e.rhythm}" else ""
                 val bat = if (e.battery >= 0) "  ${e.battery}%" else ""
                 val mov = if (e.moving) "  ⚠moving" else ""
-                sb.append("   ${e.label}$rh$mov$bat\n")
-                sb.append("   rms %.4f  taps %d  jolts %d  rhythm %.1f  voice %.2f  machine %.2f\n".format(e.rms, e.taps, e.accel, e.rhythmScore, e.human, e.machine))
+                sb.append("      ${e.label}$rh$mov$bat\n")
+                sb.append("      rms %.4f  taps %d  rhythm %.1f  voice %.2f  machine %.2f\n".format(e.rms, e.taps, e.rhythmScore, e.human, e.machine))
             } else {
-                sb.append("   ").append(activity.getString(R.string.no_data_yet)).append('\n')
+                sb.append("      ").append(activity.getString(R.string.no_data_yet)).append('\n')
             }
         }
-        peersText.text = sb.toString()
+        peersText.text = sb
     }
 }
