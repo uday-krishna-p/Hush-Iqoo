@@ -65,6 +65,7 @@ class MainActivity : AppCompatActivity() {
         }
         p += Manifest.permission.ACCESS_FINE_LOCATION      // GPS overlay for large sites
         p += Manifest.permission.ACTIVITY_RECOGNITION      // step detector for placement dead reckoning
+        if (Build.VERSION.SDK_INT >= 36) p += "android.permission.RANGING"   // Bluetooth Channel Sounding spike
         return p
     }
 

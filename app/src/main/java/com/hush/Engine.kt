@@ -653,6 +653,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         gps = com.hush.audio.Gps(context).also { it.start() }
         // Probe the mics once (blocks ~0.6 s) before the main capture takes the microphone.
         HLog.d(com.hush.audio.MicProbe.run())
+        com.hush.net.BleRangingProbe.run(context)
         capture = AudioCapture(context, this).also {
             it.debugWav = File(context.filesDir, "debug.wav")   // debug capture, see CLAUDE.md
             it.start()
