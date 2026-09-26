@@ -143,6 +143,36 @@ class BleRanging(context: Context, private val listener: Listener) {
         } catch (e: Throwable) { HLog.d("BleRanging: scan start threw $e"); scanner = null }
     }
 
+    private val bondAsked = HashSet<String>()
+    private var bondReceiver: android.content.BroadcastReceiver? = null
+
+    /** Commander: pair with the peer once (user taps Pair on both phones), then retry Channel Sounding. */
+    @android.annotation.SuppressLint("MissingPermission")
+    private fun tryBondThenRetry(letter: String, peerAddress: String) {
+        try {
+            val device = bt?.adapter?.getRemoteDevice(peerAddress) ?: return
+            if (device.bondState == android.bluetooth.BluetoothDevice.BOND_BONDED) { HLog.d("BleRanging[$letter]: already bonded, CS still refused"); return }
+            if (!bondAsked.add(peerAddress)) return
+            if (bondReceiver == null) {
+                bondReceiver = object : android.content.BroadcastReceiver() {
+                    override fun onReceive(c: Context, i: android.content.Intent) {
+                        val d = i.getParcelableExtra(android.bluetooth.BluetoothDevice.EXTRA_DEVICE, android.bluetooth.BluetoothDevice::class.java) ?: return
+                        val state = i.getIntExtra(android.bluetooth.BluetoothDevice.EXTRA_BOND_STATE, -1)
+                        HLog.d("BleRanging: bond state of ${d.address} = $state (12=bonded)")
+                        if (state == android.bluetooth.BluetoothDevice.BOND_BONDED) {
+                            val l = wanted.entries.firstOrNull { liveAddress[it.key] == d.address }?.value?.first ?: return
+                            HLog.d("BleRanging[$l]: bonded, retrying Channel Sounding")
+                            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ open(l, d.address, initiator = true, useCs = true) }, 1500)
+                        }
+                    }
+                }
+                appContext.registerReceiver(bondReceiver, android.content.IntentFilter(android.bluetooth.BluetoothDevice.ACTION_BOND_STATE_CHANGED), Context.RECEIVER_NOT_EXPORTED)
+            }
+            HLog.d("BleRanging[$letter]: requesting one-time pairing with $peerAddress")
+            device.createBond()
+        } catch (e: Throwable) { HLog.d("BleRanging[$letter]: bond attempt threw $e") }
+    }
+
     /** Commander: find the sensor's live address by its tag, then connect and range. */
     fun rangeAsInitiator(letter: String, peerName: String, useCs: Boolean = csSupported) {
         wanted[peerName] = letter to useCs
@@ -236,10 +266,12 @@ class BleRanging(context: Context, private val listener: Listener) {
                 override fun onClosed(reason: Int) {
                     HLog.d("BleRanging[$letter/$tech]: closed reason=$reason")
                     if (sessions[key] === thisSession()) sessions.remove(key)
-                    // Channel Sounding refused (unsupported in this configuration): use signal strength instead.
-                    if (useCs && rssiSupported && reason != RangingSession.Callback.REASON_LOCAL_REQUEST) {
-                        HLog.d("BleRanging[$letter]: CS closed, falling back to RSSI ranging")
-                        open(letter, peerAddress, initiator, useCs = false)
+                    // Channel Sounding refused (unsupported in this configuration). Some stacks want the phones
+                    // bonded first: ask for a one-time pairing, retry CS once bonded, and range by signal
+                    // strength in the meantime.
+                    if (useCs && reason != RangingSession.Callback.REASON_LOCAL_REQUEST) {
+                        if (initiator) tryBondThenRetry(letter, peerAddress)
+                        if (rssiSupported) { HLog.d("BleRanging[$letter]: CS closed, falling back to RSSI ranging"); open(letter, peerAddress, initiator, useCs = false) }
                     }
                 }
                 private fun thisSession(): RangingSession? = sessions[key]
@@ -270,6 +302,8 @@ class BleRanging(context: Context, private val listener: Listener) {
         scanner = null; wanted.clear(); liveAddress.clear()
         try { gattServer?.close() } catch (_: Exception) {}
         gattServer = null; responderAddress = null
+        try { bondReceiver?.let { appContext.unregisterReceiver(it) } } catch (_: Exception) {}
+        bondReceiver = null
     }
 
     companion object {
