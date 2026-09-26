@@ -244,6 +244,34 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private var lastRoundDist: HashMap<String, Double>? = null
     /** Silent radio (Bluetooth Channel Sounding) distances, pair key "AB" → metres. Filled by [BleRanging]. */
     val radioDistance = HashMap<String, Double>()
+    private var ble: com.hush.net.BleRanging? = null
+    private var ownBleAddress: String? = null
+    private val peerBleAddress = HashMap<String, String>()   // sensor name → address
+    @Volatile var radioStatus: String = ""
+        private set
+
+    private val bleListener = object : com.hush.net.BleRanging.Listener {
+        override fun onDistance(peerLetter: String, metres: Double, technology: String, confidence: Int) {
+            main.post {
+                if (role == ROLE_COMMANDER) {
+                    radioDistance["A$peerLetter"] = metres
+                    radioStatus = radioDistance.entries.joinToString("  ") { "%s %.1f m".format(it.key, it.value) } + " ($technology)"
+                    listener?.onLinkStatus(lastStatus)
+                }
+            }
+        }
+        override fun onOwnAddress(address: String) {
+            ownBleAddress = address
+            // If we are a sensor already routed, re-announce with the address.
+            if (role == ROLE_SENSOR && link?.isRouted == true) link?.sendUp(com.hush.model.Join(localName, link!!.hops, ble = address).toJson())
+        }
+        override fun onStatus(text: String) { HLog.d(text) }
+    }
+
+    private fun startRadioTo(name: String, letter: String) {
+        val addr = peerBleAddress[name] ?: return
+        ble?.rangeAsInitiator(letter, addr)
+    }
     @Volatile var rangingStatus: String = ""
         private set
     var mirror = false   // commander's "flip" for the mirror ambiguity of a triangle
@@ -852,7 +880,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         gps = com.hush.audio.Gps(context).also { it.start() }
         // Probe the mics once (blocks ~0.6 s) before the main capture takes the microphone.
         HLog.d(com.hush.audio.MicProbe.run())
-        com.hush.net.BleRangingProbe.run(context)
+        if (com.hush.net.BleRanging.available) {
+            try { ble = com.hush.net.BleRanging(context, bleListener).also { it.start() } } catch (e: Throwable) { HLog.d("BleRanging init failed: $e") }
+        }
         capture = AudioCapture(context, this).also {
             it.debugWav = File(context.filesDir, "debug.wav")   // debug capture, see CLAUDE.md
             it.start()
@@ -875,6 +905,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         pendingHushSeconds = 0
         classifier?.close(); classifier = null
         link?.stop(); link = null
+        ble?.stop(); ble = null
+        radioDistance.clear(); peerBleAddress.clear(); radioStatus = ""
         peers.clear()
         recentRms.clear()
         rhythmTracker.reset()
@@ -1077,8 +1109,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     /** Sensor: our route to the commander came up. Announce ourselves; the tree forwards it up. */
     override fun onRouteUp(hops: Int) {
-        HLog.d("Route up with $hops hops, announcing")
-        link?.sendUp(com.hush.model.Join(localName, hops).toJson())
+        HLog.d("Route up with $hops hops, announcing (ble=$ownBleAddress)")
+        link?.sendUp(com.hush.model.Join(localName, hops, ble = ownBleAddress).toJson())
     }
 
     override fun onRouteDown() {
@@ -1107,8 +1139,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         }
         val assigned = lettersByName.getOrPut(j.name) { nextFreeLetter() }
         peers[j.name] = Peer(viaEndpoint, j.name, assigned)
-        HLog.d("Commander: ${j.name} is Sensor $assigned, ${j.hops} hop(s) via $viaEndpoint (${peers.size} sensors)")
-        link?.sendDown(Command(Command.ASSIGN, letter = assigned, to = j.name).toJson())
+        HLog.d("Commander: ${j.name} is Sensor $assigned, ${j.hops} hop(s) via $viaEndpoint (${peers.size} sensors) ble=${j.ble}")
+        link?.sendDown(Command(Command.ASSIGN, letter = assigned, to = j.name, ble = ownBleAddress).toJson())
+        if (j.ble != null) { peerBleAddress[j.name] = j.ble; startRadioTo(j.name, assigned) }
         if (inHush) link?.sendDown(Command(Command.HUSH, secondsLeft(), to = j.name).toJson())
         listener?.onPeers(peers.values.toList())
     }
@@ -1134,6 +1167,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                     Command.ASSIGN -> {
                         letter = msg.letter ?: "?"
                         onLinkStatus(lastStatus)
+                        msg.ble?.let { addr -> HLog.d("Commander radio address $addr, answering as responder"); ble?.rangeAsResponder(addr) }
                     }
                     Command.HUSH -> startHushLocal(msg.seconds)
                     Command.STOP -> { inHush = false; main.removeCallbacksAndMessages(chirpToken); listener?.onCountdown(-1); onLinkStatus("Stopped by commander") }

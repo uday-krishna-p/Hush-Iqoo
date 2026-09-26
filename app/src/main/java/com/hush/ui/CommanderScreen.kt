@@ -104,7 +104,7 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
 
     override fun onLinkStatus(text: String) {
         super.onLinkStatus(text)
-        commanderStatus.text = if (Engine.rangingStatus.isEmpty()) text else "$text\n${Engine.rangingStatus}"
+        commanderStatus.text = listOf(text, Engine.rangingStatus, if (Engine.radioStatus.isEmpty()) "" else "Radio: ${Engine.radioStatus}").filter { it.isNotEmpty() }.joinToString("\n")
         // Ranging may have replaced the dots.
         map.dots.clear(); map.dots.putAll(Engine.mapDots); map.invalidate()
     }
