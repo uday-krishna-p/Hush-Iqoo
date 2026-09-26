@@ -102,6 +102,13 @@ Pairwise distances give a shape, not its orientation or mirror image: every phon
 | **TDOA from sample-accurate knock onsets** (timestamps only cross the network) | position + error circle, 0.5–1 m open air with 3–4 phones | needs < 1 ms clock sync and positions — both come from acoustic ranging; sound bends under rubble, never claim a dot there |
 | Two-mic bearing on one phone | direction per phone, no sync needed | only if stereo capture is exposed on this model (untested); ±20° |
 
+### What shipped on 26 Sep evening (acoustic ranging + compass)
+- **AUTO-PLACE by chirps** (`Chirp.kt`, `Ranging.kt`, ring buffer in `AudioCapture`): commander triggers A, B, C chirps 1.8 s apart; every phone matched-filters every chirp to the sample on its own clock; pairwise distance `D = c/2·[(t_i(j)−t_i(i)) − (t_j(j)−t_j(i))]/fs + 0.12 m`. First measured run: AB 0.91 m (real ≈ 1 m), AC 0.56 m (real ≈ 0.5 m); detection strength 95–1780× against a threshold of 5; search ≈ 200 ms per chirp. Only the first three letters form the triangle today.
+- **One button:** HUSH first runs the chirps (~8 s, screens show "chirps…"), then the 20 s window. HUSH refuses with zero sensors unless long-pressed.
+- **Map frame:** sensors B and C are the fixed frame (B origin, C on +x); the commander A moves inside it. Scale fixed at the first ranging.
+- **North without a button:** ranging alone cannot know rotation. While the commander walks (accelerometer rms > 0.25 for ≥ 3 s, outside a window) it re-ranges automatically; the shift of A across the map is matched to the compass bearing walked → map rotation. The mirror ambiguity is resolved once two walks in different directions agree. Manual ALIGN (point phone top at a placed sensor) remains as a shortcut.
+- **Compass arrow** (`ArrowView`, `Compass` from the rotation-vector sensor): points at the strongest sensor with distance in metres, 10 updates/s.
+
 ### Order of work
 1. **Today before 18:00:** manual placement, ranking, export, rehearsal. Nothing above ships in the remaining time without risking the demo.
 2. **Tonight, 30 min:** compass heading in every event → north-up map and arrow.
