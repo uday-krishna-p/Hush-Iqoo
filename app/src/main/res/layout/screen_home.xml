@@ -9,121 +9,214 @@
         android:orientation="vertical"
         android:padding="20dp">
 
-        <TextView
-            android:layout_width="wrap_content"
+        <!-- Two tabs: FIND a noise (walk-to-triangulate) and COUNT cooker whistles -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/home_count_title"
-            android:textSize="28sp"
-            android:textStyle="bold" />
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/homeTabFind"
+                android:layout_width="0dp"
+                android:layout_height="56dp"
+                android:layout_weight="1"
+                android:text="@string/home_tab_find"
+                android:textSize="16sp" />
+
+            <Button
+                android:id="@+id/homeTabCount"
+                android:layout_width="0dp"
+                android:layout_height="56dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:text="@string/home_tab_count"
+                android:textSize="16sp" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/homeStatus"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="8dp"
             android:textSize="16sp" />
 
-        <!-- Target: − 3 + -->
+        <!-- ================= FIND ================= -->
         <LinearLayout
+            android:id="@+id/homeFind"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:orientation="vertical">
+
+            <com.hush.ui.ArrowView
+                android:id="@+id/findArrow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp" />
 
             <TextView
-                android:layout_width="0dp"
+                android:id="@+id/findPrompt"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/home_target"
+                android:layout_marginTop="8dp"
+                android:gravity="center"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/findWarmer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:gravity="center"
+                android:textSize="18sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/findMark"
+                    android:layout_width="0dp"
+                    android:layout_height="64dp"
+                    android:layout_weight="2"
+                    android:text="@string/home_find_mark"
+                    android:textSize="18sp" />
+
+                <Button
+                    android:id="@+id/findReset"
+                    android:layout_width="0dp"
+                    android:layout_height="64dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/home_find_reset"
+                    android:textSize="16sp" />
+            </LinearLayout>
+
+            <com.hush.ui.MapView
+                android:id="@+id/findMap"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp" />
+
+            <TextView
+                android:id="@+id/findMarks"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:fontFamily="monospace"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <!-- ================= COUNT ================= -->
+        <LinearLayout
+            android:id="@+id/homeCountPane"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/home_target"
+                    android:textSize="20sp" />
+
+                <Button
+                    android:id="@+id/homeTargetMinus"
+                    android:layout_width="64dp"
+                    android:layout_height="64dp"
+                    android:text="−"
+                    android:textSize="28sp" />
+
+                <TextView
+                    android:id="@+id/homeTarget"
+                    android:layout_width="64dp"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:text="3"
+                    android:textSize="36sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/homeTargetPlus"
+                    android:layout_width="64dp"
+                    android:layout_height="64dp"
+                    android:text="+"
+                    android:textSize="28sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/homePanel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:background="#37474F"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:id="@+id/homeCount"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:text="0"
+                    android:textColor="#FFFFFF"
+                    android:textSize="140sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/homeCountWord"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:text="@string/home_count_idle"
+                    android:textColor="#FFFFFF"
+                    android:textSize="22sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/homeTimes"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:fontFamily="monospace"
+                android:textSize="18sp" />
+
+            <Button
+                android:id="@+id/homeReset"
+                android:layout_width="match_parent"
+                android:layout_height="64dp"
+                android:layout_marginTop="12dp"
+                android:text="@string/home_reset"
                 android:textSize="20sp" />
 
-            <Button
-                android:id="@+id/homeTargetMinus"
-                android:layout_width="64dp"
-                android:layout_height="64dp"
-                android:text="−"
-                android:textSize="28sp" />
-
             <TextView
-                android:id="@+id/homeTarget"
-                android:layout_width="64dp"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:gravity="center"
-                android:text="3"
-                android:textSize="36sp"
-                android:textStyle="bold" />
-
-            <Button
-                android:id="@+id/homeTargetPlus"
-                android:layout_width="64dp"
-                android:layout_height="64dp"
-                android:text="+"
-                android:textSize="28sp" />
-        </LinearLayout>
-
-        <!-- The count, huge, on a coloured panel that turns green at DONE -->
-        <LinearLayout
-            android:id="@+id/homePanel"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:background="#37474F"
-            android:gravity="center"
-            android:orientation="vertical"
-            android:padding="16dp">
-
-            <TextView
-                android:id="@+id/homeCount"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center"
-                android:text="0"
-                android:textColor="#FFFFFF"
-                android:textSize="140sp"
+                android:layout_marginTop="24dp"
+                android:text="@string/home_timers_heading"
+                android:textSize="18sp"
                 android:textStyle="bold" />
 
             <TextView
-                android:id="@+id/homeCountWord"
+                android:id="@+id/homeTimers"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center"
-                android:text="@string/home_count_idle"
-                android:textColor="#FFFFFF"
-                android:textSize="22sp" />
+                android:fontFamily="monospace"
+                android:text="@string/alert_history_empty"
+                android:textSize="18sp" />
         </LinearLayout>
-
-        <TextView
-            android:id="@+id/homeTimes"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:fontFamily="monospace"
-            android:textSize="18sp" />
-
-        <Button
-            android:id="@+id/homeReset"
-            android:layout_width="match_parent"
-            android:layout_height="64dp"
-            android:layout_marginTop="12dp"
-            android:text="@string/home_reset"
-            android:textSize="20sp" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="@string/home_timers_heading"
-            android:textSize="18sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/homeTimers"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:fontFamily="monospace"
-            android:text="@string/alert_history_empty"
-            android:textSize="18sp" />
 
         <TextView
             android:id="@+id/homeHearing"

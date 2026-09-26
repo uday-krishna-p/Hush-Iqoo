@@ -47,6 +47,25 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private const val DONE_BEEP_FRACTION = 0.6f
 
     fun resetWhistles() { whistles.reset(); HLog.d("WHISTLE counter reset") }
+
+    /** Persona B's FIND: walk-to-triangulate with this one phone (HOME role). Arriving at a new spot clears the own-arrow histogram. */
+    val walk = WalkLocator { com.hush.audio.KnockBearing.reset() }
+    @Volatile var walkState: WalkLocator.State = walk.state
+        private set
+    /** HOME role: this phone's own arrow right now, ungated (the person asked to find a noise, so every knock counts). */
+    fun homeArrow(): com.hush.audio.KnockBearing.Estimate? = com.hush.audio.KnockBearing.estimate(SystemClock.elapsedRealtime(), headingDeg)
+    fun walkMark(): String {
+        val dr = deadReckoning
+        val r = walk.markNow(SystemClock.elapsedRealtime(), dr?.east?.toDouble() ?: 0.0, dr?.north?.toDouble() ?: 0.0, homeArrow())
+        walkState = walk.state
+        HLog.d("WALK MARK button: $r")
+        return r
+    }
+    fun walkReset() { walk.reset(); walkState = walk.state }
+    /** Where the walker stands, metres east/north of where the role started (step counting along the compass). */
+    fun walkerPosition(): Pair<Double, Double> = deadReckoning.let { (it?.east?.toDouble() ?: 0.0) to (it?.north?.toDouble() ?: 0.0) }
+    /** FIND listens for slow noises (a smoke-alarm chirp every 30–60 s) and holds a spot's knocks longer than the rescue arrow does. */
+    private fun setWalkTuning() { com.hush.audio.KnockBearing.TAU_MS = 60_000.0; com.hush.audio.KnockBearing.ACTIVE_MS = 90_000L; com.hush.audio.KnockBearing.MIN_KNOCKS = 2 }
     /** How many seconds the classifier was skipped as too quiet (household roles), for the battery note in the log. */
     private var classifierSkipped = 0L
     private var classifierRun = 0L
@@ -1809,6 +1828,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         if (household) {
             classifierSkipped = 0; classifierRun = 0
             soundAlerts.reset(); homeAlerts.reset(); whistles.reset()
+            if (newRole == ROLE_HOME) { setWalkTuning(); walk.reset(); walkState = walk.state }
             Alerting.init(context)
             return   // no mesh, no Bluetooth tag, no chirps: one phone on its own
         }
@@ -1873,6 +1893,10 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         // Timers and alarms, with the HOME switch set.
         val second = com.hush.audio.SoundAlerts.Second(now, w.rms, w.floor, w.accel.moving, selfNoise, w.cls?.scores ?: emptyMap(), w.cls?.topClass ?: "-", emptyList())
         homeAlerts.onSecond(second)?.let { a -> Alerting.fire(a, listener != null); listener?.onAlert(a) }
+        // FIND: where the walker stands (steps + compass since FIND started), what the own arrow says here, how loud it is.
+        val dr = deadReckoning
+        val levelDb = if (w.floor > 0f && w.rms > w.floor) (20.0 * Math.log10((w.rms / w.floor).toDouble())).toFloat() else null
+        walkState = walk.onSecond(now, dr?.east?.toDouble() ?: 0.0, dr?.north?.toDouble() ?: 0.0, w.accel.moving, homeArrow(), levelDb)
     }
 
     fun stop() {
@@ -1897,6 +1921,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         locator.reset(); peerHeading.clear(); doaAll.clear()
         com.hush.audio.KnockBearing.reset(); ownArrowUntilMs = 0L
         soundAlerts.reset(); homeAlerts.reset(); whistles.reset(); classifierRun = 0; classifierSkipped = 0
+        walk.reset(); walkState = walk.state; com.hush.audio.KnockBearing.rescueTuning()
         peerBearing.clear(); crossFix = null; crossFixMs = 0L; crossNoneLoggedMs = 0L
         sharedBearing = null; sharedBearingMs = 0L; sharedLogged = ""; synchronized(loudOnsetMs) { loudOnsetMs.clear() }
         gpsSamples.clear(); gpsLayoutActive = false; gpsLayoutCheckMs = 0L; gpsLayoutReason = ""

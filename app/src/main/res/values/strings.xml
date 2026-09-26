@@ -108,4 +108,22 @@
     <string name="home_count_stale">no whistle for 15 min: check the cooker</string>
     <string name="home_reset">RESET · new dish</string>
     <string name="home_timers_heading">Kitchen timers and alarms heard</string>
+    <string name="home_tab_find">FIND a noise</string>
+    <string name="home_tab_count">COUNT whistles</string>
+    <string name="home_find_status">Find a ticking, dripping, beeping or knocking noise by walking · put the phone on cloth or hold it flat</string>
+    <string name="home_find_mark">MARK this spot</string>
+    <string name="home_find_reset">RESET</string>
+    <string name="home_find_fix">→ NOISE · %1$.1f m ±%2$.1f · %3$d spots</string>
+    <string name="home_find_own">→ NOISE from here · %1$d knocks</string>
+    <string name="home_find_own_twin">→ NOISE from here · %1$d knocks · left or right? turn the phone</string>
+    <string name="home_find_no_arrow">Waiting for the noise to repeat…</string>
+    <string name="home_prompt_listening">Stand where you hear it. The phone is listening for it to repeat.</string>
+    <string name="home_prompt_stand_still">Stand still so the arrow can settle.</string>
+    <string name="home_prompt_hold_on">Hold on… %1$d knocks heard here, still for %2$d s</string>
+    <string name="home_prompt_walk">Marked. Walk 2 m to the side and stand still again.</string>
+    <string name="home_prompt_turn_or_third">Left or right is not settled: turn around once, or walk to a third spot.</string>
+    <string name="home_prompt_fix">Follow the arrow: about %1$.1f m. Stand still again for a better fix.</string>
+    <string name="home_warmer">warmer · %1$.0f dB louder than at the last mark</string>
+    <string name="home_colder">colder · %1$.0f dB quieter than at the last mark</string>
+    <string name="home_same">about as loud as at the last mark</string>
 </resources>
