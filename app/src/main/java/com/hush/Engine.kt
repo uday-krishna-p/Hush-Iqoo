@@ -119,6 +119,114 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         fun onPeers(peers: List<Peer>)
         /** Commander only: ranking after a Hush window, strongest first, plus the one-line brief. */
         fun onRanking(ranks: List<Rank>, brief: String)
+        /** Commander only: phones seen by their Bluetooth tag (woken by a probe or already sensors), nearest first. */
+        fun onDiscovered(phones: List<Discovered>) {}
+    }
+
+    // ---- Probe / discovered phones (PRD 2.1) ----
+
+    /** One phone seen by its Hush Bluetooth tag. RSSI is a warmer/colder hint, never a distance. */
+    data class Discovered(
+        val suffix: String, val address: String, val rssi: Int, val medianRssi: Int, val trend: String,
+        val roughMetres: Float, val awakeByProbe: Boolean, val battery: Int, val letter: String?, val lastSeenMs: Long, val firstSeenMs: Long
+    )
+    private class Sighting(val suffix: String) {
+        var address = ""; val rssi = ArrayDeque<Int>(); var flags = 0; var battery = -1; var lastMs = 0L; var firstMs = 0L; var announced = false
+    }
+    private val sightings = LinkedHashMap<String, Sighting>()
+    private var lastDiscoveredEmitMs = 0L
+    @Volatile var probeStatus: String = ""
+        private set
+    @Volatile var activatedByProbe = false
+        private set
+    private var lastRoutedMs = 0L
+    private const val PASSIVE_AFTER_MS = 10 * 60_000L
+
+    /** Commander: broadcast the probe (PRD "RADIO SWEEP / ACTIVATE SENSORS"). Repeatable at any time. */
+    fun activateSensors(): Boolean {
+        val ctx = appContext ?: return false
+        if (role != ROLE_COMMANDER) return false
+        val ok = com.hush.net.Probe.start(ctx, localName)
+        probeStatus = if (ok) "Probe: broadcasting for ${com.hush.net.Probe.PROBE_SECONDS} s. Armed phones nearby wake up, buzz and join." else "Probe FAILED: Bluetooth off or advertiser busy (see log)"
+        sessionLog.addRecord("probe", mapOf("ok" to ok, "seconds" to com.hush.net.Probe.PROBE_SECONDS))
+        ble?.scanForTags()
+        listener?.onLinkStatus(lastStatus)
+        main.removeCallbacksAndMessages(probeToken)
+        main.postDelayed({ if (!com.hush.net.Probe.probing) { probeStatus = "Probe finished. ${sightings.size} phone(s) seen by tag. Tap again to repeat."; listener?.onLinkStatus(lastStatus) } }, probeToken, com.hush.net.Probe.PROBE_SECONDS * 1000L + 500)
+        return ok
+    }
+    private val probeToken = Any()
+
+    /** Commander: every Hush tag sighting lands here (several per second per phone while scanning). */
+    private fun onTagSeen(suffix: String, address: String, rssi: Int, flags: Int, battery: Int) {
+        val now = SystemClock.elapsedRealtime()
+        val s = sightings.getOrPut(suffix) { Sighting(suffix).also { it.firstMs = now } }
+        s.address = address; s.flags = flags; s.battery = battery; s.lastMs = now
+        s.rssi.addLast(rssi); while (s.rssi.size > 12) s.rssi.removeFirst()
+        if (!s.announced) {
+            s.announced = true
+            val awake = flags and com.hush.net.BleRanging.FLAG_AWAKE_BY_PROBE != 0
+            HLog.d("Tag seen: $suffix at $address rssi=$rssi flags=$flags battery=$battery" + if (awake) " (woken by a probe)" else "")
+            if (awake) { probeStatus = "VICTIM PHONE DISCOVERED: $suffix (~%.0f m?, rssi $rssi). Waiting for it to join…".format(roughMetres(rssi)); listener?.onLinkStatus(lastStatus) }
+            sessionLog.addRecord("tag_seen", mapOf("suffix" to suffix, "rssi" to rssi, "flags" to flags, "battery" to battery))
+        }
+        if (now - lastDiscoveredEmitMs >= 1000) { lastDiscoveredEmitMs = now; listener?.onDiscovered(discoveredPhones()) }
+    }
+
+    /** Log-distance path loss, -59 dBm at 1 m, exponent 2.7: a hint only (these phones read 6-14 m at 0.5 m). */
+    private fun roughMetres(rssi: Int): Float = Math.pow(10.0, (-59.0 - rssi) / 27.0).toFloat()
+
+    fun discoveredPhones(): List<Discovered> {
+        val now = SystemClock.elapsedRealtime()
+        return sightings.values.filter { now - it.lastMs < 120_000 }.map { s ->
+            val recent = s.rssi.toList()
+            val med = recent.sorted()[recent.size / 2]
+            val trend = if (recent.size >= 6) {
+                val a = recent.takeLast(3).average(); val b = recent.dropLast(3).takeLast(3).average()
+                if (a - b >= 3) "↑ warmer" else if (b - a >= 3) "↓ colder" else "→"
+            } else ""
+            val letter = peers.values.firstOrNull { it.name.endsWith(s.suffix) }?.letter
+            Discovered(s.suffix, s.address, recent.last(), med, trend, roughMetres(med), s.flags and com.hush.net.BleRanging.FLAG_AWAKE_BY_PROBE != 0, s.battery, letter, s.lastMs, s.firstMs)
+        }.sortedByDescending { it.medianRssi }
+    }
+
+    /** Set by SensorService when the start came from a probe: this phone goes back to passive if no commander shows up. */
+    fun markActivatedByProbe() {
+        activatedByProbe = true
+        lastRoutedMs = SystemClock.elapsedRealtime()
+        HLog.d("Sensor activated by a probe; returns to passive after ${PASSIVE_AFTER_MS / 60_000} min without a commander")
+        main.removeCallbacks(passiveWatchdog)
+        main.postDelayed(passiveWatchdog, 30_000)
+    }
+
+    private val passiveWatchdog = object : Runnable {
+        override fun run() {
+            if (role != ROLE_SENSOR || !activatedByProbe) return
+            val now = SystemClock.elapsedRealtime()
+            if (link?.isRouted == true) lastRoutedMs = now
+            if (now - lastRoutedMs > PASSIVE_AFTER_MS) {
+                HLog.d("No commander for ${PASSIVE_AFTER_MS / 60_000} min: back to passive (probe port stays armed)")
+                val ctx = appContext ?: return
+                Activation.cancel(ctx)
+                listener?.onLinkStatus("Back to passive: no commander for 10 min")
+                ctx.stopService(android.content.Intent(ctx, SensorService::class.java))   // → onDestroy → Engine.stop()
+                return
+            }
+            main.postDelayed(this, 30_000)
+        }
+    }
+
+    private fun batteryPercent(): Int = try {
+        (appContext?.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+    } catch (_: Exception) { -1 }
+
+    /** Sensor: (re)advertise the Hush tag with the current flags and battery, so a commander sees us within seconds. */
+    private val tagRefresh = object : Runnable {
+        override fun run() {
+            if (role != ROLE_SENSOR) return
+            ble?.advertiseConnectable(localName, if (activatedByProbe) com.hush.net.BleRanging.FLAG_AWAKE_BY_PROBE else 0, batteryPercent())
+            main.postDelayed(this, 120_000)
+        }
     }
 
     @Volatile var mode: Mode = Mode.TAPPING
@@ -340,6 +448,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                     listener?.onLinkStatus(lastStatus)
                 }
             }
+        }
+        override fun onTagSeen(suffix: String, address: String, rssi: Int, flags: Int, battery: Int) {
+            main.post { if (role == ROLE_COMMANDER) this@Engine.onTagSeen(suffix, address, rssi, flags, battery) }
         }
         override fun onOwnAddress(address: String) {
             ownBleAddress = address
@@ -993,9 +1104,11 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         link = NearbyLink(context, localName, this).also {
             if (newRole == ROLE_COMMANDER) it.startCommander() else it.startSensor()
         }
+        if (newRole == ROLE_COMMANDER) ble?.scanForTags() else main.postDelayed(tagRefresh, 500)
     }
 
     fun stop() {
+        if (role == null) { HLog.d("Engine stop: already stopped"); return }
         HLog.d("Engine stop")
         capture?.stop(); capture = null
         accel?.stop(); accel = null
@@ -1011,6 +1124,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         ble?.stop(); ble = null
         radioDistance.clear(); peerBleAddress.clear(); radioStatus = ""
         locator.reset(); peerHeading.clear(); doaAll.clear()
+        sightings.clear(); probeStatus = ""; activatedByProbe = false
+        main.removeCallbacks(passiveWatchdog); main.removeCallbacks(tagRefresh); main.removeCallbacksAndMessages(probeToken)
+        com.hush.net.Probe.stop()
         peers.clear()
         recentRms.clear()
         rhythmTracker.reset()
@@ -1258,6 +1374,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     /** Sensor: our route to the commander came up. Announce ourselves; the tree forwards it up. */
     override fun onRouteUp(hops: Int) {
+        lastRoutedMs = SystemClock.elapsedRealtime()
         HLog.d("Route up with $hops hops, announcing (ble=$ownBleAddress)")
         link?.sendUp(com.hush.model.Join(localName, hops, ble = ownBleAddress).toJson())
     }
@@ -1318,6 +1435,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                         letter = msg.letter ?: "?"
                         onLinkStatus(lastStatus)
                         msg.ble?.let { addr -> HLog.d("Commander radio address $addr, answering as responder"); ble?.rangeAsResponder(addr, localName) }
+                        main.removeCallbacks(tagRefresh); main.postDelayed(tagRefresh, 1000)   // re-advertise with flags + battery after the responder's plain tag
                     }
                     Command.HUSH -> startHushLocal(msg.seconds)
                     Command.STOP -> { inHush = false; main.removeCallbacksAndMessages(chirpToken); listener?.onCountdown(-1); onLinkStatus("Stopped by commander") }

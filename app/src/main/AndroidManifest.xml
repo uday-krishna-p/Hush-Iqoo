@@ -6,6 +6,13 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- Passive probe port (PRD 2.1): the rescue alert on a woken phone, its full-screen beacon, and re-arming after a reboot -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Measured 26 Sep 21:11: on OriginOS a probe scan registered while the app is in the background delivers
+         nothing unless the app is exempt from battery optimisation (or allowed to run in the background). -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- Nearby Connections: Bluetooth + Wi-Fi Direct. Older Android versions need the legacy names. -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
@@ -48,5 +55,25 @@
             android:name=".SensorService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <!-- The red "rescuers are nearby" screen a probe brings up over the lock screen -->
+        <activity
+            android:name=".BeaconActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true" />
+
+        <!-- Started by the system: probe seen by the passive scan, boot finished, app updated, re-arm alarm -->
+        <receiver
+            android:name=".ProbeReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

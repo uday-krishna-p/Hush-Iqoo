@@ -25,6 +25,7 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
     private val briefText: TextView = activity.findViewById(R.id.briefText)
     private val peersText: TextView = activity.findViewById(R.id.peersText)
     private val commanderStatus: TextView = activity.findViewById(R.id.commanderStatus)
+    private val discoveredText: TextView = activity.findViewById(R.id.discoveredText)
     private val modeButtons = mapOf(
         Engine.Mode.TAPPING to activity.findViewById<Button>(R.id.btnModeTapping),
         Engine.Mode.VOICE to activity.findViewById<Button>(R.id.btnModeVoice),
@@ -97,6 +98,8 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
         map.onPlaced = { letter -> Engine.mapDots[letter] = map.dots[letter]!!; renderPlaceButtons() }
         map.strongest = Engine.lastRanking.firstOrNull()?.takeIf { it.score > 0f }?.letter
         renderSource()
+        activity.findViewById<Button>(R.id.btnActivate).setOnClickListener { Engine.activateSensors() }
+        onDiscovered(Engine.discoveredPhones())
         activity.findViewById<Button>(R.id.btnAutoPlace).setOnClickListener { Engine.autoPlace() }
         activity.findViewById<Button>(R.id.btnStop).setOnClickListener { Engine.stopAll() }
         arrow.post(arrowTick)
@@ -117,7 +120,7 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
 
     override fun onLinkStatus(text: String) {
         super.onLinkStatus(text)
-        commanderStatus.text = listOf(text, Engine.rangingStatus, if (Engine.radioStatus.isEmpty()) "" else "Radio: ${Engine.radioStatus}").filter { it.isNotEmpty() }.joinToString("\n")
+        commanderStatus.text = listOf(text, Engine.probeStatus, Engine.rangingStatus, if (Engine.radioStatus.isEmpty()) "" else "Radio: ${Engine.radioStatus}").filter { it.isNotEmpty() }.joinToString("\n")
         // Ranging may have replaced the dots, and the locator may have moved the source.
         map.dots.clear(); map.dots.putAll(Engine.mapDots)
         renderSource()
@@ -154,6 +157,21 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
     override fun onEvent(event: SensorEvent, peerName: String) {
         latest[event.sensorId] = event
         render()
+    }
+
+    override fun onDiscovered(phones: List<Engine.Discovered>) {
+        if (phones.isEmpty()) { discoveredText.text = activity.getString(R.string.discovered_none); return }
+        val now = android.os.SystemClock.elapsedRealtime()
+        discoveredText.text = phones.joinToString("\n") { p ->
+            val age = (now - p.lastSeenMs) / 1000
+            buildString {
+                append(p.suffix).append("  ").append(p.medianRssi).append(" dBm  ~").append("%.0f".format(p.roughMetres)).append(" m?  ").append(p.trend)
+                if (p.awakeByProbe) append("  · woken by probe")
+                if (p.battery >= 0) append("  · ").append(p.battery).append(" %")
+                append(if (p.letter != null) "  → Sensor ${p.letter}" else "  · not joined yet")
+                if (age > 5) append("  (${age} s ago)")
+            }
+        }
     }
 
     override fun onPeers(peers: List<Engine.Peer>) {

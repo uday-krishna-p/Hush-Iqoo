@@ -31,6 +31,14 @@ class BleRanging(context: Context, private val listener: Listener) {
         fun onDistance(peerLetter: String, metres: Double, technology: String, confidence: Int)
         fun onOwnAddress(address: String)
         fun onStatus(text: String)
+        /** Commander: a Hush tag was seen. [flags] bit 0 = woken by a probe, bit 1 = SOS; [battery] percent or -1. */
+        fun onTagSeen(suffix: String, address: String, rssi: Int, flags: Int, battery: Int) {}
+    }
+
+    companion object {
+        val available: Boolean get() = Build.VERSION.SDK_INT >= 36
+        const val FLAG_AWAKE_BY_PROBE = 1
+        const val FLAG_SOS = 2
     }
 
     private val manager: RangingManager? = context.getSystemService(RangingManager::class.java)
@@ -98,20 +106,32 @@ class BleRanging(context: Context, private val listener: Listener) {
     private val liveAddress = HashMap<String, String>()
     private val wanted = HashMap<String, Pair<String, Boolean>>()   // Hush name → (letter, useCs) still to be started
 
-    /** Sensor: be connectable over BLE and carry our Hush name, so the commander can find our live address. */
+    private var advertising = false
+    private var lastFlags = 0
+    private var lastBattery = -1
+
+    /**
+     * Sensor: be connectable over BLE and carry our Hush name, so the commander can find our live address.
+     * Service data = 4 ASCII name suffix + flags byte + battery byte (older builds sent only the suffix).
+     */
     @android.annotation.SuppressLint("MissingPermission")
-    fun advertiseConnectable(name: String) {
+    fun advertiseConnectable(name: String, flags: Int = lastFlags, battery: Int = lastBattery) {
         ownName = name
+        lastFlags = flags; lastBattery = battery
         try {
             val adapter = bt?.adapter ?: return
             advertiser = adapter.bluetoothLeAdvertiser ?: run { HLog.d("BleRanging: no advertiser"); return }
+            if (advertising) { try { advertiser?.stopAdvertising(advCallback) } catch (_: Exception) {}; advertising = false }
             val settings = android.bluetooth.le.AdvertiseSettings.Builder()
                 .setAdvertiseMode(android.bluetooth.le.AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
                 .setConnectable(true).setTimeout(0)
                 .setTxPowerLevel(android.bluetooth.le.AdvertiseSettings.ADVERTISE_TX_POWER_HIGH).build()
+            val payload = name.takeLast(4).toByteArray(Charsets.US_ASCII) + byteArrayOf(flags.toByte(), battery.coerceIn(-1, 100).toByte())
             val data = android.bluetooth.le.AdvertiseData.Builder().setIncludeDeviceName(false)
-                .addServiceData(hushUuid, name.takeLast(4).toByteArray(Charsets.US_ASCII)).build()
+                .addServiceData(hushUuid, payload).build()
             advertiser?.startAdvertising(settings, data, advCallback)
+            advertising = true
+            HLog.d("BleRanging: tag advertising as ${name.takeLast(4)} flags=$flags battery=$battery")
         } catch (e: Throwable) { HLog.d("BleRanging: advertise threw $e") }
     }
 
@@ -119,8 +139,12 @@ class BleRanging(context: Context, private val listener: Listener) {
         @android.annotation.SuppressLint("MissingPermission")
         override fun onScanResult(callbackType: Int, result: android.bluetooth.le.ScanResult) {
             val tag = result.scanRecord?.getServiceData(hushUuid) ?: return
-            val suffix = String(tag, Charsets.US_ASCII)
+            if (tag.size < 4) return
+            val suffix = String(tag, 0, 4, Charsets.US_ASCII)
             val addr = result.device.address
+            val flags = if (tag.size >= 5) tag[4].toInt() and 0xFF else 0
+            val battery = if (tag.size >= 6) tag[5].toInt() else -1
+            try { listener.onTagSeen(suffix, addr, result.rssi, flags, battery) } catch (e: Exception) { HLog.d("BleRanging: onTagSeen threw $e") }
             val name = wanted.keys.firstOrNull { it.endsWith(suffix) } ?: return
             if (liveAddress[name] == addr) return
             liveAddress[name] = addr
@@ -130,6 +154,9 @@ class BleRanging(context: Context, private val listener: Listener) {
         }
         override fun onScanFailed(errorCode: Int) { HLog.d("BleRanging: scan FAILED $errorCode") }
     }
+
+    /** Commander: keep scanning for Hush tags (discovered-phones list, live addresses for ranging). */
+    fun scanForTags() = ensureScanning()
 
     @android.annotation.SuppressLint("MissingPermission")
     private fun ensureScanning() {
@@ -298,15 +325,12 @@ class BleRanging(context: Context, private val listener: Listener) {
         gatts.values.forEach { try { it.disconnect(); it.close() } catch (_: Exception) {} }
         gatts.clear()
         try { advertiser?.stopAdvertising(advCallback) } catch (_: Exception) {}
+        advertising = false
         try { scanner?.stopScan(scanCallback) } catch (_: Exception) {}
         scanner = null; wanted.clear(); liveAddress.clear()
         try { gattServer?.close() } catch (_: Exception) {}
         gattServer = null; responderAddress = null
         try { bondReceiver?.let { appContext.unregisterReceiver(it) } } catch (_: Exception) {}
         bondReceiver = null
-    }
-
-    companion object {
-        val available: Boolean get() = Build.VERSION.SDK_INT >= 36
     }
 }

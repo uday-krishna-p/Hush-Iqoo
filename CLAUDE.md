@@ -89,6 +89,7 @@ knocks (phones on the same slab) arrive faster than through air: onsets tagged "
   All logging goes through `HLog` to logcat **and** to the app's private file. Read it with
   `adb -s <serial> shell "run-as com.hush cat files/hush.log"`. Every window, command, chirp, ranging round, ranking and
   radio event is in there.
+- **The phones are lock-screen protected.** From adb, `am start` of MainActivity lands behind the lock screen (so its dialogs are invisible and screenshots are black); only BeaconActivity shows over the lock screen. Unlock the phone by hand before driving MainActivity from the laptop.
 - **vivo remote-control app** (Office Kit, used to control the laptop) sits on top of Hush on the phones. Force Hush to
   the front with `adb shell am start -n com.hush/.MainActivity` before tapping by coordinates. Role picker button centres
   at 1440-wide: COMMANDER ≈ (540, 646), SENSOR ≈ (720, 1241). `uiautomator dump` is flaky on these phones.
@@ -132,13 +133,28 @@ knocks (phones on the same slab) arrive faster than through air: onsets tagged "
 | Map frame | B origin, C on +x, A (commander) moves inside; scale fixed at first ranging (1.6 × the largest side). A's dot moves by step counting between rangings. A settled sensor (moved, then still 3 s) triggers a re-ranging. |
 | North | Ranging alone cannot know rotation. Sources, best first: (1) **two-mic direction of arrival** of B's and C's chirps at the commander (sub-sample inter-mic delay; mic spacing solved against the triangle's known angle, then held as a median; skipped when phones < 0.8 m apart; rotation smoothed over 5 rounds); (2) the commander's walk (A's shift on the map vs compass bearing walked; moves > 10 m ignored); (3) placement walk (step detector + compass on carried-out sensors); (4) manual Place buttons. First DoA run: spacing 0.10 m, angles 44°/8° vs true 38°, spread 1°. Physical direction test still failing at 50 cm spacing (near field) — needs ≥ 1 m. |
 | Compass arrow | `ArrowView` + rotation-vector `Compass`; angle = mapBearing(A→target) + rotation − heading. Target = the located source when there is a fix < 60 s old, else the strongest sensor. |
+| Passive port / probe | `Probe.kt`: victim side = PendingIntent BLE scan, filter on 16-bit UUID 0xA5A7, `SCAN_MODE_LOW_POWER`, re-armed at boot (+10 s), app update (+3 s), every 15 min (inexact alarm) and whenever the app opens; a re-registration waits 2.5 s between stop and start. Commander side = 30 s non-connectable advertisement of 0xA5A7 with its name suffix, high power. Woken phone: notification (channel "rescue", full-screen intent) → `BeaconActivity` → `SensorService` (byProbe) → Nearby SENSOR; tag flags bit 0 = woken by probe; back to passive after 10 min without a commander. Commander shows "Discovered phones" from tag sightings: median RSSI, "~N m?" (−59 dBm at 1 m, exponent 2.7), warmer/colder trend, battery, letter once joined. |
 | Source locator | `Locator.kt`, see "How the source is located". Constants: cell 0.25 m, σ_t 0.5 ms, σ_amp 6 dB (weight 0.5), σ_doa 12° (voice 20°), decay 25 s, hold 3.5 s for late reports, mic spacing = median solved by the chirp rounds else 0.10 m. `LOCATE knock #n heard by A,B,C: A:+0.0ms B:+3.1ms …` and `LOCATE fix: peak (x, y) region … radius … nearest … spread …` in the log. Export gets a `locate` record per update. |
 | Radio ranging | `BleRanging` (Android 16 `RangingManager`). Capabilities on the I2501: CS enabled, RSSI enabled, UWB/RTT absent; own address read from the capabilities object's `toString`. Sensors advertise a connectable BLE tag (service UUID `0000A5A5-…`, data = name suffix); the commander scans for the tag to learn the sensor's **live** (rotating) address, opens a GATT link, then initiates; the sensor learns the commander's live address from its GATT server and answers it. **Result so far: CS opens, starts and closes with reason 3 (UNSUPPORTED) within 1 ms every time**, even over an open link with the responder ready; RSSI ranging then runs continuously but reads 6–14 m for phones 0.5 m apart. RSSI is displayed with "?" and never used to drop a chirp round. Latest build requests a one-time pairing and retries CS once bonded (untested). |
 | GPS | `Gps.kt`, framework `LocationManager`; `lat/lon/gacc` in events when a fix < 60 s old exists; in the export. Not yet used for alignment. |
 | Export | `SessionLog`: header (commander, sensors, dots, mode, last brief) + every event line + `hush`/`ranging_start`/`ranging`/`ranking`/`stop` records → `Downloads/hush-<date>-<time>.jsonl` via MediaStore. |
 | Permissions (declared, requested at role pick) | RECORD_AUDIO, BLUETOOTH_SCAN/ADVERTISE/CONNECT, NEARBY_WIFI_DEVICES, ACCESS_FINE/COARSE_LOCATION, ACTIVITY_RECOGNITION, RANGING (API 36), VIBRATE, FOREGROUND_SERVICE(+MICROPHONE), ACCESS/CHANGE_WIFI_STATE, legacy BLUETOOTH/ADMIN. |
 
-## Status (26 Sep 18:30)
+## Status (26 Sep 21:30)
+
+**Phase 1 (PRD 2.1, passive probe port) is built and verified on two phones from the laptop, 26 Sep 20:50–21:15:**
+probe → dead victim process started by the system → alert notification + haptic → red beacon screen over the lock
+screen → microphone service → Nearby join as Sensor B → tag seen by the commander with the "woken by probe" flag.
+Measured: wake 1.3–12 s after the probe starts (low-power scan listens 0.5 s in every 5 s; the PRD's 2 s is met
+only sometimes); "I AM SAFE" stops the sensor and the port stays armed; app update and reboot re-arm the port
+(delayed 3 s / 10 s; the boot broadcast arrived with the lock screen still showing); a force-stopped app cannot be
+woken until it is opened again (platform). **The decisive finding:** a scan registered while the app is in the
+background delivered nothing on OriginOS (Bluetooth's own statistics: minutes of scan time, 0 results) until the app
+was exempt from battery optimisation or allowed to run in the background; either alone fixes it. The app now asks
+for the exemption at first launch and shows an orange button until it is granted. The third phone (…000XR) dropped
+off USB at 19:20 and still runs the build from before the locator.
+
+**Earlier (18:30):**
 
 **Verified from the laptop (adb-driven, phones on the table):** roles → mesh join → HUSH → chirps → ranging →
 two-mic north → window → ranking → brief, repeatedly; live brief; radio sessions open on both sides.
@@ -220,9 +236,16 @@ centimetres, finds a knocking person to a bearing, detects transmitting phones a
   notification is shown at all. Phase 1 must request it at first launch.
 - Runtime permissions (mic, Bluetooth, location, notifications) can only be granted from the activity: first launch
   always needs the screen once. After that, nothing needs a tap until the phone reboots or the app is force-stopped.
-- **OriginOS (vivo) kills background apps by default.** Per phone, once: Settings → Battery → Background power
-  consumption management → Hush → allow high background power; i Manager → App manager → Autostart → Hush on;
-  lock Hush in the recents view. The app requests the battery-optimisation exemption itself (phase 0).
+- **OriginOS (vivo): a passive scan registered from the background never delivers unless Hush is exempt from
+  battery optimisation** (measured 26 Sep 21:11; `dumpsys bluetooth_manager` showed the scans running with
+  "0 results"). The app asks for the exemption at first launch (`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, system
+  dialog "Allow Hush to run in the background?"); until granted the armed screen shows an orange button. From the
+  laptop the same thing is `adb shell dumpsys deviceidle whitelist +com.hush`. Also worth setting once per phone:
+  i Manager → Autostart → Hush on, and do not swipe Hush away from recents (a force-stop disables the port until
+  the app is opened again).
+- `ProbeReceiver` is exported (it must receive the boot broadcast) and also takes the scan-result and re-arm
+  intents; another app on the phone could send the re-arm action (harmless) or a forged scan result with a fake
+  probe record (shows the alert screen). Accepted for now; split into two receivers before any public build.
 
 ### PRD 2.1 acceptance criteria against the facts
 
@@ -236,7 +259,9 @@ centimetres, finds a knocking person to a bearing, detects transmitting phones a
 
 ### Build order (each phase is a build, an install on all phones, a test, a commit)
 
-**Phase 1 · PROBE and PASSIVE (PRD 2.1), in three builds.**
+**Phase 1 · PROBE and PASSIVE (PRD 2.1).** Builds 1a and 1b DONE 26 Sep 21:15 (see Status). Left from 1c:
+overnight passive battery number, open-air wake range, wake through a cupboard/mattress, and a 30-minute
+"phone asleep in a pocket" wake test (OriginOS may still kill the port later than our tests reached).
 
 - *Build 1a, passive port.* First launch: permissions incl. notifications → "ARMED" screen ("This phone will wake
   as a rescue sensor when rescuers probe for it") → registers the PendingIntent BLE scan for the probe UUID and
@@ -302,6 +327,8 @@ data class SensorEvent(          // every phone, once a second
     val chirpTs: Long? = null,
     val micDelay: Float? = null, val micQ: Float? = null   // two-mic delay over the second, voice only
 )
+// Bluetooth (not JSON): probe advertisement = service UUID 0xA5A7 + 4-char commander suffix; Hush tag = service data
+// under 0xA5A5 = 4-char suffix + flags byte (1 = woken by probe, 2 = SOS) + battery byte.
 // Every phone, once a second and only when it heard knocks: each knock to the sample, on the sender's own audio clock.
 data class Onset(val sample: Long, val peak: Float, val ratio: Float, val micDelay: Float?, val micQ: Float?, val felt: Boolean)
 data class OnsetReport(val letter: String, val heading: Float, val moving: Boolean, val onsets: List<Onset>)
@@ -315,7 +342,10 @@ data class Join(val name: String, val hops: Int, val leaving: Boolean, val ble: 
 
 ```
 app/src/main/java/com/hush/
-  MainActivity.kt          // role picker, permissions, screens; back leaves the role
+  MainActivity.kt          // first launch: permissions + arms the passive port; role buttons; back leaves the role
+  BeaconActivity.kt        // red "rescuers nearby" screen over the lock screen; starts the sensor service
+  Activation.kt            // the alert notification (full-screen intent) + haptic pulse when a probe is heard
+  ProbeReceiver.kt         // system entry points: probe scan results, boot, app update, re-arm alarm
   SensorService.kt         // foreground service that keeps Engine alive
   Engine.kt                // everything: audio pipeline, fusion, hush window, live scoring, ranking, sources,
                            // chirp ranging, map frame, alignment sources, radio ranging glue, export
@@ -333,7 +363,8 @@ app/src/main/java/com/hush/
   audio/Chirp.kt           // chirp template, playback, matched filter
   audio/Ping.kt            // beeps
   net/NearbyLink.kt        // mesh (cluster) link
-  net/BleRanging.kt        // Android 16 ranging sessions, tag advertising/scan, GATT, pairing
+  net/BleRanging.kt        // Android 16 ranging sessions, tag advertising/scan (tag = suffix+flags+battery), GATT, pairing
+  net/Probe.kt             // passive port (PendingIntent BLE scan, re-arm alarm) and the commander's probe advertisement
   model/Events.kt          // all messages + JSON
   log/SessionLog.kt        // export
   ui/CommanderScreen.kt, SensorScreen.kt, MapView.kt, ArrowView.kt
@@ -348,7 +379,11 @@ app/src/test/java/com/hush/LocatorTest.kt   // laptop-only synthetic test of the
 export JAVA_HOME=/c/Android/jdk17 ANDROID_HOME=/c/Android/Sdk   # if the shell predates the install
 ./gradlew assembleDebug -q
 for s in $(adb devices | awk 'NR>1 && $2=="device"{print $1}'); do adb -s $s install -r app/build/outputs/apk/debug/app-debug.apk; done
-adb -s <serial> shell "run-as com.hush cat files/hush.log" | grep -i 'RANKING\|BRIEF\|RANGING result\|DoA align\|BleRanging\|LOCATE\|Clock:\|Axis:'
+adb -s <serial> shell "run-as com.hush cat files/hush.log" | grep -i 'RANKING\|BRIEF\|RANGING result\|DoA align\|BleRanging\|LOCATE\|Clock:\|Axis:\|Probe\|Activation\|Beacon\|Tag seen'
+adb shell am start -n com.hush/.MainActivity --es role COMMANDER    # pick a role without tapping coordinates
+adb shell am start -n com.hush/.MainActivity --ez probe true        # commander: ACTIVATE SENSORS
+adb shell am broadcast -n com.hush/.ProbeReceiver -a com.hush.REARM # re-register the passive port from the background
+adb shell dumpsys bluetooth_manager | grep -A8 'com.hush (Registered)'   # Bluetooth's view of the port: scan time, results
 ./gradlew testDebugUnitTest -q          # locator maths on synthetic phones, no device needed
 adb -s <serial> exec-out run-as com.hush cat files/debug.wav > debug.wav   # first 90 s of raw audio, laptop analysis only
 ```
