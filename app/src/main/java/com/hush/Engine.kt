@@ -28,6 +28,18 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     const val ROLE_COMMANDER = "COMMANDER"
     const val ROLE_SENSOR = "SENSOR"
+    /** Persona C: one phone at home, listening for doorbells, knocks, alarms (docs/PLAN-personas-bc.md). No radios. */
+    const val ROLE_ALERT = "ALERT"
+    /** Persona B: one phone at home, whistle counter and walk-to-triangulate. No radios. */
+    const val ROLE_HOME = "HOME"
+    /** The "one phone at home" roles: no mesh, no Bluetooth, no GPS, no chirps, classifier only on loud seconds. */
+    fun isHousehold(r: String?) = r == ROLE_ALERT || r == ROLE_HOME
+
+    /** Persona C's category detector; its `enabled` set and `sensitivity` are the ALERT screen's settings. */
+    val soundAlerts = com.hush.audio.SoundAlerts()
+    /** How many seconds the classifier was skipped as too quiet (household roles), for the battery note in the log. */
+    private var classifierSkipped = 0L
+    private var classifierRun = 0L
 
     /** Everything one second of this phone's own hearing produced. */
     data class Window(
@@ -117,6 +129,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         fun onRanking(ranks: List<Rank>, brief: String)
         /** Commander only: phones seen by their Bluetooth tag (woken by a probe or already sensors), nearest first. */
         fun onDiscovered(phones: List<Discovered>) {}
+        /** ALERT role: a household sound was recognised (the phone has already buzzed and posted the notification). */
+        fun onAlert(alert: com.hush.audio.SoundAlerts.Alert) {}
     }
 
     // ---- Probe / discovered phones (PRD 2.1) ----
@@ -1751,9 +1765,10 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         role = newRole
         val id = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "0000"
         localName = "${Build.MODEL}-${id.takeLast(4)}"
-        letter = if (newRole == ROLE_COMMANDER) "A" else "?"
+        val household = isHousehold(newRole)
+        letter = if (newRole == ROLE_COMMANDER) "A" else if (household) "H" else "?"
         sessionLog = com.hush.log.SessionLog()
-        HLog.d("Engine start role=$newRole name=$localName")
+        HLog.d("Engine start role=$newRole name=$localName" + if (household) " (household: no radios, classifier on loud seconds only)" else "")
         if (newRole == ROLE_COMMANDER) try { loadPrefs(context) } catch (e: Exception) { HLog.d("ERROR loading prefs: $e") }
         loadMicGeometry(context)
 
@@ -1763,18 +1778,27 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             HLog.d("ERROR loading classifier: $e")
         }
         accel = AccelChannel(context).also { it.start() }
-        val cmp = com.hush.audio.Compass(context).also { it.start() }
-        compass = cmp
-        deadReckoning = com.hush.audio.DeadReckoning(context, cmp).also { it.start() }
-        gps = com.hush.audio.Gps(context).also { it.start() }
+        if (newRole != ROLE_ALERT) {
+            // The compass and step counter serve the arrow and the map; ALERT has neither. HOME (walk-to-triangulate) needs both.
+            val cmp = com.hush.audio.Compass(context).also { it.start() }
+            compass = cmp
+            deadReckoning = com.hush.audio.DeadReckoning(context, cmp).also { it.start() }
+        }
+        if (!household) gps = com.hush.audio.Gps(context).also { it.start() }
         // Probe the mics once (blocks ~0.6 s) before the main capture takes the microphone.
         HLog.d(com.hush.audio.MicProbe.run())
-        if (com.hush.net.BleRanging.available) {
+        if (!household && com.hush.net.BleRanging.available) {
             try { ble = com.hush.net.BleRanging(context, bleListener).also { it.start() } } catch (e: Throwable) { HLog.d("BleRanging init failed: $e") }
         }
         capture = AudioCapture(context, this).also {
-            it.debugWav = File(context.filesDir, "debug.wav")   // debug capture, see CLAUDE.md
+            if (!household) it.debugWav = File(context.filesDir, "debug.wav")   // debug capture, see CLAUDE.md; not at home (all-day listening, private)
             it.start()
+        }
+        if (household) {
+            classifierSkipped = 0; classifierRun = 0
+            soundAlerts.reset()
+            Alerting.init(context)
+            return   // no mesh, no Bluetooth tag, no chirps: one phone on its own
         }
         // Build the chirp search tables now, so the first ranging round does not pay for it (4 s on 27 Sep).
         Thread({ try { com.hush.audio.Chirp.warmUp() } catch (e: Exception) { HLog.d("ERROR in chirp warm-up: $e") } }, "hush-chirp-warmup").start()
@@ -1782,6 +1806,33 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             if (newRole == ROLE_COMMANDER) it.startCommander() else it.startSensor()
         }
         if (newRole == ROLE_COMMANDER) ble?.scanForTags() else main.postDelayed(tagRefresh, 500)
+    }
+
+    /** ALERT screen's TEST row and the laptop hook `--es alerttest DOORBELL`: the flash, buzz and notification without a sound. */
+    fun alertTest(categoryName: String): String {
+        val c = com.hush.audio.SoundAlerts.Category.values().firstOrNull { it.name.equals(categoryName, ignoreCase = true) }
+            ?: return "unknown category '$categoryName'; one of " + com.hush.audio.SoundAlerts.Category.values().joinToString { it.name }
+        val ctx = appContext ?: return "engine not running"
+        Alerting.init(ctx)
+        Alerting.test(c, listener != null)
+        listener?.onAlert(com.hush.audio.SoundAlerts.Alert(c, c.word + " (test)", "test", 1f, c.pattern, c.repeats, SystemClock.elapsedRealtime(), false))
+        return "alert test $c fired"
+    }
+
+    /** Main thread, ALERT role: one second → maybe one household alert. */
+    private fun alertSecond(w: Window, selfNoise: Boolean, now: Long) {
+        val tap = w.tap
+        val knocks = ArrayList<com.hush.audio.SoundAlerts.Knock>(tap.onsets.size)
+        for (i in tap.onsets.indices) {
+            val at = tap.onsetsAbsMs.getOrNull(i) ?: continue
+            knocks.add(com.hush.audio.SoundAlerts.Knock(at, tap.onsets[i].ratio))
+        }
+        val second = com.hush.audio.SoundAlerts.Second(
+            nowMs = now, rms = w.rms, floor = w.floor, moving = w.accel.moving, selfNoise = selfNoise,
+            scores = w.cls?.scores ?: emptyMap(), topClass = w.cls?.topClass ?: "-", knocks = knocks)
+        val a = soundAlerts.onSecond(second) ?: return
+        Alerting.fire(a, listener != null)
+        listener?.onAlert(a)
     }
 
     fun stop() {
@@ -1805,6 +1856,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         radioDistance.clear(); peerBleAddress.clear(); radioStatus = ""
         locator.reset(); peerHeading.clear(); doaAll.clear()
         com.hush.audio.KnockBearing.reset(); ownArrowUntilMs = 0L
+        soundAlerts.reset(); classifierRun = 0; classifierSkipped = 0
         peerBearing.clear(); crossFix = null; crossFixMs = 0L; crossNoneLoggedMs = 0L
         sharedBearing = null; sharedBearingMs = 0L; sharedLogged = ""; synchronized(loudOnsetMs) { loudOnsetMs.clear() }
         gpsSamples.clear(); gpsLayoutActive = false; gpsLayoutCheckMs = 0L; gpsLayoutReason = ""
@@ -1972,7 +2024,15 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         if (agreed) lastStructureMs = now
         val structure = now - lastStructureMs < RhythmTracker.HISTORY_MS
         val rhythm = synchronized(audioLock) { rhythmTracker.evaluate(now) }
-        val cls = classifier?.classify(pcm16k, n16)
+        // At home the model runs only on seconds worth it (loud against the floor, or a sharp onset, or no floor
+        // yet): most of a day is quiet and the rescue roles' every-second voice score is not needed there.
+        val household = isHousehold(role)
+        val worthClassifying = !household || floor <= 0f || recentRms.size < 10 || rms >= floor * 1.5f || tap.taps > 0
+        val cls = if (worthClassifying) classifier?.classify(pcm16k, n16) else null
+        if (household) {
+            if (worthClassifying) classifierRun++ else classifierSkipped++
+            if ((classifierRun + classifierSkipped) % 600 == 0L) HLog.d("Household classifier: ran $classifierRun s, skipped $classifierSkipped s (quiet)")
+        }
         val label = fuseLabel(rhythm, cls)
         main.post { trackWalking(acc); trackPlacement(acc) }
         // Source location, part 1 (every phone): each knock timed to the sample, its loudness, and the
@@ -2053,6 +2113,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                     onsetReport?.let { link?.sendUp(it.toJson()) }; link?.sendUp(event.toJson())
                 }
                 ROLE_COMMANDER -> { onsetReport?.let { locator.addReport(it) }; recordEvent(event); listener?.onEvent(event, localName) }
+                ROLE_ALERT -> try { alertSecond(w, selfNoise, now) } catch (e: Exception) { HLog.d("ERROR in household alerts: $e") }
             }
         }
     }

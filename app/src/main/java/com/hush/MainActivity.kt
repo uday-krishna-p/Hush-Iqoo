@@ -49,10 +49,11 @@ class MainActivity : AppCompatActivity() {
         const val EXTRA_PLAY_LEVEL = "level"
         const val EXTRA_MIC1TOP = "mic1top"
         const val EXTRA_MICSPACING = "micspacing"
+        const val EXTRA_ALERTTEST = "alerttest"
     }
 
     private var role: String? = null
-    private var screen: SensorScreen? = null
+    private var screen: Engine.Listener? = null
     private var pendingRole: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -108,6 +109,10 @@ class MainActivity : AppCompatActivity() {
             HLog.d("Hook: range")
             if (Engine.role == Engine.ROLE_COMMANDER) Engine.autoPlace() else HLog.d("Hook: range ignored, not a commander")
         }
+        intent.getStringExtra(EXTRA_ALERTTEST)?.let { c ->
+            HLog.d("Hook: alerttest $c")
+            HLog.d("Hook: " + Engine.alertTest(c))
+        }
         intent.getStringExtra(EXTRA_ALIGN)?.let { l ->
             HLog.d("Hook: align $l")
             HLog.d("Hook: align result: " + Engine.alignByPointing(l))
@@ -129,13 +134,14 @@ class MainActivity : AppCompatActivity() {
         }
         intent.removeExtra(EXTRA_ROLE); intent.removeExtra(EXTRA_PROBE); intent.removeExtra(EXTRA_HUSH)
         intent.removeExtra(EXTRA_RANGE); intent.removeExtra(EXTRA_PLAY); intent.removeExtra(EXTRA_PLAY_LEVEL); intent.removeExtra(EXTRA_ALIGN); intent.removeExtra(EXTRA_LAYOUT)
-        intent.removeExtra(EXTRA_MIC1TOP); intent.removeExtra(EXTRA_MICSPACING)
+        intent.removeExtra(EXTRA_MIC1TOP); intent.removeExtra(EXTRA_MICSPACING); intent.removeExtra(EXTRA_ALERTTEST)
     }
 
     private fun showRolePicker() {
         setContentView(R.layout.activity_main)
         findViewById<Button>(R.id.btnCommander).setOnClickListener { pickRole(Engine.ROLE_COMMANDER) }
         findViewById<Button>(R.id.btnSensor).setOnClickListener { pickRole(Engine.ROLE_SENSOR) }
+        findViewById<Button>(R.id.btnAlerts).setOnClickListener { pickRole(Engine.ROLE_ALERT) }
         findViewById<Button>(R.id.btnBackground).setOnClickListener { askBackgroundAllowance(force = true) }
         findViewById<TextView>(R.id.status).text = getString(R.string.pick_role)
     }
@@ -231,9 +237,13 @@ class MainActivity : AppCompatActivity() {
         it == Manifest.permission.RECORD_AUDIO || it.startsWith("android.permission.BLUETOOTH")
     }
 
+    /** The household roles only listen: microphone (and notifications for the alerts). No Bluetooth, location or steps asked for. */
+    private fun neededFor(roleName: String, perms: List<String>): List<String> =
+        if (Engine.isHousehold(roleName)) perms.filter { it == Manifest.permission.RECORD_AUDIO || it == Manifest.permission.POST_NOTIFICATIONS } else perms
+
     private fun pickRole(name: String) {
         HLog.d("Role picked: $name")
-        val missing = missingPermissions()
+        val missing = neededFor(name, missingPermissions())
         if (missing.isEmpty()) {
             role = name
             startRole()
@@ -251,7 +261,7 @@ class MainActivity : AppCompatActivity() {
         HLog.d("Permissions result, still missing: $missing")
         val wanted = pendingRole
         pendingRole = null
-        if (essentialMissing().isNotEmpty()) {
+        if ((if (wanted != null) neededFor(wanted, essentialMissing()) else essentialMissing()).isNotEmpty()) {
             findViewById<TextView>(R.id.status)?.text = getString(R.string.perms_denied)
             return
         }
@@ -275,6 +285,9 @@ class MainActivity : AppCompatActivity() {
         screen = if (name == Engine.ROLE_COMMANDER) {
             setContentView(R.layout.screen_commander)
             CommanderScreen(this)
+        } else if (name == Engine.ROLE_ALERT) {
+            setContentView(R.layout.screen_alert)
+            com.hush.ui.AlertScreen(this)
         } else {
             setContentView(R.layout.screen_sensor)
             SensorScreen(this, getString(R.string.role_sensor))

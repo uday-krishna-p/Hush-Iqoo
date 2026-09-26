@@ -66,6 +66,16 @@
             android:showWhenLocked="true"
             android:turnScreenOn="true" />
 
+        <!-- Household alerts (persona C): the colour screen with the word (DOORBELL, KNOCK, SMOKE ALARM…) over the lock screen -->
+        <activity
+            android:name=".AlertActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true" />
+
         <!-- Started by the system only: probe seen by the passive scan (our own PendingIntent), boot finished,
              app updated, re-arm alarm. Not exported: another app must not be able to fire the rescue alarm. -->
         <receiver

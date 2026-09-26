@@ -18,8 +18,13 @@ class Classifier(context: Context) {
         val impact: Float,     // IMPACT bucket: anything YAMNet hears as a knock-like hit
         val machine: Float,    // MACHINE bucket: continuous machinery
         val topClass: String,
-        val top5: List<Pair<String, Float>>
-    )
+        val top5: List<Pair<String, Float>>,
+        /** Every class that scored ≥ 0.01 this second, by YAMNet display name (household alerts build their own buckets from it). */
+        val scores: Map<String, Float> = emptyMap()
+    ) {
+        /** Sum of the named classes' scores, 0 for names the model did not raise. */
+        fun sum(names: Collection<String>): Float { var s = 0f; for (n in names) s += scores[n] ?: 0f; return s.coerceIn(0f, 1f) }
+    }
 
     companion object {
         const val INPUT_SAMPLES = 15_600
@@ -156,12 +161,15 @@ class Classifier(context: Context) {
         for (k in machineIdx) machine += avg[k]
 
         val top5 = avg.indices.sortedByDescending { avg[it] }.take(5).map { labels[it] to avg[it] }
+        val all = HashMap<String, Float>()
+        for (k in avg.indices) if (avg[k] >= 0.01f) all[labels[k]] = avg[k]
         return Result(
             human = human.coerceIn(0f, 1f),
             impact = impact.coerceIn(0f, 1f),
             machine = machine.coerceIn(0f, 1f),
             topClass = top5.first().first,
-            top5 = top5
+            top5 = top5,
+            scores = all
         )
     }
 
