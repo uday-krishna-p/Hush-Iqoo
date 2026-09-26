@@ -268,6 +268,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private fun onChirpCommand(letter: String) {
         val cap = capture ?: return
         val startSample = cap.samplesCaptured - AudioCapture.SAMPLE_RATE.toLong() * SEARCH_BEFORE_MS / 1000
+        lastChirpMs = SystemClock.elapsedRealtime()
         if (letter == this.letter) appContext?.let { com.hush.audio.Chirp.play(it) }
         val count = AudioCapture.SAMPLE_RATE * (SEARCH_BEFORE_MS + SEARCH_AFTER_MS) / 1000
         main.postDelayed(Runnable {
@@ -317,17 +318,26 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
      * from the mic axis; the ranged triangle tells the true angle between the sensors, which fixes the
      * unknown mic spacing and the left/right mirror. Result: map rotation to north with nobody moving.
      */
+    /** Mic spacing solved in earlier rounds; the median is held so one bad round cannot flip north. */
+    private val micSpacingHistory = ArrayList<Double>()
+    private val rotationHistory = ArrayList<Float>()
+
     private fun alignFromDoa(a: String, b: String, c: String, dAB: Double, dAC: Double, dBC: Double) {
         val db = doaThisRound[b] ?: return
         val dc = doaThisRound[c] ?: return
+        // Inside ~0.8 m the mics are in the near field and the angle is unreliable: skip such rounds.
+        if (dAB < 0.8 || dAC < 0.8) { HLog.d("DoA align: phones too close (AB %.2f, AC %.2f m), skipped".format(dAB, dAC)); return }
         // True angle at A between B and C from the triangle.
         val cosG = ((dAB * dAB + dAC * dAC - dBC * dBC) / (2 * dAB * dAC)).coerceIn(-1.0, 1.0)
         val gamma = Math.toDegrees(kotlin.math.acos(cosG))
         val fs = com.hush.audio.Chirp.SAMPLE_RATE.toDouble(); val cs = com.hush.audio.Chirp.SPEED_OF_SOUND.toDouble()
         // Try candidate mic spacings and both mirror choices; keep the one whose DoA angles match gamma.
         var bestErr = 1e9; var bestD = 0.0; var bestMirrorC = false; var bestThB = 0.0; var bestThC = 0.0
-        var d = 0.06
-        while (d <= 0.20) {
+        // Once the spacing is known from a few rounds, hold it (median) instead of re-solving.
+        val held = if (micSpacingHistory.size >= 3) micSpacingHistory.sorted()[micSpacingHistory.size / 2] else null
+        var d = held ?: 0.06
+        val dEnd = held ?: 0.20
+        while (d <= dEnd + 1e-9) {
             val maxDelay = d * fs / cs
             val cb = (db.first / maxDelay).coerceIn(-1.0, 1.0); val cc = (dc.first / maxDelay).coerceIn(-1.0, 1.0)
             val thB = Math.toDegrees(kotlin.math.acos(cb)); val thC = Math.toDegrees(kotlin.math.acos(cc))
@@ -361,8 +371,13 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         }
         HLog.d("DoA align: spacing %.3f m, thetaB %.0f° thetaC %.0f° (gamma %.0f°, err %.1f°), rotation %.0f° (spread %.0f°, mirror=%b)".format(bestD, bestThB, bestThC, gamma, bestErr, chosenRot, chosenSpread, mirror))
         if (chosenSpread <= 30.0) {
-            mapRotationDeg = chosenRot
-            alignSource = "two-mic direction (±%.0f°)".format(chosenSpread / 2)
+            micSpacingHistory.add(bestD)
+            rotationHistory.add(chosenRot)
+            // Smooth over the last few rounds (circular mean) so a single odd round cannot swing the arrow.
+            val recent = rotationHistory.takeLast(5).map { Math.toRadians(it.toDouble()) }
+            val smoothed = ((Math.toDegrees(kotlin.math.atan2(recent.map { kotlin.math.sin(it) }.average(), recent.map { kotlin.math.cos(it) }.average())) + 360.0) % 360.0).toFloat()
+            mapRotationDeg = smoothed
+            alignSource = "two-mic direction (±%.0f°, %d rounds)".format(chosenSpread / 2, rotationHistory.size)
             setRangingStatus("Map aligned to north from chirp directions.")
         }
     }
@@ -528,8 +543,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private fun recordEvent(e: SensorEvent) {
         sessionLog.add(e.toJson())
         if (!inHush) return
-        // Skip the first second: the start beep and buzz are in it.
-        if (SystemClock.elapsedRealtime() < hushStartMs + 1000) return
+        // Skip the start buzz and beep: they rattle the phone and were once scored as tapping.
+        if (SystemClock.elapsedRealtime() < hushStartMs + SELF_NOISE_MS) return
         hushEvents.getOrPut(e.sensorId) { ArrayList() }.add(e)
     }
 
@@ -739,12 +754,17 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     /** The advertised name of this phone, e.g. "I2501-6a46". Shown next to the letter so people can match phones. */
     val name: String get() = localName
 
+    /** Start buzz (3 pulses ≈ 2.6 s) + beep: nothing heard in this period counts as tapping or is scored. */
+    private const val SELF_NOISE_MS = 3500L
+    @Volatile private var lastChirpMs = -10_000L
+
     private fun startHushLocal(seconds: Int) {
         floor = if (recentRms.isEmpty()) 0f else recentRms.average().toFloat()
         inHush = true
         hushStartMs = SystemClock.elapsedRealtime()
         hushEndMs = hushStartMs + seconds * 1000L
         hushEvents.clear()
+        rhythmTracker.reset()   // forget the chirps and anything before the window
         HLog.d("Hush window started: $seconds s, noise floor %.5f".format(floor))
         vibrate(longArrayOf(0, 700, 150, 700, 150, 900))   // three long full-strength pulses at the start
         appContext?.let { Ping.play(it, listOf(2500 to 250, 0 to 100, 2500 to 250)) }
@@ -805,7 +825,10 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val acc = accel?.drain() ?: AccelChannel.Result(0, 0f, 0f, emptyList(), false)
         // Rhythm is AUDIO ONLY. Accelerometer jolts were tried as onsets and flooded the history (6–8 per
         // second on a handled phone), which killed every detection. Jolts now only confirm a heard knock.
-        rhythmTracker.add(tap.onsetsAbsMs)
+        // The app's own sounds are not taps: the start buzz (three regular pulses that rattle the phone),
+        // the beeps and the ranging chirps all produced "steady tapping" once. Ignore onsets while they play.
+        val selfNoise = (inHush && now - hushStartMs < SELF_NOISE_MS) || (now - lastChirpMs < 1500)
+        if (!selfNoise) rhythmTracker.add(tap.onsetsAbsMs)
         val agreed = tap.onsetsAbsMs.any { a -> acc.spikeTimesMs.any { kotlin.math.abs(it - a) <= RhythmTracker.MERGE_MS } }
         if (agreed) lastStructureMs = now
         val structure = now - lastStructureMs < RhythmTracker.HISTORY_MS
