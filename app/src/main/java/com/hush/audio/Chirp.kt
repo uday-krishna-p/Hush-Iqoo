@@ -19,11 +19,11 @@ import kotlin.math.sqrt
  */
 object Chirp {
     const val SAMPLE_RATE = 48_000
-    const val DURATION_MS = 40
+    const val DURATION_MS = 80               // was 40: twice the length = +3 dB of matched-filter gain in noise
     const val F_START = 2000.0
     const val F_END = 6000.0
     const val SPEED_OF_SOUND = 343f          // m/s at ~20 °C
-    const val VOLUME_FRACTION = 0.7f         // of max alarm volume
+    const val VOLUME_FRACTION = 0.9f         // of max alarm volume (was 0.7)
 
     val template: FloatArray by lazy {
         val n = SAMPLE_RATE * DURATION_MS / 1000

@@ -240,6 +240,10 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     /** heard[hearer letter][chirping letter] = sample index on the hearer's clock. Commander only. */
     private val heard = HashMap<String, HashMap<String, Long>>()
     private var rangingInProgress = false
+    private var retriedThisRound = false
+    private var lastRoundDist: HashMap<String, Double>? = null
+    /** Silent radio (Bluetooth Channel Sounding) distances, pair key "AB" → metres. Filled by [BleRanging]. */
+    val radioDistance = HashMap<String, Double>()
     @Volatile var rangingStatus: String = ""
         private set
     var mirror = false   // commander's "flip" for the mirror ambiguity of a triangle
@@ -254,6 +258,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val letters = listOf("A") + peers.values.map { it.letter }
         if (letters.size < 3) { setRangingStatus("Need at least 3 phones connected (have ${letters.size})"); return }
         rangingInProgress = true
+        retriedThisRound = false
         heard.clear()
         doaThisRound.clear()
         setRangingStatus("Ranging: chirping ${letters.joinToString(" ")}…")
@@ -462,6 +467,34 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         HLog.d("RANGING result: $text  (heard=$heard)")
         sessionLog.addRecord("ranging", mapOf("distances" to text))
         computeMicGains(letters, dist)
+        // Retry once: if a pair is missing, re-chirp the letters involved before giving up on this round.
+        if (letters.size >= 3 && !retriedThisRound) {
+            val missing = letters.flatMapIndexed { i, x -> letters.drop(i + 1).filter { y -> dist["$x$y"] == null }.map { y -> x to y } }
+            if (missing.isNotEmpty() && missing.size < 3) {
+                retriedThisRound = true
+                rangingInProgress = true
+                val again = missing.flatMap { listOf(it.first, it.second) }.distinct()
+                HLog.d("Ranging: pairs $missing missing, re-chirping $again")
+                again.forEachIndexed { i, l -> main.postDelayed({ triggerChirp(l) }, chirpToken, i * CHIRP_GAP_MS) }
+                main.postDelayed({ finishRanging(letters) }, chirpToken, again.size * CHIRP_GAP_MS + 2500)
+                return
+            }
+        }
+        retriedThisRound = false
+        // Fuse with the silent radio baseline: a chirp pair that disagrees with Bluetooth by > 30 % is dropped.
+        for (key in dist.keys.toList()) {
+            val radio = radioDistance[key] ?: radioDistance[key.reversed()] ?: continue
+            val d = dist[key]!!
+            if (kotlin.math.abs(d - radio) / maxOf(radio, 0.3) > 0.30) {
+                HLog.d("Ranging: chirp %s %.2f m disagrees with radio %.2f m, dropped".format(key, d, radio))
+                dist.remove(key)
+            }
+        }
+        // Fill gaps from radio so the map can still be built silently.
+        for (i in letters.indices) for (j in i + 1 until letters.size) {
+            val key = "${letters[i]}${letters[j]}"
+            if (dist[key] == null) (radioDistance[key] ?: radioDistance[key.reversed()])?.let { dist[key] = it; HLog.d("Ranging: $key from radio %.2f m".format(it)) }
+        }
         var placed = false
         if (letters.size >= 3) {
             val a = letters[0]; val b = letters[1]; val c = letters[2]
@@ -471,7 +504,14 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 maxOf(dAB, dAC, dBC) <= 30.0 &&
                 dAB <= dAC + dBC + 0.15 && dAC <= dAB + dBC + 0.15 && dBC <= dAB + dAC + 0.15
             if (dAB != null && dAC != null && dBC != null && !sane) HLog.d("Ranging: impossible triangle, round discarded")
-            if (sane) {
+            // Two consistent rounds (each pair within 20 %) before the map moves; a lone round only gets logged.
+            val consistent = sane && lastRoundDist != null && listOf("$a$b" to dAB!!, "$a$c" to dAC!!, "$b$c" to dBC!!).all { (k, v) ->
+                val prev = lastRoundDist!![k] ?: return@all false
+                kotlin.math.abs(v - prev) / maxOf(prev, 0.3) <= 0.20
+            }
+            if (sane) lastRoundDist = HashMap(dist)
+            if (sane && !consistent) { HLog.d("Ranging: first or inconsistent round, waiting for a matching one before moving the map"); setRangingStatus("Ranging: $text (confirming…)") }
+            if (sane && consistent) {
                 dAB!!; dAC!!; dBC!!
                 // A in the B–C frame: B=(0,0), C=(dBC,0).
                 val x = (dAB * dAB - dAC * dAC + dBC * dBC) / (2 * dBC)
