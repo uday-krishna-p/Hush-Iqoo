@@ -145,6 +145,13 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // If a role is running, ask the service to (re)enter the foreground now that we are on screen: a role
+        // started while the screen was off never became a foreground service and loses the microphone.
+        if (role != null && Engine.isRunning) {
+            try {
+                ContextCompat.startForegroundService(this, Intent(this, SensorService::class.java).putExtra(SensorService.EXTRA_ROLE, role))
+            } catch (e: Exception) { HLog.d("MainActivity: could not re-assert the foreground service: $e") }
+        }
         // Back from the system dialog: refresh the armed text.
         if (role == null && findViewById<TextView>(R.id.status) != null && Probe.isArmed(this) && missingPermissions().isEmpty()) showArmed(lastArmStatus)
     }

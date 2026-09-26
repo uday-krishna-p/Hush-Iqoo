@@ -63,6 +63,14 @@ class SensorService : Service() {
             return START_NOT_STICKY
         }
         nm.cancel(NOTIFICATION_STOPPED_ID)
+        // startForeground can return without an exception and still leave the service in the background
+        // (ef39, 27 Sep 23:38: started by the laptop with its screen off; startForegroundCount stayed 0 and the
+        // microphone was silenced 5 s later). foregroundServiceType is 0 unless it really is foreground.
+        if (Build.VERSION.SDK_INT >= 29) {
+            val type = foregroundServiceType
+            HLog.d(if (type != 0) "SensorService: foreground, type=0x${Integer.toHexString(type)}"
+                   else "SensorService: WARNING startForeground did not take effect (screen off?); the microphone will be silenced once the app leaves the screen")
+        }
         Engine.start(applicationContext, role)
         if (byProbe) Engine.markActivatedByProbe()
         return START_NOT_STICKY

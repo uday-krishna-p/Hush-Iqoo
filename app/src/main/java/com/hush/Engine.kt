@@ -491,6 +491,12 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
      */
     private const val SEARCH_BEFORE_MS = 2500
     private const val SEARCH_AFTER_MS = 2500
+    /**
+     * Budget per chirp (measured 26–27 Sep): command down 0.6 s per mesh hop (1.4–1.6 s at 2 hops), each phone
+     * waits SEARCH_AFTER + 0.1 s, then two searches (mic 0 and mic 1, now ~0.1–0.3 s each instead of 1.2–5.6 s),
+     * then the report goes up (same 0.6 s per hop): ~6.1 s at 2 hops. The commander moves on as soon as every
+     * phone has reported, so the timeout only costs time when a phone missed the chirp.
+     */
     private const val CHIRP_TIMEOUT_MS = 7000L
     private const val CHIRP_SETTLE_MS = 400L
     private var roundQueue: List<String> = emptyList()     // letters still to chirp in this pass
@@ -507,6 +513,10 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         if (letters.size < 3) { setRangingStatus("Need at least 3 phones connected (have ${letters.size})"); return }
         rangingInProgress = true
         retriedThisRound = false
+        // The walking trigger counts movement since the last round STARTED. It used to be cleared only when a
+        // round placed the map, so after a failed round the commander re-ranged every 18 s forever (26 Sep
+        // 23:24–23:28, 13 rounds while lying still).
+        movedSinceRanging = 0f
         heard.clear(); heardTrig.clear(); chirpTriggerMs.clear()
         doaThisRound.clear()
         doaAll.clear()
@@ -1186,6 +1196,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             it.debugWav = File(context.filesDir, "debug.wav")   // debug capture, see CLAUDE.md
             it.start()
         }
+        // Build the chirp search tables now, so the first ranging round does not pay for it (4 s on 27 Sep).
+        Thread({ try { com.hush.audio.Chirp.warmUp() } catch (e: Exception) { HLog.d("ERROR in chirp warm-up: $e") } }, "hush-chirp-warmup").start()
         link = NearbyLink(context, localName, this).also {
             if (newRole == ROLE_COMMANDER) it.startCommander() else it.startSensor()
         }
@@ -1334,8 +1346,27 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     // ---- Own microphone ----
 
+    /** Consecutive seconds in which the microphone delivered exact digital zeros (Android silenced it). */
+    private var silentSeconds = 0
+
     override fun onWindow(pcm48k: ShortArray, n48: Int, startSample: Long, pcm16k: FloatArray, n16: Int, rms: Float) {
         val now = SystemClock.elapsedRealtime()
+        // A real microphone is never exactly zero. Android hands an app pure zeros when it may not record: its
+        // screen was off when the role started, so the listening service never became a foreground service,
+        // and a few seconds after the screen went away the recording was silenced (ef39, 27 Sep 23:38:12,
+        // every chirp then "ratio=0.0"). Say so loudly instead of listening to nothing.
+        var nonZero = false
+        for (i in 0 until n48) if (pcm48k[i].toInt() != 0) { nonZero = true; break }
+        if (!nonZero) {
+            silentSeconds++
+            if (silentSeconds == 3 || silentSeconds % 60 == 0) {
+                HLog.d("ERROR: microphone delivers digital silence for $silentSeconds s: Android has silenced Hush (was the screen off when the role started?). Open Hush on this phone.")
+                main.post { listener?.onLinkStatus("MICROPHONE SILENCED by Android: open Hush on this phone") }
+            }
+        } else {
+            if (silentSeconds >= 3) HLog.d("Microphone back after $silentSeconds s of digital silence")
+            silentSeconds = 0
+        }
         val tap = tapDetector.analyse(pcm48k, n48, now - 1000)
         val acc = accel?.drain() ?: AccelChannel.Result(0, 0f, 0f, emptyList(), false)
         // Rhythm is AUDIO ONLY. Accelerometer jolts were tried as onsets and flooded the history (6–8 per

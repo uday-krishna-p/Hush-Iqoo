@@ -130,7 +130,7 @@ knocks (phones on the same slab) arrive faster than through air: onsets tagged "
 | Sources | Sensors with rhythm ≥ 0.9 grouped by same pattern name or tempo within 25 %; numbered strongest first. |
 | Accelerometer | `AccelChannel`, 200 Hz (fastest rate needs a permission and crashed the service), high-passed magnitude. **Jolts are never onsets** (they flooded the tracker on a handled phone). Jolts only tag heard tapping "✓felt" (within 100 ms of an audio onset) and set ⚠moving (rms > 0.25 m/s²; at rest 0.007, handled 0.4–3). Movement never hides a label: in a collapse everything trembles. |
 | Hush signal | Start: 3 × 700 ms pulses at full amplitude, alarm-class vibration, + double 2.5 kHz beep at **10 %** alarm volume. End: 2 × 400 ms + 1.8 kHz beep. Vibration strength is capped by the phone; Settings → Sound & vibration is the last lever. |
-| Acoustic ranging | `Chirp.kt` 80 ms 2–6 kHz Hann sweep at 90 % alarm volume; matched filter with parabolic sub-sample peak (≈ 200 ms per search). Chirps A, B, C 1.8 s apart. Pair distance `D = c/2·[(t_i(j)−t_i(i)) − (t_j(j)−t_j(i))]/fs + 0.12 m` (clock offsets cancel). Measured: AB 0.91 (real ≈ 1.0), AC 0.56 (real ≈ 0.5), later rounds 0.54–0.58 for the same layout. Detection strength 95–1780× vs threshold 5. Self-checks: timing filter ±0.35 s (a wrong peak once produced 59.7 m), triangle inequality and ≤ 30 m, one retry of lost pairs, **two rounds within 20 % before the map moves**. Only the first three letters form the map (N > 3 solver not built). |
+| Acoustic ranging | `Chirp.kt` 80 ms 2–6 kHz Hann sweep at **40 %** alarm volume (team's request; raise for a hall). Matched filter (27 Sep): FFT correlation on a 16 kHz copy as an analytic signal (its magnitude = smooth envelope, so no 4 kHz carrier-cycle slips), first arrival = earliest envelope peak ≥ 0.3 × the strongest and ≥ 6 × the median within 30 ms before it (the direct path between phones on a table is often weaker than a reflection 3–20 ms later), then refined at 48 kHz ±12 samples with the chirp and its quadrature partner, parabolic sub-sample peak. **37–94 ms per 5 s search on the phones** (sample-by-sample: 1.2–5.6 s). `ChirpTest` covers it. SERIAL chirps: one letter at a time, each phone searches ±2.5 s around its command, commander moves on when all reported or after 7 s. Pair distance `D = c/2·[(t_i(j)−t_i(i)) − (t_j(j)−t_j(i))]/fs + 0.12 m` (clock offsets cancel). Measured: AB 0.91 (real ≈ 1.0), AC 0.56 (real ≈ 0.5), later rounds 0.54–0.58 for the same layout. Detection strength 95–1780× vs threshold 5. Self-checks: timing filter ±0.35 s (a wrong peak once produced 59.7 m), triangle inequality and ≤ 30 m, one retry of lost pairs, **two rounds within 20 % before the map moves**. Only the first three letters form the map (N > 3 solver not built). |
 | Map frame | B origin, C on +x, A (commander) moves inside; scale fixed at first ranging (1.6 × the largest side). A's dot moves by step counting between rangings. A settled sensor (moved, then still 3 s) triggers a re-ranging. |
 | North | Ranging alone cannot know rotation. Sources, best first: (1) **two-mic direction of arrival** of B's and C's chirps at the commander (sub-sample inter-mic delay; mic spacing solved against the triangle's known angle, then held as a median; skipped when phones < 0.8 m apart; rotation smoothed over 5 rounds); (2) the commander's walk (A's shift on the map vs compass bearing walked; moves > 10 m ignored); (3) placement walk (step detector + compass on carried-out sensors); (4) manual Place buttons. First DoA run: spacing 0.10 m, angles 44°/8° vs true 38°, spread 1°. Physical direction test still failing at 50 cm spacing (near field) — needs ≥ 1 m. |
 | Compass arrow | `ArrowView` + rotation-vector `Compass`; angle = mapBearing(A→target) + rotation − heading. Target = the located source when there is a fix < 60 s old, else the strongest sensor. |
@@ -141,7 +141,7 @@ knocks (phones on the same slab) arrive faster than through air: onsets tagged "
 | Export | `SessionLog`: header (commander, sensors, dots, mode, last brief) + every event line + `hush`/`ranging_start`/`ranging`/`ranking`/`stop` records → `Downloads/hush-<date>-<time>.jsonl` via MediaStore. |
 | Permissions (declared, requested at role pick) | RECORD_AUDIO, BLUETOOTH_SCAN/ADVERTISE/CONNECT, NEARBY_WIFI_DEVICES, ACCESS_FINE/COARSE_LOCATION, ACTIVITY_RECOGNITION, RANGING (API 36), VIBRATE, FOREGROUND_SERVICE(+MICROPHONE), ACCESS/CHANGE_WIFI_STATE, legacy BLUETOOTH/ADMIN. |
 
-## Status (26 Sep 21:30)
+## Status (27 Sep 00:00)
 
 **Phase 1 (PRD 2.1, passive probe port) is built and verified on two phones from the laptop, 26 Sep 20:50–21:15:**
 probe → dead victim process started by the system → alert notification + haptic → red beacon screen over the lock
@@ -185,6 +185,29 @@ never recognised the 3-2 pattern (too many of its knocks missed, suspect the rin
 knocks: watch `rej=` in the window lines), and the locator fused nothing because no ranging round completed.
 (5) The locator now fuses knocks only while some phone reports rhythm ≥ 0.9 or a window runs, so room noises are
 not located. (6) The chirp is at 40 % of alarm volume at the team's request; raise for a hall.
+
+**Calibration continued, 26 Sep 23:30 → 27 Sep (second session, three phones on USB, `tools/calibration/`):**
+(1) *Old detector was the reason rounds failed, not latency.* Replaying the 23:21 debug WAVs (same sample counter as
+the log) reproduced every logged pick exactly and showed: every self-detection slipped 11–12 samples (one carrier
+cycle) early; the first-arrival loop slid its window with each earlier peak and walked back up to 4407 samples; the
+two mics landed up to 43 samples apart (impossible 26.7-sample "mic delay"). Between phones the direct sound is often
+the weaker one: C hearing A had a flat envelope until −1004 samples, a direct arrival at 0.45–0.67 of the strongest
+peak, and the strongest (a reflection) 20 ms later. With the envelope detector the B−A clock offset from the same chirp
+in two rounds agrees to 0.1 sample (−243216.4 / −243216.3). (2) *An unexplained fourth chirp* was heard by all three
+phones at similar strength 1.17 s after C's chirp at 23:21:42 (not any of our phones' self-level): another device
+chirping in the room? A ±2.5 s search window can catch it. (3) *Latency:* 991e 0.59–0.76 s (1 hop), ef39 1.39–1.62 s
+when it was 2 hops (via 991e), steady over 42 commands each. The "1.4–20 s erratic" earlier was ef39's direct link
+stalling from 23:21:06 until Nearby dropped it at 23:22:03. (4) *Endless auto re-ranging:* the "walked 3 s" counter
+was cleared only when a round placed the map, so after a failed round the commander chirped every 18 s while lying
+still (13 rounds, 23:24–23:28). Now cleared when any round starts. (5) *Digital silence on ef39:* started from the
+laptop with its screen off, its service never became a foreground service (`startForegroundCount=0`, no exception)
+and Android silenced the recording 5 s later (every chirp "ratio=0.0"). Now: the service logs whether it really is
+foreground, the activity re-asserts the foreground service whenever it comes on screen, and 3 s of exact zeros log
+`ERROR: microphone delivers digital silence` and show it on screen. For laptop tests the screens are kept on over USB
+(`adb shell svc power stayon usb`, restore with `svc power stayon false`). (6) *First round with the new detector
+(27 Sep 23:46:44):* every chirp reported by all three phones within 4.3 s, AB 0.45, BC 0.49, AC 0.78 m, `Clock:`
+spread 2.0 samples (was 87.5 on the old detector). The confirming round was spoiled because the commander was being
+handled (accelerometer RMS 0.1–1.9 m/s², a 7-step "carried" placement) and both sensors' reports then stalled 10–15 s.
 
 **Earlier (18:30):**
 
