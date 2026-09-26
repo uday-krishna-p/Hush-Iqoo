@@ -43,7 +43,14 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
             val target = Engine.arrowTarget   // loudest phone, with hysteresis
             val angle = target?.takeIf { it != "A" }?.let { Engine.arrowAngleTo(it) }
             val srcAngle = if (fix != null) Engine.arrowAngleToSource() else null
-            if (fix != null && srcAngle != null) {
+            val own = Engine.ownArrow()
+            arrow.twinAngleDeg = own?.twinDeg
+            if (own != null) {
+                // The commander's own two mics hear the knocking: first claim on the arrow (no chirps, no map needed).
+                arrow.active = true
+                arrow.angleDeg = own.screenDeg
+                arrow.label = ownArrowLabel(activity, own)
+            } else if (fix != null && srcAngle != null) {
                 // A located source beats "the nearest sensor": point at the sound itself.
                 arrow.active = true
                 arrow.angleDeg = srcAngle

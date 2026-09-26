@@ -57,6 +57,9 @@
     <string name="sensor_arrow_no_north">→ SOURCE%1$s · north not set (Align on the commander)</string>
     <string name="sensor_arrow">→ SOURCE%1$s · north via %2$s</string>
     <string name="arrow_source_far">→ SOURCE · ≥ %1$.0f m away · direction ±%2$.0f°</string>
+    <string name="arrow_knock_unresolved">→ KNOCKING · %1$d knocks · left or right? turn the phone to confirm</string>
+    <string name="arrow_knock">→ KNOCKING · %1$d knocks · confirmed by turning</string>
+    <string name="arrow_knock_table">" · felt through the table: put cloth under the phone"</string>
     <string name="export_ok">Saved Downloads/%1$s</string>
     <string name="export_failed">Export failed, see log</string>
     <string name="hush_running">HUSH RUNNING</string>

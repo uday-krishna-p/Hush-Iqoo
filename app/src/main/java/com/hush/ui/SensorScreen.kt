@@ -33,8 +33,14 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
     private val sensorArrowTick = object : Runnable {
         override fun run() {
             val v = sensorArrow ?: return
+            val own = Engine.ownArrow()
             val a = Engine.sensorArrow()
-            if (a != null && a.here) {
+            v.twinAngleDeg = own?.twinDeg
+            if (own != null) {
+                // This phone hears knocking: its own two mics say where. First claim on the arrow, no commander needed.
+                v.active = true; v.angleDeg = own.screenDeg
+                v.label = ownArrowLabel(activity, own)
+            } else if (a != null && a.here) {
                 v.active = false; v.angleDeg = 0f
                 v.label = activity.getString(R.string.arrow_here)
             } else if (a == null) {
@@ -113,6 +119,13 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
     override fun onEvent(event: SensorEvent, peerName: String) {}
     override fun onPeers(peers: List<Engine.Peer>) {}
     override fun onRanking(ranks: List<Engine.Rank>, brief: String) {}
+
+    /** Label under the phone's own two-mic arrow (shared with the commander screen). */
+    protected fun ownArrowLabel(activity: Activity, e: com.hush.audio.KnockBearing.Estimate): String {
+        val base = if (e.resolved) activity.getString(R.string.arrow_knock, e.knocks)
+                   else activity.getString(R.string.arrow_knock_unresolved, e.knocks)
+        return if (e.felt * 2 > e.knocks) base + activity.getString(R.string.arrow_knock_table) else base
+    }
 
     /** Maps RMS to a 0..100 bar on a decibel scale. Phone mics sit around -70 dB in a quiet room: -85 dB → 0, -15 dB → 100. */
     private fun rmsToPercent(rms: Float): Int {

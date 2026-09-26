@@ -134,6 +134,7 @@ knocks (phones on the same slab) arrive faster than through air: onsets tagged "
 | Map frame | B origin, C on +x, A (commander) moves inside; scale fixed at first ranging (1.6 × the largest side). A's dot moves by step counting between rangings. A settled sensor (moved, then still 3 s) triggers a re-ranging. |
 | North | Ranging alone cannot know rotation. Sources, best first: (1) **two-mic direction of arrival** of B's and C's chirps at the commander (sub-sample inter-mic delay; mic spacing solved against the triangle's known angle, then held as a median; skipped when phones < 0.8 m apart; rotation smoothed over 5 rounds); (2) the commander's walk (A's shift on the map vs compass bearing walked; moves > 10 m ignored); (3) placement walk (step detector + compass on carried-out sensors); (4) manual Place buttons. First DoA run: spacing 0.10 m, angles 44°/8° vs true 38°, spread 1°. Physical direction test still failing at 50 cm spacing (near field) — needs ≥ 1 m. |
 | Compass arrow | `ArrowView` + rotation-vector `Compass`; angle = mapBearing(A→target) + rotation − heading. Target = the located source when there is a fix < 60 s old, else the strongest sensor. |
+| Own knock arrow (27 Sep) | `KnockBearing.kt`, every phone, first claim on the arrow: the two-mic delay of each knock → angle from the phone's top (spacing 0.155 m, mic 1 = top mic), both mirror bearings voted into a decaying histogram (τ 15 s, 5° bins, σ 12°); faint twin arrow until turning the phone resolves it (best peak ≥ 1.5× the second). Gates q ≥ 0.5, |delay| ≤ 30 samples, felt knocks × 0.3, weight × loudness over background (×10 → 1, clamped 0.3–3); shown only while own rhythm ≥ 0.9 or a Hush window runs (held 8 s). Constants changeable with `--es mic1top` / `--ef micspacing`, kept in preferences. |
 | Passive port / probe | `Probe.kt`: victim side = PendingIntent BLE scan, filter on 16-bit UUID 0xA5A7, `SCAN_MODE_LOW_POWER`, re-armed at boot (+10 s), app update (+3 s), every 15 min (inexact alarm) and whenever the app opens; a re-registration waits 2.5 s between stop and start. Commander side = 30 s non-connectable advertisement of 0xA5A7 with its name suffix, high power. Woken phone: notification (channel "rescue", full-screen intent) → `BeaconActivity` → `SensorService` (byProbe) → Nearby SENSOR; tag flags bit 0 = woken by probe; back to passive after 10 min without a commander. Commander shows "Discovered phones" from tag sightings: median RSSI, "~N m?" (−59 dBm at 1 m, exponent 2.7), warmer/colder trend, battery, letter once joined. |
 | Source locator | `Locator.kt`, see "How the source is located". Constants: cell 0.25 m, σ_t 0.5 ms, σ_amp 6 dB (weight 0.5), σ_doa 12° (voice 20°), decay 25 s, hold 3.5 s for late reports, mic spacing = median solved by the chirp rounds else 0.10 m. `LOCATE knock #n heard by A,B,C: A:+0.0ms B:+3.1ms …` and `LOCATE fix: peak (x, y) region … radius … nearest … spread …` in the log. Export gets a `locate` record per update. |
 | Radio ranging | `BleRanging` (Android 16 `RangingManager`). Capabilities on the I2501: CS enabled, RSSI enabled, UWB/RTT absent; own address read from the capabilities object's `toString`. Sensors advertise a connectable BLE tag (service UUID `0000A5A5-…`, data = name suffix); the commander scans for the tag to learn the sensor's **live** (rotating) address, opens a GATT link, then initiates; the sensor learns the commander's live address from its GATT server and answers it. **Result so far: CS opens, starts and closes with reason 3 (UNSUPPORTED) within 1 ms every time**, even over an open link with the responder ready; RSSI ranging then runs continuously but reads 6–14 m for phones 0.5 m apart. RSSI is displayed with "?" and never used to drop a chirp round. Latest build requests a one-time pairing and retries CS once bonded (untested). |
@@ -142,6 +143,28 @@ knocks (phones on the same slab) arrive faster than through air: onsets tagged "
 | Permissions (declared, requested at role pick) | RECORD_AUDIO, BLUETOOTH_SCAN/ADVERTISE/CONNECT, NEARBY_WIFI_DEVICES, ACCESS_FINE/COARSE_LOCATION, ACTIVITY_RECOGNITION, RANGING (API 36), VIBRATE, FOREGROUND_SERVICE(+MICROPHONE), ACCESS/CHANGE_WIFI_STATE, legacy BLUETOOTH/ADMIN. |
 
 ## Status (27 Sep 00:00)
+
+**Compass plan, step 1 built 27 Sep 01:20 (`docs/PLAN-compass.md`; team decision: approximate direction is the
+goal, no audible chirps in the demo path):** every phone now draws its OWN arrow at the knocking from its two
+microphones, with no chirps, no positions and no clock sync (`audio/KnockBearing.kt`). Each knock's two-mic delay
+(already measured per onset, `dl=`/`q=` in the `Onset` lines) becomes the angle from the phone's top
+(cos θ = delay / 21.7 samples for 0.155 m mic spacing). Left and right are a mirror the mics cannot tell, so each
+knock votes for both compass bearings in a decaying 5° histogram (τ 15 s). The arrow shows only while this phone hears deliberate tapping (own rhythm score ≥ 0.9, i.e. steady or patterned tapping, the
+HUMAN TAPPING label or a Hush window, held 8 s; 0.5 would be any 3 onsets in 8 s, which room noise gives too) and after 3 usable knocks within 15 s, each weighted by its loudness over the
+background (×10 = weight 1, clamped 0.3–3, so knuckle knocks at ×11–28 outweigh room noises at ×2–6), with a faint twin arrow and "left or right? turn the phone to confirm" until the phone has been turned
+and one peak wins (≥ 1.5× the other: "confirmed by turning"). Gates: q ≥ 0.5, |delay| ≤ 30 samples; knocks felt
+through the table count 0.3 and the label says to put cloth under the phone when most were felt. The own arrow has
+first claim on the arrow on both screens; the located source, the loudest phone and the commander's fix remain the
+fallbacks. Log: `Onset … arrow` per used knock, `KNOCK ARROW screen=… twin=… bearing=… conf=… knocks=… felt=…
+resolved=… turned=…` once a second. Constants from the calibration logs: knock delays cluster at 0 and at
+±16–24 samples (end-fire ≈ 22 → spacing 0.155 m); the player phone hears its own knocks at +3.07 samples (mic 1
+after mic 0, so mic 0 is the bottom mic beside the speaker and `mic1IsTop = true`: a guess until verified).
+**Verify first (step 0 of the plan):** one phone on cloth, knock 1 m beyond its TOP edge; the arrow must point up.
+If it points down: `adb shell am start -n com.hush/.MainActivity --es mic1top false` (kept in preferences, any
+role). `KnockBearingTest` (5 tests) passes; installed on all three phones 01:20; started as commander from the
+laptop: room-noise onsets (peak ×6) produced `KNOCK ARROW` lines within a minute, so the pipeline works end to
+end and that is why the tapping gate and the loudness weight were added; no real knocks tried yet. Next: step 2 (sensors send their bearing, the commander draws the
+lines on the map and crosses them into a point), step 3 (GPS positions outdoors).
 
 **Phase 1 (PRD 2.1, passive probe port) is built and verified on two phones from the laptop, 26 Sep 20:50–21:15:**
 probe → dead victim process started by the system → alert notification + haptic → red beacon screen over the lock
@@ -475,6 +498,7 @@ app/src/main/java/com/hush/
   audio/Classifier.kt      // YAMNet + buckets
   audio/TapDetector.kt     // onsets with ring-down check, refined to the sample
   audio/Doa.kt             // two-mic cross-correlation → inter-mic delay (knock onsets and voice seconds)
+  audio/KnockBearing.kt    // the phone's OWN arrow: two-mic knock delays → left/right candidates, resolved by turning (no chirps)
   audio/RhythmTracker.kt   // steady / pattern / tempo
   audio/AccelChannel.kt    // jolts, moving
   audio/Compass.kt, DeadReckoning.kt, Gps.kt, MicProbe.kt
@@ -488,6 +512,8 @@ app/src/main/java/com/hush/
   ui/CommanderScreen.kt, SensorScreen.kt, MapView.kt, ArrowView.kt
 app/src/main/assets/yamnet.tflite, yamnet_class_map.csv
 app/src/test/java/com/hush/LocatorTest.kt   // laptop-only synthetic test of the locator (JUnit 4.13.2)
+app/src/test/java/com/hush/KnockBearingTest.kt   // the own arrow: mirror resolved by turning, expiry, junk delays
+docs/PLAN-compass.md                        // the compass plan (own arrow → bearings on the map → GPS → silent chirps)
 .github/workflows/build.yml
 ```
 
@@ -501,6 +527,8 @@ adb -s <serial> shell "run-as com.hush cat files/hush.log" | grep -i 'RANKING\|B
 adb shell am start -n com.hush/.MainActivity --es role COMMANDER    # pick a role without tapping coordinates
 adb shell am start -n com.hush/.MainActivity --ez probe true        # commander: ACTIVATE SENSORS
 adb shell am start -n com.hush/.MainActivity --ez hush true         # commander: HUSH window (solo allowed)
+adb shell am start -n com.hush/.MainActivity --es mic1top false     # any role: channel 1 is the BOTTOM mic (use if the own arrow points backwards)
+adb shell am start -n com.hush/.MainActivity --ef micspacing 0.14   # any role: distance between the two mics, metres (default 0.155)
 adb shell dumpsys bluetooth_manager | grep -A8 'com.hush (Registered)'   # Bluetooth's view of the port: scan time, results
 ./gradlew testDebugUnitTest -q          # locator maths on synthetic phones, no device needed
 adb -s <serial> exec-out run-as com.hush cat files/debug.wav > debug.wav   # first 90 s of raw audio, laptop analysis only

@@ -31,6 +31,8 @@ import com.hush.ui.SensorScreen
  *   adb shell am start -n com.hush/.MainActivity --ez hush true           (commander: HUSH, solo allowed)
  *   adb shell am start -n com.hush/.MainActivity --ez range true          (commander: chirp ranging round)
  *   adb shell am start -n com.hush/.MainActivity --es play knocks.wav --ef level 0.5   (any role: play files/knocks.wav)
+ *   adb shell am start -n com.hush/.MainActivity --es mic1top false                     (any role: recording channel 1 is the BOTTOM mic)
+ *   adb shell am start -n com.hush/.MainActivity --ef micspacing 0.14                   (any role: distance between the two mics, metres)
  */
 class MainActivity : AppCompatActivity() {
 
@@ -44,6 +46,8 @@ class MainActivity : AppCompatActivity() {
         const val EXTRA_LAYOUT = "layout"
         const val EXTRA_PLAY = "play"
         const val EXTRA_PLAY_LEVEL = "level"
+        const val EXTRA_MIC1TOP = "mic1top"
+        const val EXTRA_MICSPACING = "micspacing"
     }
 
     private var role: String? = null
@@ -111,6 +115,12 @@ class MainActivity : AppCompatActivity() {
             HLog.d("Hook: layout $spec")
             HLog.d("Hook: layout result: " + Engine.setLayout(spec))
         }
+        if (intent.hasExtra(EXTRA_MIC1TOP) || intent.hasExtra(EXTRA_MICSPACING)) {
+            val top = intent.getStringExtra(EXTRA_MIC1TOP)?.toBoolean()
+            val spacing = if (intent.hasExtra(EXTRA_MICSPACING)) intent.getFloatExtra(EXTRA_MICSPACING, 0f) else null
+            HLog.d("Hook: mic geometry mic1top=$top spacing=$spacing")
+            HLog.d("Hook: " + Engine.setMicGeometry(top, spacing))
+        }
         intent.getStringExtra(EXTRA_PLAY)?.let { name ->
             val fraction = intent.getFloatExtra(EXTRA_PLAY_LEVEL, 0.5f)
             HLog.d("Hook: play $name at $fraction")
@@ -118,6 +128,7 @@ class MainActivity : AppCompatActivity() {
         }
         intent.removeExtra(EXTRA_ROLE); intent.removeExtra(EXTRA_PROBE); intent.removeExtra(EXTRA_HUSH)
         intent.removeExtra(EXTRA_RANGE); intent.removeExtra(EXTRA_PLAY); intent.removeExtra(EXTRA_PLAY_LEVEL); intent.removeExtra(EXTRA_ALIGN); intent.removeExtra(EXTRA_LAYOUT)
+        intent.removeExtra(EXTRA_MIC1TOP); intent.removeExtra(EXTRA_MICSPACING)
     }
 
     private fun showRolePicker() {

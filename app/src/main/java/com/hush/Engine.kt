@@ -248,6 +248,46 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     /** Commander's map: letter → (x, y) fractions of the square. Kept here so it survives screen changes. */
     val mapDots = LinkedHashMap<String, Pair<Float, Float>>()
 
+    // ---- The phone's own knock arrow (two mics, no chirps; compass plan step 1) ----
+
+    /** The own arrow stays on screen this long after the last second with tapping evidence. */
+    private const val OWN_ARROW_HOLD_MS = 8_000L
+    /** Own rhythm score from which a second counts as deliberate tapping: 0.9 = steady, 1.0 = a pattern (0.5 is any 3 onsets). */
+    private const val OWN_ARROW_RHYTHM = 0.9f
+    @Volatile private var ownArrowUntilMs = 0L
+
+    /**
+     * Where this phone hears the knocking, from its own two mics, or null: no knocking lately, or no tapping
+     * evidence (room noises are onsets too and steered the arrow at once in the first laptop run).
+     */
+    fun ownArrow(): com.hush.audio.KnockBearing.Estimate? {
+        val now = SystemClock.elapsedRealtime()
+        if (now > ownArrowUntilMs) return null
+        return com.hush.audio.KnockBearing.estimate(now, headingDeg)
+    }
+
+    /** Which channel is the top mic and how far apart the mics are: laptop hooks, kept in preferences. */
+    fun setMicGeometry(mic1Top: Boolean?, spacingM: Float?): String {
+        val p = try { appContext?.getSharedPreferences("hush_mic", Context.MODE_PRIVATE) } catch (e: Exception) { HLog.d("Mic geometry prefs: $e"); null }
+        mic1Top?.let { com.hush.audio.KnockBearing.mic1IsTop = it; p?.edit()?.putBoolean("mic1top", it)?.apply() }
+        spacingM?.takeIf { it in 0.05f..0.30f }?.let { com.hush.audio.KnockBearing.micSpacingM = it.toDouble(); p?.edit()?.putFloat("spacing", it)?.apply() }
+        com.hush.audio.KnockBearing.reset()
+        val s = micGeometryText()
+        HLog.d(s); return s
+    }
+
+    private fun micGeometryText() = "Mic geometry: mic1IsTop=${com.hush.audio.KnockBearing.mic1IsTop} spacing=%.3f m (end-fire delay %.1f samples)".format(
+        com.hush.audio.KnockBearing.micSpacingM, com.hush.audio.KnockBearing.maxDelaySamples())
+
+    private fun loadMicGeometry(context: Context) {
+        try {
+            val p = context.getSharedPreferences("hush_mic", Context.MODE_PRIVATE)
+            com.hush.audio.KnockBearing.mic1IsTop = p.getBoolean("mic1top", com.hush.audio.KnockBearing.mic1IsTop)
+            com.hush.audio.KnockBearing.micSpacingM = p.getFloat("spacing", com.hush.audio.KnockBearing.micSpacingM.toFloat()).toDouble()
+        } catch (e: Exception) { HLog.d("Mic geometry prefs unreadable, defaults kept: $e") }
+        HLog.d(micGeometryText())
+    }
+
     // ---- Compass / go-to arrow ----
 
     private var compass: com.hush.audio.Compass? = null
@@ -1453,6 +1493,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         sessionLog = com.hush.log.SessionLog()
         HLog.d("Engine start role=$newRole name=$localName")
         if (newRole == ROLE_COMMANDER) try { loadPrefs(context) } catch (e: Exception) { HLog.d("ERROR loading prefs: $e") }
+        loadMicGeometry(context)
 
         try {
             classifier = Classifier(context)
@@ -1501,6 +1542,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         ble?.stop(); ble = null
         radioDistance.clear(); peerBleAddress.clear(); radioStatus = ""
         locator.reset(); peerHeading.clear(); doaAll.clear()
+        com.hush.audio.KnockBearing.reset(); ownArrowUntilMs = 0L
         sightings.clear(); probeStatus = ""; activatedByProbe = false
         main.removeCallbacks(passiveWatchdog); main.removeCallbacks(tagRefresh); main.removeCallbacksAndMessages(probeToken)
         com.hush.net.Probe.stop()
@@ -1661,10 +1703,17 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val rhythm = synchronized(audioLock) { rhythmTracker.evaluate(now) }
         val cls = classifier?.classify(pcm16k, n16)
         val label = fuseLabel(rhythm, cls)
+        // The own arrow is shown only while this phone hears deliberate tapping (or a Hush window runs); the
+        // knock votes accumulate regardless, so the arrow is ready the moment the tapping is recognised.
+        if (inHush || rhythm.score >= OWN_ARROW_RHYTHM || label == LABEL_TAPPING) ownArrowUntilMs = now + OWN_ARROW_HOLD_MS
         main.post { trackWalking(acc); trackPlacement(acc) }
         // Source location, part 1 (every phone): each knock timed to the sample, its loudness, and the
         // two-mic delay that says which side of this phone it came from. Sent to the commander.
         val onsetReport = if (!selfNoise && tap.onsets.isNotEmpty()) buildOnsetReport(tap, startSample, now - 1000, acc) else null
+        com.hush.audio.KnockBearing.estimate(now, headingDeg)?.let { a ->
+            HLog.d("KNOCK ARROW shown=%b screen=%.0f° twin=%s bearing=%.0f° conf=%.2f knocks=%d felt=%d resolved=%b turned=%.0f° heading=%.0f°".format(
+                now <= ownArrowUntilMs, a.screenDeg, a.twinDeg?.let { "%.0f°".format(it) } ?: "-", a.bearingDeg, a.confidence, a.knocks, a.felt, a.resolved, a.turnedDeg, headingDeg))
+        }
         // Part 2, voices: the two-mic delay over the whole second (no sharp onset to time).
         var voiceDelay: Float? = null; var voiceQ: Float? = null
         if (!selfNoise && !acc.moving && (cls?.human ?: 0f) >= 0.3f && rms > floor * 1.5f) {
@@ -1752,9 +1801,11 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             }
             val ms = windowStartMs + o.sampleInWindow / 48
             val felt = acc.spikeTimesMs.any { kotlin.math.abs(it - ms) <= RhythmTracker.MERGE_MS }
+            // The phone's own arrow (compass plan step 1): this knock's two-mic delay votes for a direction.
+            val used = com.hush.audio.KnockBearing.add(delay, q, o.ratio, felt, headingDeg, ms)
             out.add(com.hush.model.Onset(abs, o.peak, o.ratio, delay, q, felt))
-            HLog.d("Onset @%d (+%d ms) peak=%.3f x%.0f rise=%d dl=%s q=%s%s heading=%.0f".format(abs, o.sampleInWindow / 48, o.peak, o.ratio, o.riseSamples,
-                delay?.let { "%.2f".format(it) } ?: "-", q?.let { "%.2f".format(it) } ?: "-", if (felt) " felt" else "", headingDeg))
+            HLog.d("Onset @%d (+%d ms) peak=%.3f x%.0f rise=%d dl=%s q=%s%s heading=%.0f%s".format(abs, o.sampleInWindow / 48, o.peak, o.ratio, o.riseSamples,
+                delay?.let { "%.2f".format(it) } ?: "-", q?.let { "%.2f".format(it) } ?: "-", if (felt) " felt" else "", headingDeg, if (used) " arrow" else ""))
         }
         return com.hush.model.OnsetReport(letter, headingDeg, acc.moving, out)
     }
