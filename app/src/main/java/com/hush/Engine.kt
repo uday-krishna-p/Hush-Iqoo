@@ -162,6 +162,12 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         placements[p.letter] = p
         HLog.d("Placement from ${p.letter}: east=%.1f north=%.1f steps=%d".format(p.east, p.north, p.steps))
         alignFromPlacements()
+        // A sensor was carried and has settled: its dot is stale, re-range when it is quiet to do so.
+        if (role == ROLE_COMMANDER && !inHush && !rangingInProgress && peers.size >= 2 &&
+            SystemClock.elapsedRealtime() - lastAFrameMs > 15_000) {
+            HLog.d("Sensor ${p.letter} settled after moving: re-ranging")
+            autoPlace()
+        }
     }
 
     /**
@@ -507,9 +513,31 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private var movedSinceRanging = 0f          // seconds of movement since the last ranging
     private var alignSolutions = ArrayList<Pair<Float, Float>>()   // (rotation if not mirrored, rotation if mirrored)
 
+    private var lastDrEast = 0f
+    private var lastDrNorth = 0f
+
+    /** Commander: between ranging rounds, move our own dot on the map by the steps we took (live arrow while walking). */
+    private fun moveOwnDotByWalking() {
+        val dr = deadReckoning ?: return
+        val rot = mapRotationDeg ?: return
+        val scale = mapMetresPerUnit ?: return
+        val dE = dr.east - lastDrEast; val dN = dr.north - lastDrNorth
+        lastDrEast = dr.east; lastDrNorth = dr.north
+        val len = kotlin.math.hypot(dE, dN)
+        if (len < 0.3f) return
+        val a = mapDots["A"] ?: return
+        // World bearing of the step → map bearing (clockwise from map-up) → unit-square delta.
+        val worldB = Math.toDegrees(kotlin.math.atan2(dE.toDouble(), dN.toDouble()))
+        val mapB = Math.toRadians(worldB - rot)
+        val u = len / scale
+        mapDots["A"] = (a.first + (kotlin.math.sin(mapB) * u).toFloat()) to (a.second - (kotlin.math.cos(mapB) * u).toFloat())
+        listener?.onPeers(peers.values.toList())
+    }
+
     /** Called once per second from the audio window on the commander: accumulate walking heading. */
     private fun trackWalking(acc: AccelChannel.Result) {
         if (role != ROLE_COMMANDER) return
+        moveOwnDotByWalking()
         if (acc.rmsHp > 0.25f) {
             movedSinceRanging += 1f
             val h = Math.toRadians(headingDeg.toDouble())
@@ -564,6 +592,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         lastAFrameMs = now
         walkHeadingSinX = 0.0; walkHeadingSinY = 0.0; walkSamples = 0
         movedSinceRanging = 0f
+        deadReckoning?.let { lastDrEast = it.east; lastDrNorth = it.north }   // ranging just fixed A; restart step tracking from here
     }
 
     private fun setRangingStatus(s: String) {
@@ -594,6 +623,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     /** Commander: every event, own or received, lands here. */
     private fun recordEvent(e: SensorEvent) {
         sessionLog.add(e.toJson())
+        updateLive(e)
+        emitLive()
         if (!inHush) return
         // Skip the start buzz and beep: they rattle the phone and were once scored as tapping.
         if (SystemClock.elapsedRealtime() < hushStartMs + SELF_NOISE_MS) return
@@ -619,25 +650,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         }.sortedByDescending { it.score }
         val sources = if (mode != Mode.VOICE) assignSources(ranks) else 0
         lastRanking = ranks
-        val top = ranks.firstOrNull()
-        lastBrief = when {
-            top == null -> "No sensor data in this window"
-            sources >= 2 -> (1..sources).joinToString("  |  ") { s ->
-                val members = ranks.filter { it.source == s }
-                val lead = members.first()
-                val others = members.drop(1).joinToString(",") { it.letter }
-                "Source $s: tapping ${lead.rhythm} %.1f/s · strongest at Sensor ${lead.letter}".format(1000f / lead.tempoMs.coerceAtLeast(1)) +
-                    (if (others.isNotEmpty()) " (also $others)" else "")
-            }
-            top.evidence >= 0.9f && mode != Mode.VOICE && top.rhythm != null ->
-                "Human tapping · ${(top.evidence * 100).toInt()}% · strongest at Sensor ${top.letter} · rhythm ${top.rhythm}"
-            top.evidence >= 0.9f && mode != Mode.VOICE ->
-                "Human tapping · ${(top.evidence * 100).toInt()}% · strongest at Sensor ${top.letter}"
-            top.evidence >= 0.3f && mode != Mode.TAPPING ->
-                "Human voice · ${(top.evidence * 100).toInt()}% · strongest at Sensor ${top.letter}"
-            top.score > 0f -> "Weak signal · ${(top.evidence * 100).toInt()}% · loudest at Sensor ${top.letter}"
-            else -> "No human signal detected"
-        }
+        lastBrief = "Window · " + (if (ranks.isEmpty()) "No sensor data in this window" else briefFor(ranks, sources))
         HLog.d("RANKING ($mode): " + ranks.joinToString(" | ") { "%s score=%.5f ev=%.2f rh=%s n=%d gain=%.2f".format(it.letter, it.score, it.evidence, it.rhythm, it.windows, micGain[it.letter] ?: 1f) })
         HLog.d("BRIEF: $lastBrief")
         sessionLog.addRecord("ranking", mapOf(
@@ -684,10 +697,88 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private var localName = "?"
     private var lastStatus = "Not started"
 
-    // Noise floor: mean RMS of the last few seconds before a Hush window starts.
+    // Noise floor: rolling MEDIAN of this phone's last FLOOR_SECONDS quiet, still seconds.
+    // A median cannot be dragged by a knock, a chirp or a buzz the way a mean over 3 s was.
     private val recentRms = ArrayDeque<Float>()
-    private const val FLOOR_SECONDS = 3
+    private const val FLOOR_SECONDS = 30
     @Volatile private var floor = 0f
+    private fun currentFloor(): Float = if (recentRms.isEmpty()) 0f else recentRms.sorted()[recentRms.size / 2]
+
+    // ---- Live scoring (continuous, no need for anything to stay still) ----
+
+    data class Live(
+        var score: Float = 0f,       // decayed sum of quality × loudness-above-floor × evidence
+        var evidence: Float = 0f,    // decayed best evidence
+        var rhythm: String? = null,
+        var tempoMs: Int = 0,
+        var lastMs: Long = 0L,
+        var moving: Boolean = false,
+        var quietSeconds: Int = 0
+    )
+    private val live = HashMap<String, Live>()
+    private const val LIVE_TAU_MS = 15_000f
+    private var lastLiveEmitMs = 0L
+    private var lastWindowEndMs = -100_000L
+
+    private fun decay(dtMs: Long): Float = kotlin.math.exp(-dtMs / LIVE_TAU_MS).toFloat()
+
+    /** Commander: fold one event into the live picture. Moving or self-noise seconds carry zero weight. */
+    private fun updateLive(e: SensorEvent) {
+        val now = SystemClock.elapsedRealtime()
+        val l = live.getOrPut(e.sensorId) { Live() }
+        if (l.lastMs > 0) { val k = decay(now - l.lastMs); l.score *= k; l.evidence *= k }
+        l.lastMs = now
+        l.moving = e.moving
+        val selfNoise = (inHush && now - hushStartMs < SELF_NOISE_MS) || now - lastChirpMs < 1500
+        val quality = if (e.moving || selfNoise) 0f else 1f
+        if (quality > 0f) {
+            val gain = micGain[e.sensorId] ?: 1f
+            val ev = evidence(e)
+            l.score += maxOf(0f, e.rms - e.floor) / gain * ev
+            if (ev > l.evidence) l.evidence = ev
+            if (e.rhythm != null) { l.rhythm = e.rhythm; l.tempoMs = e.tempoMs }
+            l.quietSeconds++
+        } else if (l.evidence < 0.3f) {
+            l.rhythm = null
+        }
+    }
+
+    /** Commander, once a second: publish the live ranking when no window is running. */
+    private fun emitLive() {
+        val now = SystemClock.elapsedRealtime()
+        if (inHush || now - lastWindowEndMs < 8000 || now - lastLiveEmitMs < 1000) return
+        lastLiveEmitMs = now
+        val ranks = live.map { (letter, l) ->
+            val k = decay(now - l.lastMs)
+            Rank(letter, l.score * k, l.evidence * k, l.rhythm, l.quietSeconds, l.moving, l.tempoMs)
+        }.sortedByDescending { it.score }
+        if (ranks.isEmpty()) return
+        val sources = if (mode != Mode.VOICE) assignSources(ranks) else 0
+        lastRanking = ranks
+        lastBrief = "Live · " + briefFor(ranks, sources)
+        listener?.onRanking(ranks, lastBrief)
+    }
+
+    private fun briefFor(ranks: List<Rank>, sources: Int): String {
+        val top = ranks.firstOrNull() ?: return "No sensor data"
+        return when {
+            sources >= 2 -> (1..sources).joinToString("  |  ") { s ->
+                val members = ranks.filter { it.source == s }
+                val lead = members.first()
+                val others = members.drop(1).joinToString(",") { it.letter }
+                "Source $s: tapping ${lead.rhythm} %.1f/s · strongest at Sensor ${lead.letter}".format(1000f / lead.tempoMs.coerceAtLeast(1)) +
+                    (if (others.isNotEmpty()) " (also $others)" else "")
+            }
+            top.evidence >= 0.9f && mode != Mode.VOICE && top.rhythm != null ->
+                "Human tapping · ${(top.evidence * 100).toInt()}% · strongest at Sensor ${top.letter} · rhythm ${top.rhythm}"
+            top.evidence >= 0.9f && mode != Mode.VOICE ->
+                "Human tapping · ${(top.evidence * 100).toInt()}% · strongest at Sensor ${top.letter}"
+            top.evidence >= 0.3f && mode != Mode.TAPPING ->
+                "Human voice · ${(top.evidence * 100).toInt()}% · strongest at Sensor ${top.letter}"
+            top.score > 0f -> "Weak signal · ${(top.evidence * 100).toInt()}% · loudest at Sensor ${top.letter}"
+            else -> "No human signal detected"
+        }
+    }
 
     // Hush window
     @Volatile var inHush = false
@@ -748,6 +839,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         recentRms.clear()
         rhythmTracker.reset()
         hushEvents.clear()
+        live.clear()
         lastRanking = emptyList()
         lastBrief = ""
         inHush = false
@@ -812,7 +904,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     @Volatile private var lastChirpMs = -10_000L
 
     private fun startHushLocal(seconds: Int) {
-        floor = if (recentRms.isEmpty()) 0f else recentRms.average().toFloat()
+        floor = currentFloor()
         inHush = true
         hushStartMs = SystemClock.elapsedRealtime()
         hushEndMs = hushStartMs + seconds * 1000L
@@ -832,6 +924,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         if (left <= 0) {
             inHush = false
             HLog.d("Hush window ended")
+            lastWindowEndMs = SystemClock.elapsedRealtime()
             vibrate(longArrayOf(0, 400, 120, 400))            // two pulses at the end
             appContext?.let { Ping.play(it, listOf(1800 to 400)) }
             listener?.onCountdown(-1)
@@ -892,16 +985,17 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val battery = try {
             (appContext?.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
         } catch (_: Exception) { -1 }
-        // Noise floor: only quiet seconds count. Chirp seconds inflated it once and zeroed two sensors' scores.
-        if (!inHush && !rangingInProgress && now - lastChirpMs > 1500) {
+        // Noise floor: only quiet, still seconds count, and it is a median (see FLOOR_SECONDS).
+        if (!rangingInProgress && now - lastChirpMs > 1500 && !acc.moving && !(inHush && now - hushStartMs < SELF_NOISE_MS)) {
             recentRms.addLast(rms)
             while (recentRms.size > FLOOR_SECONDS) recentRms.removeFirst()
         }
+        if (!inHush) floor = currentFloor()
         val event = SensorEvent(
             sensorId = letter,
             tMs = now,
             rms = rms,
-            floor = if (inHush) floor else (if (recentRms.isEmpty()) 0f else recentRms.average().toFloat()),
+            floor = floor,
             human = cls?.human ?: 0f,
             machine = cls?.machine ?: 0f,
             topClass = cls?.topClass ?: "-",
