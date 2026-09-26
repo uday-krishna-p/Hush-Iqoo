@@ -250,6 +250,28 @@ commander and was never lettered); Nearby's bandwidth changes and > 2.5 s gaps f
 up at quality 3 = Wi-Fi; gaps of 2.8–6.3 s seen); explicit `Ranging: trigger CHIRP X` lines for latency.py.
 (6) *Debug WAV is stereo* now (both mics, 90 s, private file).
 
+**0.40 m triangle, 27 Sep 00:24–00:32 (team: all pairs 0.40 m ±3 cm, same table, nothing between; ef39 commander):**
+(1) *Ranging does not match the tape.* Three still rounds (accelerometers ≤ 0.014 m/s²) read ef39–6a46
+0.78/0.78/0.78, 6a46–991e 0.76/0.76/0.77, ef39–991e 0.95/0.95/0.94 m (repeatable to ±1 cm; `Clock:` spread 8.5–10.5
+samples; "Placed by sound" after two rounds). Per-phone self-hearing delays solved from this layout: ef39 −49.5,
+991e −44.5, 6a46 +2.5 samples, which do not reproduce the previous tape layout. In the stereo audio each phone hears
+its own chirp on both mics within 1–3 samples (an in-air path from one speaker would differ by ~20), and ef39 and
+991e (not 6a46) show a second self-peak 43–47 samples later: a phone may record an early copy of its own chirp
+before the sound leaves the speaker. Open until a controlled distance series is run (asked the team: phones in one
+line at 0 / 0.50 / 1.50 m, then 6a46 at 2.50 m). (2) *Two-mic chirp delays repeat on a still layout even when
+ambiguous:* ef39←6a46 −15.8/−15.9/−16.0, ef39←991e −18.7/−19.0/−19.0, 6a46←991e −15.6/−15.8/−16.0 samples; 991e←ef39
+14.1/24.6/25.6 and 991e←6a46 13.0/24.3/24.9 (one 12-sample cycle slip each); 6a46←ef39 −27.3/24.3/3.6 (useless).
+Repeatable is not correct: only a rotation test can show which cycle is true. (3) *Knocks* (991e playing at full
+alarm volume): 991e 74/75 (jitter 0.3 ms, its own knocks reach its mic 198.8 ms after PLAY this run), ef39 13/75
+(jitter 1.2–1.8 ms), 6a46 0/75 — people talking beside it raised its window median (floor 0.0018→0.0030) and the
+knocks never passed 2× it. Ring-down rejections: 0–1 per phone in this run, 10–11 per phone in the 23:20 run, against
+75 knocks: **DECAY_MAX / DECAY_FRAMES are not the cause of missed knocks; the level of a phone speaker's knock at
+another phone is.** Onset ratio does not separate knocks from other onsets (ef39: matched ×12, unscheduled ×12), so
+no minimum ratio for the locator. Tap-detector thresholds left unchanged; real knuckle knocks (×11–28) are the true
+test. (4) *Locator:* fused the 6 knocks heard by two phones and put the source 0.2 m from 991e (→ef39 1.2 m, →6a46
+0.9 m, on the inflated map), `radius 3.4 m` after 6 knocks. (5) *Latency with ef39 as hub* (clock skew removed):
+6a46 median 0.07 s (0.02–0.53), 991e 2 hops via 6a46 median 0.12 s (0.06–0.55).
+
 **Earlier (18:30):**
 
 **Verified from the laptop (adb-driven, phones on the table):** roles → mesh join → HUSH → chirps → ranging →
