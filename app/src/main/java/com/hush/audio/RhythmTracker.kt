@@ -17,7 +17,8 @@ class RhythmTracker {
         const val GROUP_GAP_MS = 600L    // onsets closer than this belong to the same group ("3 quick knocks")
         const val REGULAR_CV = 0.35f     // coefficient of variation below this = regular
         const val MIN_ONSETS = 3         // USAR asks victims to "tap three times"; three regular hits count (was 4, lowered 26 Sep 16:20)
-        const val MAX_ONSETS = 20        // more than ~2.5 hits per second for 8 s is rattling, not signalling
+        const val MAX_ONSETS = 40        // more than 5 hits per second for 8 s is rattling, not signalling (was 20: real 2.5/s knocking tripped it)
+        const val STEADY_CV = 0.45f      // regularity of raw knock spacing at any tempo; random noise has CV ≈ 1
         const val MERGE_MS = 100L        // an accelerometer spike this close to an audio onset is the same knock
     }
 
@@ -46,7 +47,16 @@ class RhythmTracker {
         if (n < 2) return Result(n, 0f, null)
         if (n > MAX_ONSETS) return Result(n, 0f, null)
 
-        // Group onsets into bursts.
+        // 1. Steady knocking at ANY tempo: consecutive gaps are regular. Measured 26 Sep: people knock at
+        //    1/s or 2–3/s; both are intent. At 600 ms grouping the fast case merged into one endless group.
+        if (n >= MIN_ONSETS) {
+            val gaps = times.zipWithNext { a, b -> (b - a).toFloat() }
+            val mean = gaps.average().toFloat()
+            val sd = kotlin.math.sqrt(gaps.map { (it - mean) * (it - mean) }.average().toFloat())
+            if (mean in 150f..2500f && sd / mean < STEADY_CV) return Result(n, 0.9f, "steady")
+        }
+
+        // 2. Patterned knocking (3-2): group onsets into bursts.
         val groups = ArrayList<MutableList<Long>>()
         for (t in times) {
             if (groups.isEmpty() || t - groups.last().last() > GROUP_GAP_MS) groups.add(mutableListOf(t)) else groups.last().add(t)
