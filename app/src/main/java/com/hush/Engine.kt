@@ -109,6 +109,70 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     // ---- Compass / go-to arrow ----
 
     private var compass: com.hush.audio.Compass? = null
+    private var deadReckoning: com.hush.audio.DeadReckoning? = null
+    private var lastPlacementSentSteps = -1
+    private var stillSeconds = 0
+
+    /** Commander: latest carried-offset reports from sensors, letter → Placement. */
+    private val placements = HashMap<String, com.hush.model.Placement>()
+
+    /** How the map got its north, for the screen. */
+    @Volatile var alignSource: String = ""
+        private set
+
+    /** Sensor: after walking and then standing still for 3 s, tell the commander how far we were carried. */
+    private fun trackPlacement(acc: AccelChannel.Result) {
+        val dr = deadReckoning ?: return
+        if (acc.moving) { stillSeconds = 0; return }
+        stillSeconds++
+        if (stillSeconds == 3 && dr.steps != lastPlacementSentSteps && dr.steps >= 2) {
+            lastPlacementSentSteps = dr.steps
+            val p = com.hush.model.Placement(letter, dr.east, dr.north, dr.steps)
+            HLog.d("Placement: carried east=%.1f north=%.1f in %d steps".format(dr.east, dr.north, dr.steps))
+            if (role == ROLE_SENSOR) link?.broadcast(p.toJson()) else onPlacement(p)
+        }
+    }
+
+    private fun onPlacement(p: com.hush.model.Placement) {
+        placements[p.letter] = p
+        HLog.d("Placement from ${p.letter}: east=%.1f north=%.1f steps=%d".format(p.east, p.north, p.steps))
+        alignFromPlacements()
+    }
+
+    /**
+     * Orient the ranged map from carried offsets: the commander's own offset and each sensor's give
+     * north-referenced vectors A→sensor; compare with the map vectors A→sensor to get the rotation.
+     */
+    private fun alignFromPlacements() {
+        val dr = deadReckoning
+        val myE = dr?.east ?: 0f; val myN = dr?.north ?: 0f
+        val estimates = ArrayList<Pair<Float, Float>>()   // (rotation no-mirror, rotation mirror)
+        for ((l, p) in placements) {
+            if (l == "A" || p.steps < 3) continue
+            val mapB = mapBearing("A", l) ?: continue
+            val e = p.east - myE; val n = p.north - myN
+            if (kotlin.math.hypot(e, n) < 1.0f) continue
+            val worldB = ((Math.toDegrees(kotlin.math.atan2(e.toDouble(), n.toDouble())) + 360.0) % 360.0).toFloat()
+            val mapBMirror = (360f - mapB) % 360f
+            estimates.add((((worldB - mapB) + 720f) % 360f) to (((worldB - mapBMirror) + 720f) % 360f))
+        }
+        if (estimates.isEmpty()) return
+        fun circMean(xs: List<Float>): Float {
+            val r = xs.map { Math.toRadians(it.toDouble()) }
+            return ((Math.toDegrees(kotlin.math.atan2(r.map { kotlin.math.sin(it) }.average(), r.map { kotlin.math.cos(it) }.average())) + 360.0) % 360.0).toFloat()
+        }
+        fun spread(xs: List<Float>): Float {
+            val r = xs.map { Math.toRadians(it.toDouble()) }
+            return (1.0 - kotlin.math.hypot(r.map { kotlin.math.cos(it) }.average(), r.map { kotlin.math.sin(it) }.average())).toFloat()
+        }
+        val noM = estimates.map { it.first }; val mi = estimates.map { it.second }
+        val useMirror = estimates.size >= 2 && spread(mi) < spread(noM)
+        if (useMirror != mirror) { mirror = useMirror; HLog.d("Placement align: mirror=$mirror") }
+        mapRotationDeg = if (useMirror) circMean(mi) else circMean(noM)
+        alignSource = "placement walk (${estimates.size} sensor${if (estimates.size > 1) "s" else ""})"
+        HLog.d("Placement align: rotation %.0f° from %d sensors (mirror=%b)".format(mapRotationDeg, estimates.size, mirror))
+        setRangingStatus("Map aligned to north from how the sensors were carried out.")
+    }
     /** Degrees to add to a map bearing to get a real compass bearing; set by ALIGN. Null until aligned. */
     @Volatile var mapRotationDeg: Float? = null
         private set
@@ -132,13 +196,6 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     var mapMetresPerUnit: Float? = null
         private set
 
-    /** Commander points the top of the phone at sensor [letter] and taps ALIGN: the map now knows north. */
-    fun alignTo(letter: String): Boolean {
-        val bearing = mapBearing("A", letter) ?: return false
-        mapRotationDeg = ((headingDeg - bearing) + 360f) % 360f
-        HLog.d("ALIGN: pointing at $letter, heading=%.0f mapBearing=%.0f rotation=%.0f".format(headingDeg, bearing, mapRotationDeg))
-        return true
-    }
 
     /** Screen angle (clockwise from the phone's top) of the arrow that points at [letter], or null. */
     fun arrowAngleTo(letter: String): Float? {
@@ -170,9 +227,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         setRangingStatus("Ranging: chirping ${letters.joinToString(" ")}…")
         sessionLog.addRecord("ranging_start", mapOf("letters" to letters.joinToString(" ")))
         letters.forEachIndexed { i, l ->
-            main.postDelayed({ triggerChirp(l) }, i * CHIRP_GAP_MS)
+            main.postDelayed({ triggerChirp(l) }, chirpToken, i * CHIRP_GAP_MS)
         }
-        main.postDelayed({ finishRanging(letters) }, letters.size * CHIRP_GAP_MS + 2500)
+        main.postDelayed({ finishRanging(letters) }, chirpToken, letters.size * CHIRP_GAP_MS + 2500)
     }
 
     /** Commander: tell [letter] to chirp now; everyone (including us) listens for it. */
@@ -187,7 +244,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val startSample = cap.samplesCaptured - AudioCapture.SAMPLE_RATE.toLong() * SEARCH_BEFORE_MS / 1000
         if (letter == this.letter) appContext?.let { com.hush.audio.Chirp.play(it) }
         val count = AudioCapture.SAMPLE_RATE * (SEARCH_BEFORE_MS + SEARCH_AFTER_MS) / 1000
-        main.postDelayed({
+        main.postDelayed(Runnable {
             Thread {
                 val audio = cap.snapshot(startSample, count)
                 if (audio == null) { HLog.d("Chirp search: audio for $letter not in buffer"); return@Thread }
@@ -201,7 +258,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                     if (role == ROLE_COMMANDER) onChirpReport(report) else link?.broadcast(report.toJson())
                 }
             }.start()
-        }, SEARCH_AFTER_MS + 100L)
+        }, chirpToken, SEARCH_AFTER_MS + 100L)
     }
 
     private fun onChirpReport(r: com.hush.model.ChirpReport) {
@@ -317,6 +374,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                     // Re-place A with the other mirror sign next round; dots for this round stay.
                 }
                 mapRotationDeg = if (useMirror) mean { it.second } else mean { it.first }
+                alignSource = "your walk (${alignSolutions.size})"
                 HLog.d("Auto-align: moved %.2f m, walked bearing %.0f°, map rotation now %.0f° (mirror=%b, walks=%d)".format(moved, walkBearing, mapRotationDeg, mirror, alignSolutions.size))
                 setRangingStatus("Aligned to north from your walk (%.1f m).".format(moved))
             }
@@ -465,7 +523,11 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             HLog.d("ERROR loading classifier: $e")
         }
         accel = AccelChannel(context).also { it.start() }
-        if (newRole == ROLE_COMMANDER) compass = com.hush.audio.Compass(context).also { it.start() }
+        val cmp = com.hush.audio.Compass(context).also { it.start() }
+        compass = cmp
+        deadReckoning = com.hush.audio.DeadReckoning(context, cmp).also { it.start() }
+        // Probe the mics once (blocks ~0.6 s) before the main capture takes the microphone.
+        HLog.d(com.hush.audio.MicProbe.run())
         capture = AudioCapture(context, this).also {
             it.debugWav = File(context.filesDir, "debug.wav")   // debug capture, see CLAUDE.md
             it.start()
@@ -480,6 +542,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         capture?.stop(); capture = null
         accel?.stop(); accel = null
         compass?.stop(); compass = null
+        deadReckoning?.stop(); deadReckoning = null
+        placements.clear(); alignSource = ""; lastPlacementSentSteps = -1; stillSeconds = 0
         mapRotationDeg = null
         frameB = null; frameC = null; lastAInFrame = null; alignSolutions.clear(); mapMetresPerUnit = null
         pendingHushSeconds = 0
@@ -521,6 +585,21 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     }
 
     private var pendingHushSeconds = 0
+    private val chirpToken = Any()
+
+    /** Commander: stop everything running — the window on every phone and any chirp sequence. */
+    fun stopAll() {
+        if (role != ROLE_COMMANDER) return
+        HLog.d("STOP pressed")
+        main.removeCallbacksAndMessages(chirpToken)
+        rangingInProgress = false
+        pendingHushSeconds = 0
+        inHush = false
+        link?.broadcast(Command(Command.STOP).toJson())
+        listener?.onCountdown(-1)
+        setRangingStatus("Stopped.")
+        sessionLog.addRecord("stop", emptyMap())
+    }
 
     private fun broadcastHush(seconds: Int) {
         link?.broadcast(Command(Command.HUSH, seconds).toJson())
@@ -606,7 +685,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val rhythm = rhythmTracker.evaluate(now)
         val cls = classifier?.classify(pcm16k, n16)
         val label = fuseLabel(rhythm, cls)
-        main.post { trackWalking(acc) }
+        main.post { trackWalking(acc); trackPlacement(acc) }
         val battery = try {
             (appContext?.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
         } catch (_: Exception) { -1 }
@@ -685,11 +764,12 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                         onLinkStatus("Connected as Sensor $letter")
                     }
                     Command.HUSH -> startHushLocal(msg.seconds)
-                    Command.STOP -> { inHush = false; listener?.onCountdown(-1) }
+                    Command.STOP -> { inHush = false; main.removeCallbacksAndMessages(chirpToken); listener?.onCountdown(-1); onLinkStatus("Stopped by commander") }
                     Command.CHIRP -> msg.letter?.let { onChirpCommand(it) }
                 }
             }
             is com.hush.model.ChirpReport -> onChirpReport(msg)
+            is com.hush.model.Placement -> onPlacement(msg)
             is SensorEvent -> {
                 val name = peers[endpointId]?.name ?: endpointId
                 recordEvent(msg)

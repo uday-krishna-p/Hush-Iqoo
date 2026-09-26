@@ -52,13 +52,30 @@
                 android:text="@string/mode_any" />
         </LinearLayout>
 
-        <Button
-            android:id="@+id/btnHush"
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="96dp"
-            android:text="@string/hush_button"
-            android:textSize="32sp"
-            android:textStyle="bold" />
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnHush"
+                android:layout_width="0dp"
+                android:layout_height="96dp"
+                android:layout_weight="3"
+                android:text="@string/hush_button"
+                android:textSize="32sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btnStop"
+                android:layout_width="0dp"
+                android:layout_height="96dp"
+                android:layout_weight="1"
+                android:backgroundTint="#B71C1C"
+                android:text="@string/stop_button"
+                android:textColor="#FFFFFF"
+                android:textStyle="bold" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/bigCountdown"
@@ -84,11 +101,6 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp" />
 
-        <Button
-            android:id="@+id/btnAlign"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/align_button" />
 
         <com.hush.ui.MapView
             android:id="@+id/map"

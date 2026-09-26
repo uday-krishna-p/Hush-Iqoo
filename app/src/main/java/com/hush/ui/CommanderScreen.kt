@@ -49,7 +49,8 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
                 arrow.active = true
                 arrow.angleDeg = angle
                 val d = Engine.mapDistanceMetres("A", target)
-                arrow.label = if (d != null) activity.getString(R.string.arrow_target_dist, target, d) else activity.getString(R.string.arrow_target, target)
+                val base = if (d != null) activity.getString(R.string.arrow_target_dist, target, d) else activity.getString(R.string.arrow_target, target)
+                arrow.label = if (Engine.alignSource.isNotEmpty()) "$base · north via ${Engine.alignSource}" else base
             }
             arrow.postDelayed(this, 100)
         }
@@ -84,12 +85,7 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
         map.onPlaced = { letter -> Engine.mapDots[letter] = map.dots[letter]!!; renderPlaceButtons() }
         map.strongest = Engine.lastRanking.firstOrNull()?.takeIf { it.score > 0f }?.letter
         activity.findViewById<Button>(R.id.btnAutoPlace).setOnClickListener { Engine.autoPlace() }
-        activity.findViewById<Button>(R.id.btnAlign).setOnClickListener {
-            // Align on the first placed sensor other than A; the user points the phone's top at it first.
-            val target = Engine.mapDots.keys.firstOrNull { it != "A" }
-            val ok = target != null && Engine.alignTo(target)
-            android.widget.Toast.makeText(activity, if (ok) activity.getString(R.string.aligned, target) else activity.getString(R.string.align_failed), android.widget.Toast.LENGTH_SHORT).show()
-        }
+        activity.findViewById<Button>(R.id.btnStop).setOnClickListener { Engine.stopAll() }
         arrow.post(arrowTick)
         activity.findViewById<Button>(R.id.btnFlip).setOnClickListener {
             Engine.mirror = !Engine.mirror

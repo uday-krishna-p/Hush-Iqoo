@@ -112,13 +112,27 @@ data class ChirpReport(val hearer: String, val from: String, val sample: Long, v
     }
 }
 
+/** Sensor → commander: "since I started I have been carried [east],[north] metres ([steps] steps)". */
+data class Placement(val letter: String, val east: Float, val north: Float, val steps: Int) {
+    fun toJson(): String = JSONObject().put("rep", "place").put("id", letter).put("e", east.toDouble()).put("n", north.toDouble()).put("steps", steps).toString()
+
+    companion object {
+        fun fromJson(o: JSONObject): Placement? = try {
+            Placement(o.getString("id"), o.getDouble("e").toFloat(), o.getDouble("n").toFloat(), o.getInt("steps"))
+        } catch (e: Exception) {
+            HLog.d("bad Placement json: $e"); null
+        }
+    }
+}
+
 object Messages {
-    /** Returns a [SensorEvent], a [Command], a [ChirpReport], or null. */
+    /** Returns a [SensorEvent], a [Command], a [ChirpReport], a [Placement], or null. */
     fun parse(text: String): Any? = try {
         val o = JSONObject(text)
         when {
             o.has("cmd") -> Command.fromJson(o)
             o.optString("rep") == "chirp" -> ChirpReport.fromJson(o)
+            o.optString("rep") == "place" -> Placement.fromJson(o)
             else -> SensorEvent.fromJson(o)
         }
     } catch (e: Exception) {
