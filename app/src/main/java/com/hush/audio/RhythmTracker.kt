@@ -16,7 +16,7 @@ class RhythmTracker {
         const val HISTORY_MS = 8000L
         const val GROUP_GAP_MS = 600L    // onsets closer than this belong to the same group ("3 quick knocks")
         const val REGULAR_CV = 0.35f     // coefficient of variation below this = regular
-        const val MIN_ONSETS = 4         // USAR asks victims to "tap three times"; four regular hits is intent, three is chance
+        const val MIN_ONSETS = 3         // USAR asks victims to "tap three times"; three regular hits count (was 4, lowered 26 Sep 16:20)
         const val MAX_ONSETS = 20        // more than ~2.5 hits per second for 8 s is rattling, not signalling
         const val MERGE_MS = 100L        // an accelerometer spike this close to an audio onset is the same knock
     }
