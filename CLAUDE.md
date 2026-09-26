@@ -163,6 +163,93 @@ the far sensor); pairing prompts and whether "Radio:" loses its "?".
 5. VICTIM mode (trapped person's phone chirps a known pattern + SOS beacon) — biggest upside, not started.
 6. Remove the debug WAV before any public build.
 
+## Roadmap agreed 26 Sep evening: every phone a sensor, find phones as well as sounds
+
+Asked for: Wi-Fi round-trip timing; a SWEEP button that finds every phone nearby (with or without the app) and
+maps it; phones that act as sensors without anyone opening the app; commanders that are sensors too and act as
+way-finders either to a phone in the zone or to a person knocking. What follows is what the hardware and Android
+actually allow, then the build order.
+
+### Hardware facts (checked 26 Sep 19:30, `adb shell pm list features` on two I2501, OriginOS 6, API 36)
+
+- **Present:** `bluetooth_le`, `bluetooth_le.channel_sounding`, `wifi`, `wifi.direct`, `wifi.passpoint`, `nfc`, telephony.
+- **Absent:** `wifi.rtt`, `wifi.aware`, `uwb`. **Wi-Fi round-trip timing is not possible on these phones.** Where it
+  exists it needs 802.11mc/az access points or Wi-Fi Aware peers, gives 1–2 m in the open and worse in rubble.
+  Acoustic chirps (±5 cm) stay our precise ranging; Channel Sounding (0.5–1 m if the stack ever allows it) is the
+  only radio ranging that could add to it, and only between two phones that both run Hush.
+- Hush is **not** on the battery whitelist and OriginOS has no background-run allowance for it: today the system
+  will kill it in the background. See phase 0.
+
+### What a phone can find, honestly
+
+| Target | What works | Accuracy | What does not work |
+|---|---|---|---|
+| A phone running Hush (cooperating) | chirp ranging; the source locator on its SOS chirps (a chirp is the ideal "knock": matched-filter timing); BLE tag RSSI; a local-only Wi-Fi hotspot as a stronger beacon (+15–20 dB over BLE, so 2–3× the range through rubble); GPS outdoors; battery and last fix over the mesh | ±5 cm distance, ±3° bearing, ±0.3 m position inside the array | Channel Sounding (refused by the stack so far), Wi-Fi RTT/UWB (absent) |
+| A phone WITHOUT Hush | only what it already broadcasts: iPhones send Bluetooth beacons continuously when locked (Find My network, Continuity); Android phones only in some states (Quick Share sheet open, Find My Device offline finding, Fast Pair). Detection + signal strength; three or more Hush phones seeing the same address give a coarse blob | "there is a phone" and warmer/colder; ±3–6 m blob at best; addresses rotate every ~15 min so a device cannot be tracked across sweeps; never an identity | exact position; Wi-Fi (phones do not answer scans, only access points do; monitor mode needs root); cellular (phones cannot receive another phone's uplink; that is what professional USAR detectors do) |
+| A person knocking or shouting | the source locator (built) | ±0.3 m inside the array, direction ±3° beyond it | distance beyond ~2 array-widths (spread the phones) |
+
+**We will not claim** "finds every phone" or "exact location of any phone". We can claim: finds a Hush phone to
+centimetres, finds a knocking person to a bearing, detects transmitting phones and says which way is warmer.
+
+### Android rules that shape the background plan (platform behaviour, Android 14–16)
+
+- A **microphone foreground service can only be started while the app is on screen**, never from the background
+  and never at boot (Android 15 blocks `BOOT_COMPLETED` starts for the microphone type). Once started it keeps the
+  mic with the screen off for as long as the process lives. Tapping a notification action counts as "on screen".
+- A **Bluetooth (`connectedDevice`) or `location` foreground service may start at boot.** So after a reboot the
+  phone can come back as a radio beacon and scanner on its own; it becomes a listener after one tap.
+- **Unfiltered BLE scans stop when the screen is off** (since Android 8.1). Background sweeps must use scan filters
+  (Apple manufacturer id 0x004C, Google service UUIDs, the Hush tag); a filtered scan keeps running.
+- **Wi-Fi scans are throttled**: 4 per 2 minutes for an app on screen, 1 per 30 minutes in the background. A Wi-Fi
+  "warmer/colder" meter therefore updates every 30 s at best, BLE every second.
+- **Local-only hotspot** (`WifiManager.startLocalOnlyHotspot`) is allowed for apps; Android picks the name
+  (`AndroidShare_xxxx`); the SOS tag carries it so rescuers can match it.
+- Runtime permissions (mic, Bluetooth, location) can only be granted from the activity: first launch always needs
+  the screen once. After that, standby needs no more taps until the phone reboots.
+- **OriginOS (vivo) kills background apps by default.** Per phone, once: Settings → Battery → Background power
+  consumption management → Hush → allow high background power; i Manager → App manager → Autostart → Hush on;
+  lock Hush in the recents view. The app requests the battery-optimisation exemption itself (phase 0).
+
+### Build order (each phase is a build, an install on all phones, a test, a commit)
+
+**Phase 0 · STANDBY (everyone is a sensor, no button).** Launch → permissions → the phone is a SENSOR immediately
+(no role picker; the role picker becomes a "Become commander" button and a "I am trapped" button). The foreground
+service keeps mic + radios alive indefinitely; request `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`; partial wake lock;
+`stopWithTask=false`; a second service of type `connectedDevice` that restarts at boot and keeps the Hush BLE tag
+and mesh discovery alive, plus a notification "Hush is on radio standby, tap to listen" whose tap restarts the mic
+service legitimately. Sensors auto-attach to any commander they discover (they already do; only the initial tap goes
+away). Duty-cycle for battery: YAMNet only when RMS is above floor + margin; measure % per hour on one phone
+overnight. Test: two phones in pockets, screens off, 30 min, events still arriving at the commander; reboot one,
+check it is visible on the radio and returns to listening after one notification tap.
+
+**Phase 1 · SOS / VICTIM mode (way-finder to a Hush phone).** "I am trapped" → the phone chirps a distinctive
+pattern every 10 s on the alarm stream at full volume (silent mode ignored), advertises a `HUSH-SOS` BLE tag with
+battery, last GPS fix and hotspot name, starts a local-only hotspot, vibrates + torch-strobes on a `FOUND` command.
+Commander side: SOS chirps enter the locator as onsets timed by the matched filter (better than knocks), so the arrow
+and the red cross-hair point at the phone; brief says "SOS phone I2501-6a46 · 4.1 m ±0.3 · battery 62 %". Optional,
+off by default: auto-SOS after a > 5 g shock followed by 60 s of stillness, cancellable. Test: phone in a box under a
+blanket 5 m away, locate it.
+
+**Phase 2 · SWEEP (all radios, repeatable).** Button on the commander (and a notification action): for 8 s every
+Hush phone scans BLE with broad filters, records each address's median RSSI, count and kind (Apple / Google /
+Hush tag / unknown), plus a Wi-Fi scan (access points and hotspots, `AndroidShare_` names flagged) and its own GPS
+fix, and reports a `Sweep` message. The commander merges by address: "3 Hush phones (A B C) · 5 other Bluetooth
+devices (2 Apple) · 1 hotspot", per device the phone that hears it loudest and a warmer/colder trend across sweeps,
+and for devices heard by ≥ 3 positioned phones a coarse fix from the RSSI ratios on the locator grid (log-distance
+path loss, exponent 2.7, unknown transmit power cancels in the mean exactly like loudness) drawn as a grey disc with
+"?". GPS puts the whole map on real coordinates when outdoors. Every sweep is an export record. Test: an iPhone on
+the table, three sweeps, its blob within 5 m; walk it away, the trend says colder.
+
+**Phase 3 · Many commanders, one mesh.** Replace the tree rooted at one commander with a flooding mesh: every
+message carries (sender name, sequence), every phone forwards to all neighbours except the one it came from and drops
+ids it has seen. Phones are keyed by name everywhere (letters become a per-commander display). Any phone can become a
+commander and keep being a sensor (it already is Sensor A). Ranging rounds are serialised by a token: the commander
+with the lowest name proceeds, others wait 10 s. Each commander runs its own locator on the same reports. Needs a hall
+test with 5+ phones; Nearby Connections holds only a few Bluetooth links per phone, so the mesh matters here.
+
+**Not in any phase:** Wi-Fi RTT/Aware/UWB (absent), exact position of a non-Hush phone (physics), listening that
+starts without any tap ever (platform).
+
 ## Every sensor on the phone, judged for this job
 
 | Sensor / output | Use | Status |
