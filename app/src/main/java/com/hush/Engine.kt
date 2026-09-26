@@ -184,6 +184,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         fun onWhistle(event: com.hush.audio.WhistleCounter.Event) {}
         /** ALERT role: teaching progress ("Make the sound now… 1 of 3 heard"); [done] when the session ended (saved, cancelled or timed out) or the list changed. */
         fun onTeaching(status: String, done: Boolean) {}
+        /** ALERT role, captions on: a piece of recognised speech ([final] false = still being recognised). */
+        fun onCaption(text: String, final: Boolean) {}
+        fun onCaptionStatus(status: String) {}
     }
 
     // ---- Probe / discovered phones (PRD 2.1) ----
@@ -1875,8 +1878,52 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         return "alert test $c fired"
     }
 
+    // ---- Live captions (persona C): the phone's speech recogniser takes the microphone, our capture pauses ----
+
+    private var captions: Captions? = null
+    val captionsOn: Boolean get() = captions?.running == true
+
+    fun setCaptions(on: Boolean): Boolean {
+        val ctx = appContext ?: return false
+        if (on) {
+            if (captionsOn) return true
+            // One microphone user at a time: stop our capture (the recogniser would get silence, or we would).
+            capture?.stop(); capture = null
+            HLog.d("CAPTIONS: own capture paused")
+            val c = captions ?: Captions(ctx, { t, f -> listener?.onCaption(t, f) }, { s -> HLog.d("CAPTIONS status: $s"); listener?.onCaptionStatus(s) }).also { captions = it }
+            val ok = c.start()
+            if (!ok) resumeCapture(ctx)
+            return ok
+        } else {
+            captions?.stop()
+            resumeCapture(ctx)
+            return false
+        }
+    }
+
+    private fun resumeCapture(ctx: Context) {
+        if (capture != null || role == null) return
+        capture = AudioCapture(ctx, this).also { it.start() }
+        HLog.d("CAPTIONS: own capture resumed")
+    }
+
+    /** Which side of the phone a knock came from, for the KNOCK word ("· left"). Needs the own arrow to have an estimate. */
+    private fun knockSide(now: Long): String? {
+        val e = com.hush.audio.KnockBearing.estimate(now, headingDeg) ?: return null
+        fun side(deg: Float) = when (((deg % 360f) + 360f) % 360f) {
+            in 45f..135f -> "right"
+            in 135f..225f -> "below"
+            in 225f..315f -> "left"
+            else -> "above"
+        }
+        val a = side(e.screenDeg)
+        val t = e.twinDeg?.let { side(it) }
+        return if (t == null || t == a) a else "$a or $t"
+    }
+
     /** Main thread, ALERT role: one second → maybe one household alert. */
-    private fun alertSecond(w: Window, selfNoise: Boolean, now: Long) {
+    private fun alertSecond(w: Window, selfNoiseIn: Boolean, now: Long) {
+        val selfNoise = selfNoiseIn || Speak.speaking   // the phone reading out a typed message is not a visitor
         val tap = w.tap
         val knocks = ArrayList<com.hush.audio.SoundAlerts.Knock>(tap.onsets.size)
         for (i in tap.onsets.indices) {
@@ -1897,7 +1944,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             }
             return
         }
-        val a = soundAlerts.onSecond(second) ?: return
+        var a = soundAlerts.onSecond(second) ?: return
+        if (a.category == com.hush.audio.SoundAlerts.Category.KNOCK) knockSide(now)?.let { a = a.copy(word = a.word + " · $it") }
         Alerting.fire(a, listener != null)
         listener?.onAlert(a)
     }
@@ -1937,6 +1985,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     fun stop() {
         if (role == null) { HLog.d("Engine stop: already stopped"); return }
         HLog.d("Engine stop")
+        captions?.stop(); captions = null; Speak.shutdown(); Torch.stop()
         capture?.stop(); capture = null
         accel?.stop(); accel = null
         compass?.stop(); compass = null

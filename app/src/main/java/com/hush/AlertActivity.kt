@@ -45,6 +45,8 @@ class AlertActivity : AppCompatActivity() {
         setShowWhenLocked(true)
         setTurnScreenOn(true)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // Full brightness: the colour must be seen from across the room or through closed eyelids at night.
+        window.attributes = window.attributes.apply { screenBrightness = 1f }
         setContentView(R.layout.activity_alert)
         root.setOnClickListener { dismiss() }
         findViewById<View>(R.id.alertDismiss).setOnClickListener { dismiss() }
@@ -68,7 +70,7 @@ class AlertActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.alertHint).text = getString(if (repeats) R.string.alert_tap_to_stop else R.string.alert_tap_to_dismiss)
         flashesLeft = (FLASH_TOTAL_MS / FLASH_MS).toInt()
         root.removeCallbacks(flash); root.post(flash)
-        root.removeCallbacks(autoClose); root.postDelayed(autoClose, AUTO_CLOSE_MS)
+        root.removeCallbacks(autoClose); root.postDelayed(autoClose, if (Alerting.night) 10 * AUTO_CLOSE_MS else AUTO_CLOSE_MS)
     }
 
     private fun dismiss() {

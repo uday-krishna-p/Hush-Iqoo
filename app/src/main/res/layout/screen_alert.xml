@@ -68,6 +68,148 @@
             android:textSize="20sp"
             android:visibility="gone" />
 
+        <!-- ===== Hearing now: level meter + what the model hears + recent sounds (sound awareness for a deaf user) ===== -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="@string/hear_heading"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <ProgressBar
+            android:id="@+id/hearLevel"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="28dp"
+            android:layout_marginTop="4dp"
+            android:max="40"
+            android:progress="0" />
+
+        <TextView
+            android:id="@+id/hearLevelText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/hearNow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textSize="22sp" />
+
+        <TextView
+            android:id="@+id/hearRecent"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:fontFamily="monospace"
+            android:textSize="15sp" />
+
+        <!-- ===== Live captions ===== -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="@string/captions_heading"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/captions_hint"
+            android:textSize="14sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/captionsButton"
+                android:layout_width="0dp"
+                android:layout_height="56dp"
+                android:layout_weight="1"
+                android:text="@string/captions_start"
+                android:textSize="18sp" />
+
+            <EditText
+                android:id="@+id/captionsName"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:hint="@string/captions_name_hint"
+                android:inputType="textCapWords"
+                android:singleLine="true" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/captionsStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/captionsText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="#1F000000"
+            android:minHeight="96dp"
+            android:padding="12dp"
+            android:textSize="24sp" />
+
+        <!-- ===== Type to speak ===== -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="@string/speak_heading"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/speakText"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="@string/speak_hint"
+                android:imeOptions="actionSend"
+                android:inputType="textCapSentences"
+                android:singleLine="true"
+                android:textSize="20sp" />
+
+            <Button
+                android:id="@+id/speakButton"
+                android:layout_width="wrap_content"
+                android:layout_height="56dp"
+                android:layout_marginStart="8dp"
+                android:text="@string/speak_button"
+                android:textSize="18sp" />
+        </LinearLayout>
+
+        <!-- Quick phrases are added in code -->
+        <LinearLayout
+            android:id="@+id/speakPhrases"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="vertical" />
+
+        <!-- ===== History ===== -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -85,6 +227,7 @@
             android:text="@string/alert_history_empty"
             android:textSize="18sp" />
 
+        <!-- ===== Settings ===== -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -137,7 +280,7 @@
             android:textSize="18sp"
             android:textStyle="bold" />
 
-        <!-- One row per taught sound is added in code: colour swatch, name, FORGET -->
+        <!-- One row per taught sound is added in code: colour swatch, name, TEST, FORGET -->
         <LinearLayout
             android:id="@+id/teachList"
             android:layout_width="match_parent"
@@ -152,6 +295,30 @@
             android:layout_marginTop="16dp"
             android:text="@string/alert_sensitivity_high"
             android:textSize="18sp" />
+
+        <Switch
+            android:id="@+id/alertTorch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/alert_torch"
+            android:textSize="18sp" />
+
+        <Switch
+            android:id="@+id/alertNight"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/alert_night"
+            android:textSize="18sp" />
+
+        <Button
+            android:id="@+id/alertFlashSettings"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/alert_flash_settings"
+            android:textSize="14sp" />
 
         <TextView
             android:id="@+id/alertHearing"

@@ -98,6 +98,33 @@
     <string name="alert_sensitivity_high">High sensitivity (more alerts, more false ones)</string>
     <string name="alert_hearing">now: %1$s · loudness ×%2$.1f above the room · %3$s</string>
     <string name="alert_hearing_quiet">quiet</string>
+    <string name="hear_heading">Hearing now</string>
+    <string name="hear_quiet">quiet</string>
+    <string name="hear_some">some sound · %1$d dB above the room</string>
+    <string name="hear_loud">LOUD · %1$d dB above the room</string>
+    <string name="hear_very_loud">VERY LOUD · %1$d dB above the room (TV? tap running?)</string>
+    <string name="hear_nothing">nothing in particular</string>
+    <string name="captions_heading">Live captions</string>
+    <string name="captions_hint">The phone writes down what people say, using its own speech recogniser (offline when the English pack is installed). While captions run, the sound alerts pause: one microphone user at a time.</string>
+    <string name="captions_start">START CAPTIONS</string>
+    <string name="captions_stop">STOP CAPTIONS</string>
+    <string name="captions_name_hint">your name (to flag it)</string>
+    <string name="captions_name_called">SOMEONE SAID "%1$s"</string>
+    <string name="alert_status_captions">" · captions on, sound alerts paused"</string>
+    <string name="speak_heading">Type to speak</string>
+    <string name="speak_hint">type, the phone says it out loud</string>
+    <string name="speak_button">SPEAK</string>
+    <string-array name="speak_phrases">
+        <item>Who is it?</item>
+        <item>Please wait, I am coming</item>
+        <item>I am deaf. Please write it down.</item>
+        <item>Leave it at the door, thank you</item>
+        <item>Come in</item>
+        <item>Please call again later</item>
+    </string-array>
+    <string name="alert_torch">Flash the camera light with alerts</string>
+    <string name="alert_night">Night mode · light for every alert, screen stays lit longer</string>
+    <string name="alert_flash_settings">Android can also flash the screen or light for every notification: open Accessibility settings</string>
     <string name="teach_heading">Teach it your own sounds</string>
     <string name="teach_hint">Your doorbell, your microwave, the water heater: play the sound three times and the phone learns it (no recording is kept, only what the model made of it).</string>
     <string name="teach_button">TEACH A SOUND</string>

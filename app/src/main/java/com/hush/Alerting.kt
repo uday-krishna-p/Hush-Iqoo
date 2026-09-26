@@ -39,6 +39,9 @@ object Alerting {
 
     data class Entry(val atWallMs: Long, val category: String, val word: String, val detail: String, val score: Float)
 
+    /** Settings from the ALERT screen: flash the camera light with alerts; night mode = torch for everything and the alert screen stays lit. */
+    @Volatile var torch = true
+    @Volatile var night = false
     private val main = Handler(Looper.getMainLooper())
     private val stopRepeat = Runnable { appContext?.let { Haptics.cancel(it, "Alert buzz") } }
     private var appContext: Context? = null
@@ -62,6 +65,7 @@ object Alerting {
             return
         }
         record(Entry(wall, a.category.name, a.word, a.detail, a.score))
+        if (torch || night) Torch.strobe(ctx, if (a.repeats) REPEAT_MAX_MS else 3000L)
         main.removeCallbacks(stopRepeat)
         if (a.repeats) {
             Haptics.vibrate(ctx, a.pattern, "Alert buzz ${a.category}", repeatFrom = 1)
@@ -115,6 +119,7 @@ object Alerting {
     fun dismiss(context: Context) {
         val ctx = context.applicationContext
         main.removeCallbacks(stopRepeat)
+        Torch.stop()
         Haptics.cancel(ctx, "Alert buzz")
         try { ctx.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID) } catch (e: Exception) { HLog.d("ALERT dismiss failed: $e") }
         HLog.d("ALERT dismissed")

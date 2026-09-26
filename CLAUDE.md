@@ -164,6 +164,17 @@ start values from the plan, untested on real sounds: run step 0 of the plan firs
 whistle, a doorbell, a microwave beep, a door knock, a smoke alarm), then tune `SoundAlerts.Category` and
 `WhistleCounter` from the `window` and `ALERT`/`WHISTLE` log lines.** Laptop test without sounds:
 `--es role ALERT` then `--es alerttest DOORBELL` (phone locked: blue screen over the lock screen).
+**Deaf-aid additions, 27 Sep 04:30 (team: ship features, test briefly):** on the ALERTS screen, *Hearing now* (level bar in dB
+above the room with quiet / LOUD / VERY LOUD, the sound names the model hears, the last 8 distinct sounds with times);
+*Live captions* (`Captions.kt`: Android's speech recogniser, on-device when available, `EXTRA_PREFER_OFFLINE`, restarted
+after every phrase; our own capture is stopped while it runs and restarted after, `Engine.setCaptions`; a typed name is
+flagged "SOMEONE SAID …" with a buzz when it appears in a final caption); *Type to speak* (`Speak.kt`, on-device
+text-to-speech, six quick phrases; while it speaks the alerts treat the sound as our own); *Torch* (`Torch.kt`,
+camera flash at ~3 Hz for 3 s, or until dismissed for ALARM; switch on the screen) and *Night mode* (torch for every
+alert, the alert screen at full brightness stays 20 min); a button to Android's Accessibility settings (system flash
+notifications); KNOCK words carry the side from the own arrow ("KNOCK ×3 · left"). Untested on the phones: whether the
+I2501 has the offline English speech pack (the status line says which recogniser it got), and whether the recogniser
+gets the microphone from us cleanly.
 
 **Phantom knocks, 27 Sep 02:50:** in a quiet room a third of all onsets (91 of 269 on 6a46 in 8 min) were clicks of
 about −38 dBFS (peak 0.011–0.016, ×5–8 the median frame) IDENTICAL in both microphone channels: two-mic delay 0.0,
