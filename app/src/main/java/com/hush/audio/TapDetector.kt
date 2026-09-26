@@ -20,7 +20,7 @@ class TapDetector(sampleRate: Int) {
     companion object {
         // Tuned 26 Sep on two iQOO I2501 recordings (knocks / 3-2 pattern / speech / quiet):
         // 5 / 2 / lookback 3 gave 0 false taps in quiet and speech, and caught 20 of 23 knock seconds.
-        const val THRESHOLD = 4f        // frame must be 4x (12 dB) above the window median (was 5; lowered 26 Sep 16:20, "says quiet too often")
+        const val THRESHOLD = 3f        // frame must be 3x (9.5 dB) above the window median (5 → 4 → 3 on 26 Sep, for knocks at a distance)
         const val ATTACK = 2f           // and 2x louder than the loudest of the previous LOOKBACK frames
         const val LOOKBACK = 3
         const val REFRACTORY_FRAMES = 8 // 80 ms: a knock's ring-down is not a second knock
@@ -28,7 +28,7 @@ class TapDetector(sampleRate: Int) {
         // A knock rings down fast: on the recordings its energy 100 ms later was 3–27 % of the onset frame.
         // A cough, a syllable or a dragged chair stays loud. Onsets that stay loud are not taps.
         const val DECAY_FRAMES = 10
-        const val DECAY_MAX = 0.50f
+        const val DECAY_MAX = 0.60f     // distant knocks carry room echo
     }
 
     private val frame = sampleRate / 100
