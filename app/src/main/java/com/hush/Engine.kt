@@ -9,11 +9,14 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
+import android.os.BatteryManager
+import android.os.VibrationAttributes
+import com.hush.audio.AccelChannel
 import com.hush.audio.AudioCapture
 import com.hush.audio.Classifier
+import com.hush.audio.Ping
 import com.hush.audio.RhythmTracker
 import com.hush.audio.TapDetector
-import android.os.VibrationAttributes
 import com.hush.model.Command
 import com.hush.model.Messages
 import com.hush.model.SensorEvent
@@ -37,30 +40,31 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val gain: Float,
         val tap: TapDetector.Result,
         val rhythm: RhythmTracker.Result,
+        val accel: AccelChannel.Result,
+        val structureConfirmed: Boolean,   // an audio knock and an accelerometer jolt agreed within 100 ms recently
         val cls: Classifier.Result?,
         val event: SensorEvent
     )
 
     const val LABEL_TAPPING = "HUMAN TAPPING"
-    const val LABEL_TAPPING_MAYBE = "TAPPING?"
     const val LABEL_VOICE = "HUMAN VOICE"
     const val LABEL_MACHINE = "MACHINERY"
+    const val LABEL_MOVEMENT = "MOVEMENT"
     const val LABEL_QUIET = "quiet"
 
     /**
-     * The headline for one second, most trusted evidence first:
-     * rhythm over 8 s, then a single tap corroborated by YAMNet's impact bucket, then voice, then machinery.
+     * The headline for one second, most trusted evidence first. Audio rhythm alone is enough for HUMAN TAPPING:
+     * in a collapse nothing guarantees a solid structure to carry vibration, so the accelerometer only ever adds.
+     * Movement is reported as a warning flag beside the label, never instead of it.
+     * A single impact never makes a headline: rescuers ask victims to tap repeatedly for exactly this reason.
      */
-    fun fuseLabel(tap: TapDetector.Result, rhythm: RhythmTracker.Result, cls: Classifier.Result?): String {
+    fun fuseLabel(rhythm: RhythmTracker.Result, cls: Classifier.Result?): String {
         val voice = cls?.human ?: 0f
-        val impact = cls?.impact ?: 0f
         val machine = cls?.machine ?: 0f
         return when {
             rhythm.score >= 0.9f -> LABEL_TAPPING
-            tap.taps > 0 && (rhythm.score >= 0.5f || impact >= 0.10f) -> LABEL_TAPPING_MAYBE
             voice >= 0.30f -> LABEL_VOICE
             machine >= 0.35f -> LABEL_MACHINE
-            tap.taps > 0 -> LABEL_TAPPING_MAYBE
             else -> LABEL_QUIET
         }
     }
@@ -102,6 +106,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private var classifier: Classifier? = null
     private val tapDetector = TapDetector(AudioCapture.SAMPLE_RATE)
     private val rhythmTracker = RhythmTracker()
+    private var accel: AccelChannel? = null
+    private var lastStructureMs = 0L
     private var link: NearbyLink? = null
     private var localName = "?"
     private var lastStatus = "Not started"
@@ -136,6 +142,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         } catch (e: Exception) {
             HLog.d("ERROR loading classifier: $e")
         }
+        accel = AccelChannel(context).also { it.start() }
         capture = AudioCapture(context, this).also {
             it.debugWav = File(context.filesDir, "debug.wav")   // debug capture, see CLAUDE.md
             it.start()
@@ -148,6 +155,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     fun stop() {
         HLog.d("Engine stop")
         capture?.stop(); capture = null
+        accel?.stop(); accel = null
         classifier?.close(); classifier = null
         link?.stop(); link = null
         peers.clear()
@@ -174,7 +182,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         inHush = true
         hushEndMs = SystemClock.elapsedRealtime() + seconds * 1000L
         HLog.d("Hush window started: $seconds s, noise floor %.5f".format(floor))
-        vibrate(longArrayOf(0, 400, 120, 400, 120, 600))   // three strong pulses at the start
+        vibrate(longArrayOf(0, 700, 150, 700, 150, 900))   // three long full-strength pulses at the start
+        appContext?.let { Ping.play(it, listOf(2500 to 250, 0 to 100, 2500 to 250)) }
         tick()
     }
 
@@ -186,7 +195,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         if (left <= 0) {
             inHush = false
             HLog.d("Hush window ended")
-            vibrate(longArrayOf(0, 250, 100, 250))            // two short pulses at the end
+            vibrate(longArrayOf(0, 400, 120, 400))            // two pulses at the end
+            appContext?.let { Ping.play(it, listOf(1800 to 400)) }
             listener?.onCountdown(-1)
         } else {
             listener?.onCountdown(left)
@@ -226,10 +236,19 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     override fun onWindow(pcm48k: ShortArray, n48: Int, pcm16k: FloatArray, n16: Int, rms: Float) {
         val now = SystemClock.elapsedRealtime()
         val tap = tapDetector.analyse(pcm48k, n48, now - 1000)
+        val acc = accel?.drain() ?: AccelChannel.Result(0, 0f, 0f, emptyList(), false)
+        // Audio knocks and structure-borne jolts feed one rhythm; a knock heard AND felt is confirmed.
         rhythmTracker.add(tap.onsetsAbsMs)
+        if (!acc.moving) rhythmTracker.add(acc.spikeTimesMs)
+        val agreed = tap.onsetsAbsMs.any { a -> acc.spikeTimesMs.any { kotlin.math.abs(it - a) <= RhythmTracker.MERGE_MS } }
+        if (agreed) lastStructureMs = now
+        val structure = now - lastStructureMs < RhythmTracker.HISTORY_MS
         val rhythm = rhythmTracker.evaluate(now)
         val cls = classifier?.classify(pcm16k, n16)
-        val label = fuseLabel(tap, rhythm, cls)
+        val label = fuseLabel(rhythm, cls)
+        val battery = try {
+            (appContext?.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+        } catch (_: Exception) { -1 }
         if (!inHush) {
             recentRms.addLast(rms)
             while (recentRms.size > FLOOR_SECONDS) recentRms.removeFirst()
@@ -247,11 +266,16 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             impact = cls?.impact ?: 0f,
             rhythmScore = rhythm.score,
             rhythm = rhythm.rhythm,
-            label = label
+            label = label,
+            accel = acc.spikes,
+            accelMax = acc.maxHp,
+            moving = acc.moving,
+            battery = battery
         )
-        val w = Window(rms, event.floor, classifier?.lastGain ?: 1f, tap, rhythm, cls, event)
-        HLog.d("window id=$letter hush=$inHush label=$label rms=%.4f floor=%.4f taps=%d peak=x%.0f rhythm=%.1f/%s voice=%.2f impact=%.2f machine=%.2f | %s".format(
-            rms, event.floor, tap.taps, tap.peakRatio, rhythm.score, rhythm.rhythm, event.human, event.impact, event.machine,
+        val w = Window(rms, event.floor, classifier?.lastGain ?: 1f, tap, rhythm, acc, structure, cls, event)
+        HLog.d("window id=$letter hush=$inHush label=$label rms=%.4f floor=%.4f taps=%d rej=%d peak=x%.0f acc=%d accMax=%.3f accRms=%.3f struct=%b rhythm=%.1f/%s(%d) voice=%.2f impact=%.2f machine=%.2f | %s".format(
+            rms, event.floor, tap.taps, tap.rejectedSustained, tap.peakRatio, acc.spikes, acc.maxHp, acc.rmsHp, structure,
+            rhythm.score, rhythm.rhythm, rhythm.count, event.human, event.impact, event.machine,
             cls?.top5?.joinToString(", ") { (name, s) -> "%s %.2f".format(name, s) } ?: "-"))
         main.post {
             listener?.onOwnWindow(w)

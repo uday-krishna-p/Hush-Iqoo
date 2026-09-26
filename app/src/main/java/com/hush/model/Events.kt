@@ -17,7 +17,11 @@ data class SensorEvent(
     val impact: Float = 0f,      // 0..1 YAMNet IMPACT bucket (corroboration only)
     val rhythmScore: Float = 0f, // 0..1 deliberate-tapping confidence over the last 8 s
     val rhythm: String? = null,  // e.g. "3-2" or "steady"
-    val label: String = "",      // fused headline: "HUMAN TAPPING", "TAPPING?", "HUMAN VOICE", "MACHINERY", "quiet"
+    val label: String = "",      // fused headline: "HUMAN TAPPING", "HUMAN VOICE", "MACHINERY", "MOVEMENT", "quiet"
+    val accel: Int = 0,          // accelerometer spikes this second (structure-borne knocks)
+    val accelMax: Float = 0f,    // m/s², largest jolt this second
+    val moving: Boolean = false, // phone handled / shaken this second: audio from it is suspect, label still shown
+    val battery: Int = -1,       // percent
     val chirpTs: Long? = null
 ) {
     fun toJson(): String = JSONObject().apply {
@@ -33,6 +37,10 @@ data class SensorEvent(
         put("imp", r(impact))
         put("rs", r(rhythmScore))
         put("lab", label)
+        put("acc", accel)
+        put("accm", r(accelMax))
+        if (moving) put("mov", true)
+        put("bat", battery)
         rhythm?.let { put("rh", it) }
         chirpTs?.let { put("chirp", it) }
     }.toString()
@@ -54,6 +62,10 @@ data class SensorEvent(
                 impact = o.optDouble("imp", 0.0).toFloat(),
                 rhythmScore = o.optDouble("rs", 0.0).toFloat(),
                 label = o.optString("lab"),
+                accel = o.optInt("acc", 0),
+                accelMax = o.optDouble("accm", 0.0).toFloat(),
+                moving = o.optBoolean("mov", false),
+                battery = o.optInt("bat", -1),
                 rhythm = o.optString("rh").ifEmpty { null },
                 chirpTs = if (o.has("chirp")) o.getLong("chirp") else null
             )

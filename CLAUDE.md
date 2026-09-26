@@ -53,6 +53,10 @@ messages (class, confidence, RMS, noise floor, rhythm, timestamps) are shared.
 | Noise floor | Each phone measures its **own noise floor as the mean RMS over the 3 s before the Hush window starts** and sends it with every event. Ranking uses `max(0, rms - floor)`. This is what makes loudness comparable across phones. |
 | Mic level (measured) | Both iQOOs deliver about **-60 dB RMS** in a quiet room on every source; UNPROCESSED is ~10 dB quieter still. Order is now VOICE_RECOGNITION → MIC → UNPROCESSED. Each window is **peak-normalised before YAMNet** (cap ×20; ×1000 turned room rumble into "Vehicle"); the raw RMS is kept for ranking. |
 | Tap detector | Knocks are 20 ms clicks that YAMNet cannot see in a 1 s window (it says Vehicle/Aircraft on the boosted room rumble). **`TapDetector`**: 10 ms frame energies, onset = frame ≥ 5× the window median AND ≥ 2× the loudest of the previous 3 frames, 80 ms refractory, ≤ 8 taps/s. Reports taps, peak ratio, gaps (ms) and a 0..1 tap score. **Tuned 26 Sep from two 90 s `debug.wav` recordings:** quiet room peaks ×2–6, speech ×2–5, knuckle knocks ×11–28, soft fingertip taps ×3–14 (half are missed, accepted). Zero false taps in quiet/speech at these settings. This is also the rhythm source. |
+| Headline label | Each second every phone fuses its evidence into one label, most trusted first: **HUMAN TAPPING** (rhythm score ≥ 0.9: ≥ 4 regular knocks or a repeated pattern in 8 s, **from audio alone**) → **HUMAN VOICE** (YAMNet voice ≥ 0.3) → **MACHINERY** (YAMNet machine ≥ 0.35) → **quiet**. A separate **⚠moving** flag marks a shaken/handled sensor without hiding its label: in a collapse everything trembles and no single structure can be relied on to carry vibration, so the accelerometer only ever adds evidence, never gates it. **A single impact never makes a headline**: the first version showed "TAPPING?" for coughs and clicks, useless in a crisis. Rescuers ask victims to tap repeatedly for exactly this reason. |
+| Ring-down filter | A sharp onset only counts as a knock if its energy 100 ms later is ≤ 40 % of the onset frame (knocks measured 3–27 %). Coughs, syllables and dragged chairs stay loud and are rejected (`rejectedSustained` in the log). |
+| Accelerometer (shipped 26 Sep) | `AccelChannel`: fastest rate, high-passed magnitude, spikes > 0.15 m/s² with 120 ms refractory. Spikes are merged into the same rhythm tracker as audio onsets (a knock felt but not heard still counts); an audio onset within 100 ms of a jolt marks the tapping as "✓felt" (structure-borne). RMS > 0.8 m/s² for the second = MOVEMENT. Thresholds are first guesses: tune from `accMax`/`accRms` in the log with the phone flat on the floor. |
+| Hush signal | Start: three 700 ms full-amplitude pulses (alarm-class vibration, not scaled down by the phone) + a double 2.5 kHz beep at max alarm volume. End: two 400 ms pulses + one 1.8 kHz beep. The beeps also make the start audible to everyone in the room. If the buzz is still weak, the phone's own Settings → Sound & vibration → vibration intensity is the last lever. |
 | Listen mode | Commander picks **TAPPING / VOICE / ANY** (planned for the Listen+Rank step). TAPPING uses only the tap score, VOICE only the YAMNet HUMAN bucket, ANY the max of both. Demo default: TAPPING, because a hackathon hall is full of other people's speech. |
 | Classifier | Stock **YAMNet** TFLite (`yamnet.tflite`, 16 kHz, 0.975 s window / 15 600 samples) via LiteRT / TensorFlow Lite. CPU first. GPU/NNAPI delegate is a stretch, added as a flag. **No fine-tuning.** |
 | Class buckets | **Starting list, to be tuned on the phone** (see Debug view). HUMAN = Speech, Shout, Yell, Screaming, Children shouting, Whistling, Whistle, Tap, Knock, Thump/thud, Wood, Bang, Slap/smack, Tick, Tick-tock, Clapping, Finger snapping. MACHINE = Engine, Power tool, Tools, Machine, Vehicle, Motor vehicle (road), Drill, Hammer. Everything else = OTHER. Bucket score = sum of member class scores. Match names against `yamnet_class_map.csv` exactly and log any name that does not match. |
@@ -65,6 +69,26 @@ messages (class, confidence, RMS, noise floor, rhythm, timestamps) are shared.
 | Rescuer brief | Template string: `"Human tapping · 92% · strongest at Sensor B"` plus `" · rhythm 3-2"` when rhythm is detected. On-device LLM only if Locate is done and time remains (it will not be). |
 | Export log | **One JSON-lines file per session** in `Downloads/`, named `hush-<date>-<time>.jsonl`. First line is a header with sensor letters, device names and map dots; every following line is one `SensorEvent` exactly as it crossed the network. Laptop shows it via Office Kit. |
 | Persistence | None beyond the session log file. No database. |
+
+## Every sensor on the phone, judged for this job (26 Sep review)
+
+Shipped or planned, in order of value for finding a trapped person. Nothing here sends raw data anywhere.
+
+| Sensor / output | Use | Status |
+|---|---|---|
+| Microphone | Loudness, YAMNet voice/machinery, tap onsets, rhythm | shipped |
+| Accelerometer | Structure-borne knocks ("felt"), MOVEMENT flag, aftershock warning | shipped, thresholds to tune |
+| Speaker | Hush start/end beeps; **call-and-listen** (commander plays "if you can hear this, tap three times", then hushes again — how real USAR teams work); chirp sync for Locate | beeps shipped; call-and-listen next if time |
+| Vibrator | Hush start/end signal to every rescuer's pocket | shipped |
+| Battery | Per-sensor % on the commander list; a dead sensor is a hole in the search | shipped |
+| Magnetometer | Compass heading, so the arrow points in the real world once positions exist | planned with map/arrow |
+| GPS | Outdoor auto-placement, bearing + distance to strongest sensor, coordinates in the log | planned (see Locate) |
+| Barometer | ~1 m height resolution → "which floor" per sensor in a multi-storey collapse, as a height delta vs the commander | planned, cheap |
+| Torch | Strobe the strongest sensor so rescuers find it in dust/dark | planned, 5 min |
+| Screen | High-contrast headline + countdown; SOS strobe in VICTIM mode | headline shipped |
+| Bluetooth RSSI / Wi-Fi RTT | Coarse indoor ranging for auto-placement; Nearby hides RSSI so it needs a separate BLE scan | later |
+| Proximity / light | "This sensor got buried/covered" | low value, skip |
+| **VICTIM mode (biggest upside)** | A trapped person's own phone emits a fixed chirp pattern + a Nearby SOS beacon. Sensors detect a known tone pattern far more reliably than knocks (narrowband Goertzel detection, works under noise). Replaces the "4th phone playing a recording" with a real feature. | after 18:00 unless everything else is done |
 
 ## Event contract (the only thing that crosses the network)
 

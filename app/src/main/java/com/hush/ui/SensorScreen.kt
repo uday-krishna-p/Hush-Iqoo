@@ -23,6 +23,7 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
     private val rmsText: TextView = activity.findViewById(R.id.rmsText)
     private val tapText: TextView = activity.findViewById(R.id.tapText)
     private val headline: TextView = activity.findViewById(R.id.headline)
+    private val accelText: TextView = activity.findViewById(R.id.accelText)
     private val topClass: TextView = activity.findViewById(R.id.topClass)
     private val top5: TextView = activity.findViewById(R.id.top5)
 
@@ -32,14 +33,20 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
     }
 
     override fun onOwnWindow(w: Engine.Window) {
-        headline.text = if (w.rhythm.rhythm != null) "${w.event.label} · ${w.rhythm.rhythm}" else w.event.label
+        val suffix = buildString {
+            if (w.rhythm.rhythm != null) append(" · ").append(w.rhythm.rhythm)
+            if (w.event.label == Engine.LABEL_TAPPING && w.structureConfirmed) append(" ✓felt")
+            if (w.accel.moving) append(" ⚠moving")
+        }
+        headline.text = w.event.label + suffix
         headline.setTextColor(when (w.event.label) {
             Engine.LABEL_TAPPING -> 0xFF1B8A3A.toInt()
-            Engine.LABEL_TAPPING_MAYBE -> 0xFF8A7A1B.toInt()
             Engine.LABEL_VOICE -> 0xFF1B4F8A.toInt()
             Engine.LABEL_MACHINE -> 0xFF8A1B1B.toInt()
+            Engine.LABEL_MOVEMENT -> 0xFFB05A00.toInt()
             else -> 0xFF808080.toInt()
         })
+        accelText.text = activity.getString(R.string.accel_value, w.accel.spikes, w.accel.maxHp, w.accel.rmsHp, w.rhythm.count, w.tap.rejectedSustained)
         rmsBar.progress = rmsToPercent(w.rms)
         rmsText.text = activity.getString(R.string.rms_value, w.rms, 20f * log10(w.rms.coerceAtLeast(1e-6f)), w.gain)
         tapText.text = activity.getString(R.string.tap_value, w.tap.taps, w.tap.peakRatio, w.tap.score, w.tap.intervalsMs.joinToString(" "))

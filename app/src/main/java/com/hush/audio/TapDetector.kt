@@ -13,7 +13,8 @@ class TapDetector(sampleRate: Int) {
         val peakRatio: Float,       // loudest frame / median frame energy
         val intervalsMs: List<Int>, // gaps between consecutive taps, including across the window edge
         val score: Float,           // 0..1 "this window contains deliberate tapping"
-        val onsetsAbsMs: List<Long> // absolute onset times (windowStartMs + offset) for the rhythm tracker
+        val onsetsAbsMs: List<Long>, // absolute onset times (windowStartMs + offset) for the rhythm tracker
+        val rejectedSustained: Int = 0 // sharp onsets that did not ring down (cough, syllable, chair)
     )
 
     companion object {
@@ -24,6 +25,10 @@ class TapDetector(sampleRate: Int) {
         const val LOOKBACK = 3
         const val REFRACTORY_FRAMES = 8 // 80 ms: a knock's ring-down is not a second knock
         const val MAX_TAPS_PER_SEC = 8  // faster than this is not a person knocking
+        // A knock rings down fast: on the recordings its energy 100 ms later was 3–27 % of the onset frame.
+        // A cough, a syllable or a dragged chair stays loud. Onsets that stay loud are not taps.
+        const val DECAY_FRAMES = 10
+        const val DECAY_MAX = 0.40f
     }
 
     private val frame = sampleRate / 100
@@ -32,7 +37,7 @@ class TapDetector(sampleRate: Int) {
     /** [windowStartMs] is any monotonic clock so intervals can span two windows. */
     fun analyse(pcm: ShortArray, n: Int, windowStartMs: Long): Result {
         val frames = n / frame
-        if (frames < 10) return Result(0, 0f, emptyList(), 0f, emptyList())
+        if (frames < 10) return Result(0, 0f, emptyList(), 0f, emptyList(), 0)
         val energy = FloatArray(frames)
         for (f in 0 until frames) {
             var s = 0.0
@@ -47,6 +52,7 @@ class TapDetector(sampleRate: Int) {
         val median = sorted[frames / 2].coerceAtLeast(1e-5f)
 
         var peakRatio = 0f
+        var rejected = 0
         var lastOnset = -REFRACTORY_FRAMES
         val onsetsMs = ArrayList<Int>()
         for (f in 1 until frames) {
@@ -56,8 +62,15 @@ class TapDetector(sampleRate: Int) {
             for (k in 1..LOOKBACK) if (f - k >= 0 && energy[f - k] > prev) prev = energy[f - k]
             val sharp = energy[f] >= prev * ATTACK
             if (ratio >= THRESHOLD && sharp && f - lastOnset >= REFRACTORY_FRAMES) {
-                onsetsMs.add(f * 10)
-                lastOnset = f
+                // Ring-down check; if the onset is too close to the window edge to check, accept it.
+                val later = f + DECAY_FRAMES
+                val rangDown = later >= frames || energy[later] <= energy[f] * DECAY_MAX
+                if (rangDown) {
+                    onsetsMs.add(f * 10)
+                    lastOnset = f
+                } else {
+                    rejected++
+                }
             }
         }
 
@@ -78,6 +91,6 @@ class TapDetector(sampleRate: Int) {
             taps == 0 || taps > MAX_TAPS_PER_SEC -> 0f
             else -> (0.4f + 0.2f * taps).coerceAtMost(1f)
         }
-        return Result(taps, peakRatio, intervals, score, onsetsMs.map { windowStartMs + it })
+        return Result(taps, peakRatio, intervals, score, onsetsMs.map { windowStartMs + it }, rejected)
     }
 }

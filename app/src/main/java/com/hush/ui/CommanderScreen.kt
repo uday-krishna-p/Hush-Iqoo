@@ -66,8 +66,10 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity, activity.getS
             sb.append(l).append("  ").append(name).append('\n')
             if (e != null) {
                 val rh = if (e.rhythm != null) " · ${e.rhythm}" else ""
-                sb.append("   ${e.label}$rh\n")
-                sb.append("   rms %.4f  taps %d  rhythm %.1f  voice %.2f  machine %.2f\n".format(e.rms, e.taps, e.rhythmScore, e.human, e.machine))
+                val bat = if (e.battery >= 0) "  ${e.battery}%" else ""
+                val mov = if (e.moving) "  ⚠moving" else ""
+                sb.append("   ${e.label}$rh$mov$bat\n")
+                sb.append("   rms %.4f  taps %d  jolts %d  rhythm %.1f  voice %.2f  machine %.2f\n".format(e.rms, e.taps, e.accel, e.rhythmScore, e.human, e.machine))
             } else {
                 sb.append("   ").append(activity.getString(R.string.no_data_yet)).append('\n')
             }

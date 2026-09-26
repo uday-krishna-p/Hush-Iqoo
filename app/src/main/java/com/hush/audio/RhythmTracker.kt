@@ -16,12 +16,20 @@ class RhythmTracker {
         const val HISTORY_MS = 8000L
         const val GROUP_GAP_MS = 600L    // onsets closer than this belong to the same group ("3 quick knocks")
         const val REGULAR_CV = 0.35f     // coefficient of variation below this = regular
+        const val MIN_ONSETS = 4         // USAR asks victims to "tap three times"; four regular hits is intent, three is chance
+        const val MERGE_MS = 100L        // an accelerometer spike this close to an audio onset is the same knock
     }
 
     private val onsets = ArrayDeque<Long>()
 
+    /** Adds onsets from one source, merging any that duplicate an onset already known (audio + accelerometer). */
     fun add(onsetAbsMs: List<Long>) {
-        onsets.addAll(onsetAbsMs)
+        for (t in onsetAbsMs) {
+            if (onsets.none { kotlin.math.abs(it - t) <= MERGE_MS }) onsets.addLast(t)
+        }
+        val sorted = onsets.sorted()
+        onsets.clear()
+        onsets.addAll(sorted)
     }
 
     fun evaluate(nowMs: Long): Result {
@@ -73,11 +81,10 @@ class RhythmTracker {
         }
 
         val score = when {
-            pattern != null && pattern != "steady" && n >= 3 -> 1f
-            pattern == "steady" && regular -> 0.9f
+            n < MIN_ONSETS -> if (n >= 3) 0.4f else 0.2f
+            pattern != null && pattern != "steady" -> 1f
             regular -> 0.9f
-            n >= 3 -> 0.5f
-            else -> 0.3f
+            else -> 0.5f
         }
         val rhythm = when {
             pattern != null && pattern != "steady" -> pattern
