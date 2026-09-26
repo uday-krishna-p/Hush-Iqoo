@@ -163,12 +163,13 @@ the far sensor); pairing prompts and whether "Radio:" loses its "?".
 5. VICTIM mode (trapped person's phone chirps a known pattern + SOS beacon) — biggest upside, not started.
 6. Remove the debug WAV before any public build.
 
-## Roadmap agreed 26 Sep evening: every phone a sensor, find phones as well as sounds
+## Roadmap (revised 26 Sep 20:00 against PRD v2.2, `docs/PRD-v2.2.md`)
 
-Asked for: Wi-Fi round-trip timing; a SWEEP button that finds every phone nearby (with or without the app) and
-maps it; phones that act as sensors without anyone opening the app; commanders that are sensors too and act as
-way-finders either to a phone in the zone or to a person knocking. What follows is what the hardware and Android
-actually allow, then the build order.
+The PRD's Feature 2.1 is the priority: **passive victim phones (< 1 % battery/day) that a commander's probe wakes,
+which then notify and buzz the victim and join the network as sensors.** Features 2.2–2.4 (Hush window, ranking,
+radar canvas with arrow) already exist, and the arrow now points at the located sound rather than at a sensor pin.
+Personas B and C (household, hearing-impaired) come later. What follows is what the hardware and Android actually
+allow, the PRD's acceptance criteria against those facts, then the build order.
 
 ### Hardware facts (checked 26 Sep 19:30, `adb shell pm list features` on two I2501, OriginOS 6, API 36)
 
@@ -204,51 +205,65 @@ centimetres, finds a knocking person to a bearing, detects transmitting phones a
   "warmer/colder" meter therefore updates every 30 s at best, BLE every second.
 - **Local-only hotspot** (`WifiManager.startLocalOnlyHotspot`) is allowed for apps; Android picks the name
   (`AndroidShare_xxxx`); the SOS tag carries it so rescuers can match it.
-- Runtime permissions (mic, Bluetooth, location) can only be granted from the activity: first launch always needs
-  the screen once. After that, standby needs no more taps until the phone reboots.
+- **The passive "listening port" exists in Android as a filtered BLE scan registered with a PendingIntent**
+  (`BluetoothLeScanner.startScan(filters, settings, PendingIntent)`, API 26+). The Bluetooth chip does the matching,
+  the app process may be dead, and the system delivers a broadcast to the app when a matching advertisement appears.
+  No service runs. `SCAN_MODE_LOW_POWER` listens ~0.5 s in every 5 s; this is the only mechanism that can meet
+  "< 1 % per day", and it means wake latency is up to ~5 s, not the PRD's 2 s (BALANCED mode halves it at 2–3× the
+  battery). Must be re-registered at boot (a `BOOT_COMPLETED` receiver may do that; no service needed). A phone whose
+  app was force-stopped, or whose Bluetooth is off, cannot be woken by anything.
+- **Waking the screen and starting the microphone from a probe** is legitimate only through a full-screen-intent
+  notification (the incoming-call mechanism, `USE_FULL_SCREEN_INTENT`): it turns the screen on, shows our beacon
+  screen over the lock screen, and because that puts the app on screen the microphone foreground service may start.
+  Sideloaded builds get the permission by default; a Play Store build would have to ask the user for it.
+- **`POST_NOTIFICATIONS` is currently "ignore" on both phones**: the app never asks for it, so today no Hush
+  notification is shown at all. Phase 1 must request it at first launch.
+- Runtime permissions (mic, Bluetooth, location, notifications) can only be granted from the activity: first launch
+  always needs the screen once. After that, nothing needs a tap until the phone reboots or the app is force-stopped.
 - **OriginOS (vivo) kills background apps by default.** Per phone, once: Settings → Battery → Background power
   consumption management → Hush → allow high background power; i Manager → App manager → Autostart → Hush on;
   lock Hush in the recents view. The app requests the battery-optimisation exemption itself (phase 0).
 
+### PRD 2.1 acceptance criteria against the facts
+
+| PRD says | What we can deliver and how we will measure it |
+|---|---|
+| Passive listener < 1 % battery/day | PendingIntent BLE scan, LOW_POWER, one filter (probe UUID). No process, no service. Measure: charge to 100 %, arm, leave 12 h, read `dumpsys batterystats` / battery level; expect 1–2 %/day, report the number honestly. |
+| Probe wakes 100 % of phones within 15 m in < 2 s | Commander advertises the probe at high power for 30 s. Open air: 15 m yes; latency ≤ 5 s in LOW_POWER (2 s needs BALANCED at 2–3× battery; team decides). Through rubble: 2.4 GHz loses 10–20 dB per slab, so a few metres, and a phone with Bluetooth off or the app force-stopped never wakes. Measure: probe start time on the commander vs. first tag seen from each victim in the commander's log. |
+| Notification + screen wake + haptic pulse | High-priority notification with a full-screen intent → beacon screen (red/white, "Rescuers are nearby. Tap 3 times or shout"), `setTurnScreenOn` + `setShowWhenLocked`, alarm-class vibration long-long-short ×3. Needs `POST_NOTIFICATIONS` (not asked today) and `USE_FULL_SCREEN_INTENT`. |
+| Victim answers with ID and RSSI; commander shows "~3.5 m under rubble" | The woken phone advertises its Hush tag (name suffix, awake flag, battery %); the commander's tag scan (already in `BleRanging`) gives RSSI per sighting. The log-distance formula is shown as "~N m?" with a warmer/colder trend, because on these phones RSSI read 6–14 m at 0.5 m. Real distance comes from the chirp round once the phone has joined the mesh (needs an air path). |
+| Then acts as a sensor | The woken phone starts the existing sensor path (mic service + Nearby) and joins the mesh; HUSH, ranking, locator and arrow work unchanged. If no commander is seen for 10 min it returns to passive so a passing probe cannot drain it. |
+
 ### Build order (each phase is a build, an install on all phones, a test, a commit)
 
-**Phase 0 · STANDBY (everyone is a sensor, no button).** Launch → permissions → the phone is a SENSOR immediately
-(no role picker; the role picker becomes a "Become commander" button and a "I am trapped" button). The foreground
-service keeps mic + radios alive indefinitely; request `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`; partial wake lock;
-`stopWithTask=false`; a second service of type `connectedDevice` that restarts at boot and keeps the Hush BLE tag
-and mesh discovery alive, plus a notification "Hush is on radio standby, tap to listen" whose tap restarts the mic
-service legitimately. Sensors auto-attach to any commander they discover (they already do; only the initial tap goes
-away). Duty-cycle for battery: YAMNet only when RMS is above floor + margin; measure % per hour on one phone
-overnight. Test: two phones in pockets, screens off, 30 min, events still arriving at the commander; reboot one,
-check it is visible on the radio and returns to listening after one notification tap.
+**Phase 1 · PROBE and PASSIVE (PRD 2.1), in three builds.**
 
-**Phase 1 · SOS / VICTIM mode (way-finder to a Hush phone).** "I am trapped" → the phone chirps a distinctive
-pattern every 10 s on the alarm stream at full volume (silent mode ignored), advertises a `HUSH-SOS` BLE tag with
-battery, last GPS fix and hotspot name, starts a local-only hotspot, vibrates + torch-strobes on a `FOUND` command.
-Commander side: SOS chirps enter the locator as onsets timed by the matched filter (better than knocks), so the arrow
-and the red cross-hair point at the phone; brief says "SOS phone I2501-6a46 · 4.1 m ±0.3 · battery 62 %". Optional,
-off by default: auto-SOS after a > 5 g shock followed by 60 s of stillness, cancellable. Test: phone in a box under a
-blanket 5 m away, locate it.
+- *Build 1a, passive port.* First launch: permissions incl. notifications → "ARMED" screen ("This phone will wake
+  as a rescue sensor when rescuers probe for it") → registers the PendingIntent BLE scan for the probe UUID and
+  exits; a `BOOT_COMPLETED` receiver re-registers it. Commander screen gets `[ACTIVATE SENSORS]` (the PRD's RADIO
+  SWEEP): advertises the probe (service UUID `0000A5A7-…`, commander name, high power, 30 s), logs `Probe: started`.
+  Victim side: the scan-result receiver logs `Probe heard from <name> rssi=…`, posts the activation notification
+  with the full-screen beacon screen, vibrates. Test: victim phone locked in a pocket, commander taps ACTIVATE 3 m
+  away, phone buzzes and lights up within 5 s; repeat after a reboot of the victim phone.
+- *Build 1b, wake to sensor.* The beacon screen starts the sensor path (mic service, Nearby as SENSOR, Hush tag with
+  awake flag + battery). Commander: "Discovered phones" list from the tag scan (name suffix, RSSI, "~N m?", trend,
+  "joined as Sensor E" once Nearby connects). Return to passive after 10 min without a commander. Test: after
+  ACTIVATE the phone appears in the list, then as a sensor row with live seconds; HUSH runs on it.
+- *Build 1c, battery and range numbers.* Overnight passive measurement on one phone; open-air wake range with the
+  commander walking away; wake through a closed metal cupboard / under a mattress. Numbers go into this file.
 
-**Phase 2 · SWEEP (all radios, repeatable).** Button on the commander (and a notification action): for 8 s every
-Hush phone scans BLE with broad filters, records each address's median RSSI, count and kind (Apple / Google /
-Hush tag / unknown), plus a Wi-Fi scan (access points and hotspots, `AndroidShare_` names flagged) and its own GPS
-fix, and reports a `Sweep` message. The commander merges by address: "3 Hush phones (A B C) · 5 other Bluetooth
-devices (2 Apple) · 1 hotspot", per device the phone that hears it loudest and a warmer/colder trend across sweeps,
-and for devices heard by ≥ 3 positioned phones a coarse fix from the RSSI ratios on the locator grid (log-distance
-path loss, exponent 2.7, unknown transmit power cancels in the mean exactly like loudness) drawn as a grey disc with
-"?". GPS puts the whole map on real coordinates when outdoors. Every sweep is an export record. Test: an iPhone on
-the table, three sweeps, its blob within 5 m; walk it away, the trend says colder.
+**Phase 2 · Already built (PRD 2.2–2.4).** HUSH window, ranking with brief, radar canvas with the arrow. Beyond the
+PRD: the arrow points at the located knocking/voice, not at a sensor pin (see "How the source is located"). Only
+polish left: the PRD's gold/cyan highlight of the strongest row and a glowing aura on the map target.
 
-**Phase 3 · Many commanders, one mesh.** Replace the tree rooted at one commander with a flooding mesh: every
-message carries (sender name, sequence), every phone forwards to all neighbours except the one it came from and drops
-ids it has seen. Phones are keyed by name everywhere (letters become a per-commander display). Any phone can become a
-commander and keep being a sensor (it already is Sensor A). Ranging rounds are serialised by a token: the commander
-with the lowest name proceeds, others wait 10 s. Each commander runs its own locator on the same reports. Needs a hall
-test with 5+ phones; Nearby Connections holds only a few Bluetooth links per phone, so the mesh matters here.
+**Later, in this order once phase 1 is measured:** SOS mode (victim-initiated: SOS chirp pattern + hotspot
+beacon + torch, the locator finds the phone to ±0.3 m); sweep of non-Hush phones (BLE only, coarse blobs, honest
+labels); multi-commander flooding mesh; persona B (single-phone walk-to-triangulate, whistle counter); persona C
+(screen flashes + haptics for doorbells and knocks).
 
-**Not in any phase:** Wi-Fi RTT/Aware/UWB (absent), exact position of a non-Hush phone (physics), listening that
-starts without any tap ever (platform).
+**Not in any phase:** Wi-Fi RTT/Aware/UWB (absent), exact position of a non-Hush phone (physics), waking a phone
+whose Bluetooth is off or whose app was force-stopped (platform), a 2 s wake guarantee at < 1 %/day (the two
+numbers trade against each other; the team picks one).
 
 ## Every sensor on the phone, judged for this job
 
