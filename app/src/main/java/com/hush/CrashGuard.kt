@@ -16,6 +16,7 @@ import com.hush.audio.AccelChannel
 import com.hush.audio.Haptics
 import com.hush.audio.Ping
 import com.hush.model.Alert
+import com.hush.model.Response
 import java.io.BufferedWriter
 import java.io.File
 import java.io.FileWriter
@@ -326,6 +327,111 @@ object CrashGuard {
             HLog.d("Crash: motion trace started (files/motion.csv, ${TRACE_SECONDS} s, accelerometer + gyroscope at 200 Hz)")
             "motion trace started"
         } catch (e: Exception) { HLog.d("Crash: could not start the motion trace: $e"); "trace failed: $e" }
+    }
+
+    // ---- An alarm about ANOTHER phone (build A2): relayed by the commander to every phone ----
+
+    const val CHANNEL_NEARBY = "crash-nearby"
+    const val NOTIFICATION_NEARBY_ID = 5
+    private const val NEARBY_SIREN_ROUNDS = 3
+
+    /** The latest relayed alert about another phone, or null. */
+    @Volatile var nearby: Alert? = null
+        private set
+    @Volatile var nearbyListener: Listener? = null
+    /** What this phone answered (Response.GOING / CALLED_CONTACT / CALLED_112), or null. */
+    @Volatile var myResponse: String? = null
+        private set
+    private var nearbyName = ""
+    private var nearbySeq = -1
+    private var nearbySirens = 0
+    private val nearbySiren = object : Runnable {
+        override fun run() {
+            val app = ctx ?: return
+            val a = nearby ?: return
+            if (a.state != Alert.ESCALATED || myResponse != null || a.responders.isNotEmpty() || nearbySirens >= NEARBY_SIREN_ROUNDS) return
+            nearbySirens++
+            try { Ping.play(app, listOf(1200 to 200, 0 to 100, 1200 to 200, 0 to 100, 1200 to 200), 1.0f); Haptics.rescuePulse(app) } catch (e: Exception) { HLog.d("Crash: nearby siren failed $e") }
+            main.postDelayed(this, 3500)
+        }
+    }
+
+    /** A relayed alert arrived (every phone, the commander included). Our own alert coming back only carries the responders. */
+    fun onNearbyAlert(a: Alert) {
+        val app = ctx ?: return
+        if (a.name == Engine.name) {
+            if (a.responders != responders) { responders = a.responders; HLog.d("Crash: responders for my alarm: ${a.responders}"); listener?.onCrashChanged() }
+            return
+        }
+        val fresh = a.name != nearbyName || a.seq != nearbySeq
+        val prevState = if (fresh) null else nearby?.state
+        nearby = a
+        if (fresh) { nearbyName = a.name; nearbySeq = a.seq; myResponse = null; nearbySirens = 0 }
+        when (a.state) {
+            Alert.CANCELLED -> {
+                if (prevState != Alert.CANCELLED) {
+                    HLog.d("CRASH NEARBY: ${a.name} cancelled its alarm (I'M OK)")
+                    main.removeCallbacks(nearbySiren)
+                    try { app.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_NEARBY_ID) } catch (e: Exception) { HLog.d("Crash: cancel nearby notification failed $e") }
+                    main.postDelayed({ if (nearby?.state == Alert.CANCELLED) { nearby = null; nearbyListener?.onCrashChanged() } }, 8000)
+                }
+            }
+            Alert.ESCALATED -> {
+                if (prevState != Alert.ESCALATED) {
+                    HLog.d("CRASH NEARBY: from ${a.name} (${a.letter ?: "?"}) ${a.kind} seq ${a.seq}, nearest=${a.nearest ?: "unknown"} (me ${Engine.letter}: ${a.distances[Engine.letter] ?: "?"}), distances ${a.distances}, contacts ${a.contacts.size}, responders ${a.responders}")
+                    Engine.sessionLog.addRecord("crash_nearby", mapOf("from" to a.name, "letter" to a.letter, "seq" to a.seq, "nearest" to a.nearest, "me" to Engine.letter, "distances" to a.distances))
+                    showNearbyScreen(app, a)
+                    main.removeCallbacks(nearbySiren); main.post(nearbySiren)
+                }
+            }
+            else -> { /* COUNTDOWN: the commander's row shows it; other phones wait for ESCALATED or CANCELLED */ }
+        }
+        nearbyListener?.onCrashChanged()
+    }
+
+    /** This phone answers: I'm going / I called their contact / I called 112. Goes up to the commander, who relays it to all. */
+    fun respond(action: String, detail: String = "") {
+        val a = nearby ?: return
+        myResponse = action
+        HLog.d("CRASH NEARBY: responding $action $detail for ${a.name}")
+        Engine.sendResponse(Response(Engine.name, Engine.letter.takeIf { it != "?" }, a.name, action, detail))
+        nearbyListener?.onCrashChanged()
+    }
+
+    fun dismissNearby() {
+        val app = ctx
+        HLog.d("CRASH NEARBY: screen dismissed (alert from ${nearby?.name} stays in the log)")
+        main.removeCallbacks(nearbySiren)
+        try { app?.getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_NEARBY_ID) } catch (e: Exception) { HLog.d("Crash: cancel nearby notification failed $e") }
+        nearby = null
+        nearbyListener?.onCrashChanged()
+    }
+
+    private fun showNearbyScreen(app: Context, a: Alert) {
+        try {
+            val nm = app.getSystemService(NotificationManager::class.java)
+            nm.createNotificationChannel(NotificationChannel(CHANNEL_NEARBY, "Crash nearby", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Another Hush phone nearby has raised a fall alarm with no response"
+                enableVibration(true)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            })
+            val i = Intent(app, CrashAlarmActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            val pi = PendingIntent.getActivity(app, 5, i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val who = (if (a.letter != null) "Sensor ${a.letter}" else "phone") + " " + a.name.takeLast(4)
+            val n = Notification.Builder(app, CHANNEL_NEARBY)
+                .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                .setContentTitle(app.getString(R.string.nearby_notif_title, who))
+                .setContentText(app.getString(R.string.nearby_notif_text))
+                .setCategory(Notification.CATEGORY_ALARM)
+                .setVisibility(Notification.VISIBILITY_PUBLIC)
+                .setContentIntent(pi)
+                .setFullScreenIntent(pi, true)
+                .setOngoing(true)
+                .setAutoCancel(false)
+                .build()
+            nm.notify(NOTIFICATION_NEARBY_ID, n)
+            if (Engine.listener != null) app.startActivity(i)
+        } catch (e: Exception) { HLog.d("Crash: could not show the nearby screen: $e") }
     }
 
     /** One line for the sensor screen while an alarm is active. */

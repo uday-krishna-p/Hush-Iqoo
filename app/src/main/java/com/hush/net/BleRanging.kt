@@ -158,6 +158,14 @@ class BleRanging(context: Context, private val listener: Listener) {
     /** Commander: keep scanning for Hush tags (discovered-phones list, live addresses for ranging). */
     fun scanForTags() = ensureScanning()
 
+    /** Sensor: stop the tag scan started for a nearby fall alarm (the commander never stops its own). */
+    @android.annotation.SuppressLint("MissingPermission")
+    fun stopTagScan() {
+        val s = scanner ?: return
+        try { s.stopScan(scanCallback); HLog.d("BleRanging: tag scan stopped") } catch (e: Exception) { HLog.d("BleRanging: stop scan threw $e") }
+        scanner = null
+    }
+
     @android.annotation.SuppressLint("MissingPermission")
     private fun ensureScanning() {
         if (scanner != null) return

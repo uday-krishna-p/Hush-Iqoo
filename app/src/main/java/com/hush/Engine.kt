@@ -258,7 +258,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     // ---- Crash / fall alerts (docs/PLAN-crash.md): raised by CrashGuard, collected by the commander ----
 
-    private class CrashRow(var alert: Alert, var receivedMs: Long)
+    private class CrashRow(var alert: Alert, var receivedMs: Long) { var relayedMs = 0L }
     private val crashAlerts = LinkedHashMap<String, CrashRow>()   // sender name → newest alert
     private const val CRASH_ROW_MS = 30 * 60_000L
 
@@ -277,7 +277,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val now = SystemClock.elapsedRealtime()
         val prev = crashAlerts[a.name]
         val changed = prev == null || prev.alert.seq != a.seq || prev.alert.state != a.state
-        crashAlerts[a.name] = CrashRow(a, now)
+        if (changed && (prev == null || prev.alert.seq != a.seq)) { crashResponders.remove(a.name); sosRssi.clear() }
+        val row = CrashRow(a, now)
+        crashAlerts[a.name] = row
         if (changed) {
             HLog.d("CRASH ALERT from ${a.name} (${a.letter ?: "?"}) via $via: ${a.kind} ${a.state} seq ${a.seq} peak %.1f still ${a.stillS} battery ${a.battery} gps=${a.lat != null} cellular=${a.cellular} actions=${a.actions.size}".format(a.peak))
             sessionLog.addRecord("crash", mapOf("from" to a.name, "letter" to a.letter, "kind" to a.kind, "state" to a.state, "seq" to a.seq, "at" to a.atMs,
@@ -286,6 +288,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 try { com.hush.audio.Haptics.vibrate(ctx, longArrayOf(0, 400, 150, 400, 150, 400), "Crash: alert buzz") } catch (e: Exception) { HLog.d("Crash: alert buzz failed $e") }
             }
         }
+        relayAlert(row)   // every phone hears about it; the nearest one is asked to call (build A2)
         main.removeCallbacks(crashRefresh); main.post(crashRefresh)
     }
 
@@ -311,15 +314,129 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 else -> {
                     val gps = if (a.lat != null) "GPS ±%.0f m".format(a.gpsAcc ?: 0f) else "no GPS"
                     val cell = if (a.cellular) "can call" else "cannot call (no network)"
+                    val resp = crashResponders[a.name]?.toList() ?: emptyList()
                     "🚨 $who: ${a.kind} at $at · NO RESPONSE · peak %.0f m/s² · $gps · battery ${a.battery} %% · $cell".format(a.peak) +
-                        (if (a.actions.isEmpty()) "" else "\n   " + a.actions.takeLast(4).joinToString("\n   "))
+                        (if (a.actions.isEmpty()) "" else "\n   " + a.actions.takeLast(4).joinToString("\n   ")) +
+                        (if (resp.isEmpty()) "" else "\n   → " + resp.joinToString("\n   → "))
                 }
             }
         }
     }
 
+    /** Sensors: answer a relayed alert (or report the SOS tag's signal). The commander keeps its own. */
+    fun sendResponse(r: com.hush.model.Response) {
+        if (role == ROLE_COMMANDER) { main.post { onResponse(r) }; return }
+        link?.sendUp(r.toJson()) ?: HLog.d("Crash: response ${r.action} not sent, no link")
+    }
+
+    private val crashResponders = HashMap<String, LinkedHashSet<String>>()   // fallen phone name → "Ravi (C) is going", …
+    private val sosRssi = HashMap<String, Pair<Int, Long>>()                 // letter → (signal of the fallen phone's tag as that phone sees it, when)
+    private const val SEEN = "SEEN"
+
+    /** Commander: a phone answered an alert, or reports how strongly it sees the fallen phone's SOS tag. */
     private fun onResponse(r: com.hush.model.Response) {
-        HLog.d("Crash: response from ${r.name} (${r.letter ?: "?"}) for ${r.forName}: ${r.action} ${r.detail}")
+        if (role != ROLE_COMMANDER) return
+        val now = SystemClock.elapsedRealtime()
+        if (r.action == SEEN) {
+            val rssi = r.detail.toIntOrNull() ?: return
+            val l = r.letter ?: return
+            val first = sosRssi[l] == null
+            sosRssi[l] = rssi to now
+            if (first) HLog.d("Crash: ${r.name} ($l) sees the SOS tag of ${r.forName} at $rssi dBm")
+            crashAlerts[r.forName]?.let { if (now - it.relayedMs >= 5000) relayAlert(it) }
+            return
+        }
+        val row = crashAlerts[r.forName]
+        val who = r.name.takeLast(4) + (r.letter?.let { " ($it)" } ?: "")
+        val line = when (r.action) {
+            com.hush.model.Response.GOING -> "$who is going to them"
+            com.hush.model.Response.CALLED_CONTACT -> "$who called their contact ${r.detail}"
+            com.hush.model.Response.CALLED_112 -> "$who called ${r.detail}"
+            else -> "$who: ${r.action} ${r.detail}"
+        }
+        HLog.d("CRASH RESPONSE for ${r.forName}: $line")
+        crashResponders.getOrPut(r.forName) { LinkedHashSet() }.add(line)
+        sessionLog.addRecord("crash_response", mapOf("for" to r.forName, "from" to r.name, "letter" to r.letter, "action" to r.action, "detail" to r.detail))
+        if (row != null) relayAlert(row) else HLog.d("Crash: response for an unknown alert ${r.forName}")
+        main.removeCallbacks(crashRefresh); main.post(crashRefresh)
+    }
+
+    /** Commander: send the alert down to every phone with who is nearest and the responders so far; the commander's own screen gets it too. */
+    private fun relayAlert(row: CrashRow) {
+        val a = row.alert
+        val (nearest, dists) = nearestTo(a)
+        val relayed = a.copy(nearest = nearest, distances = dists, responders = crashResponders[a.name]?.toList() ?: emptyList())
+        row.relayedMs = SystemClock.elapsedRealtime()
+        link?.sendDown(relayed.toJson())
+        if (a.state == Alert.ESCALATED) HLog.d("CRASH RELAY: ${a.name} (${a.letter ?: "?"}) ${a.state} seq ${a.seq} nearest=${nearest ?: "unknown"} distances=$dists responders=${relayed.responders}")
+        CrashGuard.onNearbyAlert(relayed)
+    }
+
+    /**
+     * Who is closest to the fallen phone, honestly: chirp-ranging map distances first (±5 cm), then GPS (±5–20 m, outdoors),
+     * then how strongly each phone sees the fallen phone's Bluetooth tag ("~N m?", a guess: 6–14 m read at 0.5 m on these
+     * phones). Nothing known → no nearest, the screens say "look around". The text says which evidence was used.
+     */
+    private fun nearestTo(a: Alert): Pair<String?, Map<String, String>> {
+        val fallen = a.letter ?: return null to emptyMap()
+        val now = SystemClock.elapsedRealtime()
+        val others = (listOf("A") + peers.values.map { it.letter }).filter { it != fallen }.distinct()
+        val dists = LinkedHashMap<String, String>()
+        var best: String? = null; var bestClass = 9; var bestVal = Double.MAX_VALUE
+        for (l in others) {
+            val ranged = mapDistanceMetres(fallen, l)
+            val gps = gpsDistanceMetres(fallen, l, now)
+            val rssi = if (l == "A") sightings[a.name.takeLast(4)]?.takeIf { now - it.lastMs < 30_000 }?.rssi?.lastOrNull()
+                       else sosRssi[l]?.takeIf { now - it.second < 30_000 }?.first
+            val (cls, v, text) = when {
+                ranged != null -> Triple(0, ranged.toDouble(), "%.1f m".format(ranged))
+                gps != null -> Triple(1, gps, "~%.0f m (GPS)".format(gps))
+                rssi != null -> Triple(2, -rssi.toDouble(), "~%.0f m? (signal %d dBm)".format(roughMetres(rssi), rssi))
+                else -> Triple(9, 0.0, "?")
+            }
+            dists[l] = text
+            if (cls < bestClass || (cls == bestClass && v < bestVal)) { best = l; bestClass = cls; bestVal = v }
+        }
+        return (if (bestClass == 9) null else best) to dists
+    }
+
+    /** Metres between two phones' latest GPS fixes (both < 60 s old), else null. */
+    private fun gpsDistanceMetres(a: String, b: String, now: Long): Double? {
+        val sa = gpsSamples[a]?.lastOrNull()?.takeIf { now - it.atMs < 60_000 } ?: return null
+        val sb = gpsSamples[b]?.lastOrNull()?.takeIf { now - it.atMs < 60_000 } ?: return null
+        val dx = (sb.lon - sa.lon) * 111_320.0 * kotlin.math.cos(Math.toRadians(sa.lat))
+        val dy = (sb.lat - sa.lat) * 110_574.0
+        return kotlin.math.hypot(dx, dy)
+    }
+
+    // Sensor: while another phone's alarm is active, scan for its SOS tag and tell the commander how strong it is.
+    private var sosWatchSuffix: String? = null
+    private var sosWatchRssi: Pair<Int, Long>? = null
+    private var sosWatchUntilMs = 0L
+    private val sosSeenTick = object : Runnable {
+        override fun run() {
+            val suffix = sosWatchSuffix ?: return
+            val now = SystemClock.elapsedRealtime()
+            if (now > sosWatchUntilMs) { stopSosWatch("30 min"); return }
+            val r = sosWatchRssi
+            if (r != null && now - r.second < 10_000) sendResponse(com.hush.model.Response(localName, letter.takeIf { it != "?" }, suffix, SEEN, r.first.toString()))
+            main.postDelayed(this, 5000)
+        }
+    }
+    private fun startSosWatch(fallenName: String) {
+        if (sosWatchSuffix == fallenName) return
+        sosWatchSuffix = fallenName; sosWatchRssi = null
+        sosWatchUntilMs = SystemClock.elapsedRealtime() + 30 * 60_000L
+        ble?.scanForTags()
+        HLog.d("Crash: watching for the SOS tag of $fallenName")
+        main.removeCallbacks(sosSeenTick); main.postDelayed(sosSeenTick, 3000)
+    }
+    private fun stopSosWatch(why: String) {
+        if (sosWatchSuffix == null) return
+        HLog.d("Crash: SOS tag watch stopped ($why)")
+        sosWatchSuffix = null; sosWatchRssi = null
+        main.removeCallbacks(sosSeenTick)
+        ble?.stopTagScan()
     }
 
     @Volatile var mode: Mode = Mode.TAPPING
@@ -956,7 +1073,10 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             }
         }
         override fun onTagSeen(suffix: String, address: String, rssi: Int, flags: Int, battery: Int) {
-            main.post { if (role == ROLE_COMMANDER) this@Engine.onTagSeen(suffix, address, rssi, flags, battery) }
+            main.post {
+                if (role == ROLE_COMMANDER) this@Engine.onTagSeen(suffix, address, rssi, flags, battery)
+                else if (suffix == sosWatchSuffix?.takeLast(4)) sosWatchRssi = rssi to SystemClock.elapsedRealtime()
+            }
         }
         override fun onOwnAddress(address: String) {
             ownBleAddress = address
@@ -1871,7 +1991,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         capture?.stop(); capture = null
         CrashGuard.detach()
         accel?.stop(); accel = null
-        crashAlerts.clear(); main.removeCallbacks(crashRefresh)
+        crashAlerts.clear(); crashResponders.clear(); sosRssi.clear(); main.removeCallbacks(crashRefresh)
+        stopSosWatch("stopped")
         compass?.stop(); compass = null
         deadReckoning?.stop(); deadReckoning = null
         gps?.stop(); gps = null
@@ -2284,7 +2405,16 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 }
             }
             is com.hush.model.Join -> onJoin(msg, endpointId)
-            is Alert -> onAlert(msg, endpointId)
+            is Alert -> {
+                if (role == ROLE_SENSOR) {
+                    // Relayed by the commander: pass it on down, show it, and watch for the fallen phone's SOS tag.
+                    link?.sendDown(text)
+                    CrashGuard.onNearbyAlert(msg)
+                    if (msg.name != localName) {
+                        if (msg.state == Alert.ESCALATED) startSosWatch(msg.name) else if (msg.state == Alert.CANCELLED) stopSosWatch("cancelled")
+                    }
+                } else onAlert(msg, endpointId)
+            }
             is com.hush.model.Response -> onResponse(msg)
             is com.hush.model.ChirpReport -> onChirpReport(msg)
             is com.hush.model.Placement -> onPlacement(msg)

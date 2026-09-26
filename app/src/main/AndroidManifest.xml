@@ -76,6 +76,16 @@
             android:showWhenLocked="true"
             android:turnScreenOn="true" />
 
+        <!-- Every OTHER phone's red "crash nearby" screen: who fell, how far, call their contact / 112, I'm going -->
+        <activity
+            android:name=".CrashAlarmActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true" />
+
         <!-- Started by the system only: probe seen by the passive scan (our own PendingIntent), boot finished,
              app updated, re-arm alarm. Not exported: another app must not be able to fire the rescue alarm. -->
         <receiver

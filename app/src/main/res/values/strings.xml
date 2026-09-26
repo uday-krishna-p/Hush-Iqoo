@@ -38,6 +38,21 @@
     <string name="crash_no_contacts">No emergency contacts set: the rescue team is told over the mesh, then the dialer opens on %1$s.</string>
     <string name="crash_cell">Will text and call: %1$s, then open the dialer on %2$s. The rescue team is told over the mesh.</string>
     <string name="crash_dry_run">(DRY RUN: texts and calls are only logged, nothing is sent)</string>
+    <string name="nearby_title">🚨 CRASH NEARBY</string>
+    <string name="nearby_who">%1$s · %2$s at %3$s · no response for %4$d s</string>
+    <string name="nearby_you_closest">YOU ARE THE CLOSEST (%1$s)</string>
+    <string name="nearby_other_closer">Sensor %1$s is closer (%2$s) · you are %3$s away</string>
+    <string name="nearby_unknown">Distance unknown: look around</string>
+    <string name="nearby_call_contact">CALL %1$s (their contact)</string>
+    <string name="nearby_call_112">CALL %1$s (emergency services)</string>
+    <string name="nearby_going">I\'M GOING TO THEM</string>
+    <string name="nearby_going_sent">✓ Told everyone you are going</string>
+    <string name="nearby_nobody_yet">Nobody has answered yet</string>
+    <string name="nearby_responders_heading">Responding:</string>
+    <string name="nearby_dismiss">dismiss this screen</string>
+    <string name="nearby_cancelled">✓ %1$s pressed I\'M OK: the alarm is cancelled</string>
+    <string name="nearby_notif_title">🚨 CRASH NEARBY · %1$s needs help</string>
+    <string name="nearby_notif_text">A Hush phone nearby has raised a fall alarm with no response. Open to see who and how far.</string>
     <string name="perms_denied">Microphone and nearby-device permissions are required. Tap a role again to retry.</string>
 
     <string name="my_mic_a">My mic (Sensor A)</string>
