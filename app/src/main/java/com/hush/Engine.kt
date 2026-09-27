@@ -2861,7 +2861,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     data class AimArrow(val screenDeg: Float?, val label: String, val hint: String)
 
     fun aimArrow(): AimArrow {
-        val me = posOf(letter) ?: return AimArrow(null, "Arrow off", "Waiting for the chirps to place the phones (about 30 s after the roles start)")
+        val me = posOf(letter) ?: return AimArrow(null, "Arrow off", "Measuring where the phones are with inaudible chirps: needs three phones connected, then about 20 s")
         val f = aim.frame() ?: return AimArrow(null, "Arrow off", "One-time setup: aim the top of this phone at another phone and tap the blue button below")
         val side = if (f.mirrored == null) " · aim at a 2nd phone to confirm left/right" else ""
         // Target: the loudness spot (between the phones, LoudnessLocator), else the closest phone's position.
@@ -3176,6 +3176,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         if (j.ble != null) { peerBleAddress[j.name] = j.ble; main.postDelayed({ startRadioTo(j.name, assigned) }, 3000) }
         if (inHush) link?.sendDown(Command(Command.HUSH, secondsLeft(), to = j.name).toJson())
         if (layoutByName.containsKey(j.name.takeLast(4))) HLog.d("LAYOUT: " + applyLayout())
+        // Enough phones for positions: start the chirps now instead of at the next 60 s tick (a phone joining 16 s
+        // after the commander started waited until ~75 s). 4 s lets the new sensor take its letter and open its mic.
+        if (peers.size >= 2 && !rangingInProgress) main.postDelayed({ clockRound("${peers.size + 1} phones connected") }, 4000)
         listener?.onPeers(peers.values.toList())
     }
 
