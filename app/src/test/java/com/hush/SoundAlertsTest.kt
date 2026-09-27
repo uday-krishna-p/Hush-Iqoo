@@ -80,7 +80,7 @@ class SoundAlertsTest {
 
     @Test
     fun threeKnocksReplayTheirRhythm() {
-        val d = SoundAlerts()
+        val d = SoundAlerts().also { it.enabled.add(Category.KNOCK) }   // KNOCK is off by default in this version
         val t = warm(d)
         val knocks = listOf(SoundAlerts.Knock(t - 900, 14f), SoundAlerts.Knock(t - 500, 12f), SoundAlerts.Knock(t - 100, 15f))
         val a = d.onSecond(second(t, mapOf("Knock" to 0.2f, "Wood" to 0.1f), knocks = knocks))
@@ -95,7 +95,7 @@ class SoundAlertsTest {
 
     @Test
     fun oneOnsetOrSoftOnsetsAreNotAKnock() {
-        val d = SoundAlerts()
+        val d = SoundAlerts().also { it.enabled.add(Category.KNOCK) }   // KNOCK is off by default in this version
         val t = warm(d)
         assertNull(d.onSecond(second(t, mapOf("Knock" to 0.3f), knocks = listOf(SoundAlerts.Knock(t - 100, 14f)))))
         // Room clatter: several onsets but soft (×3), and the model hears no knock.
@@ -105,7 +105,7 @@ class SoundAlertsTest {
 
     @Test
     fun loudKnocksNeedNoModel() {
-        val d = SoundAlerts()
+        val d = SoundAlerts().also { it.enabled.add(Category.KNOCK) }   // KNOCK is off by default in this version
         val t = warm(d)
         val knocks = listOf(SoundAlerts.Knock(t - 700, 22f), SoundAlerts.Knock(t - 200, 18f))
         val a = d.onSecond(second(t, mapOf("Dishes, pots, and pans" to 0.3f), knocks = knocks))

@@ -44,9 +44,10 @@ class SoundAlerts {
         DOORBELL("DOORBELL", 0xFF1565C0.toInt(),
             setOf("Doorbell", "Ding-dong", "Ding", "Chime", "Bell", "Buzzer"),
             0.3f, 1, 2f, 4, longArrayOf(0, 150, 100, 150, 400, 150, 100, 150)),
+        // Off by default for this version (team, 27 Sep 05:45: no focus on knocks; the motor and table clatter made it noisy). Switch on the ALERT screen.
         KNOCK("KNOCK", 0xFFF9A825.toInt(),
             setOf("Knock", "Door", "Wood", "Thump, thud"),
-            0.15f, 1, 2f, 3, longArrayOf(0, 200)),
+            0.15f, 1, 2f, 3, longArrayOf(0, 200), defaultOn = false),
         TIMER("TIMER BEEPING", 0xFF2E7D32.toInt(),
             setOf("Beep, bleep", "Microwave oven", "Alarm clock"),
             0.3f, 2, 2f, 2, longArrayOf(0, 120, 120, 120, 120, 120, 120, 120)),
