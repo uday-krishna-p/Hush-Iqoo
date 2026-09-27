@@ -18,7 +18,7 @@ class ClosestTest {
         c.tick(20_000)
         val s = c.summary(20_000)!!
         assertEquals("B", s.leader)
-        assertEquals(5, s.wins)
+        assertEquals(Closest.WINDOW_KNOCKS, s.wins)   // all of the last 4 clear knocks
         assertTrue(s.leadDb!! > 15f)
         assertEquals("A", s.runnerUp)
     }
@@ -101,8 +101,8 @@ class ClosestTest {
     }
 
     /** 27 Sep 06:00:38–06:01:01 on the phones: 12 clear knocks at C, then the knocker moved to A. With 20 s of wins
-     *  the panel took 10 s to say A; with the last 6 clear knocks A leads after 3 knocks and is CLOSEST after 4. */
-    @Test fun switchesWithinFourKnocksAfterALongRun() {
+     *  the panel took 10 s to say A; with the last 6 clear knocks A led after 3 knocks. 09:35: last 4, A leads after 2. */
+    @Test fun switchesAfterTwoKnocksAfterALongRun() {
         val c = Closest()
         for (i in 0 until 12) { c.add("C", 1000L + i * 1000, 0.08f, 30f); c.add("A", 1000L + i * 1000, 0.01f, 9f) }
         fun knockAtA(i: Int): Closest.Summary {
@@ -112,14 +112,13 @@ class ClosestTest {
             return c.summary(t + Closest.CLOSE_AFTER_MS)!!
         }
         assertEquals("C", knockAtA(0).leader)
-        assertEquals("C", knockAtA(1).leader)
+        val second = knockAtA(1)
+        assertEquals("A", second.leader)         // 2–2: the tie goes to the most recent winner (LEANING on the screen)
+        assertEquals(2, second.wins)
         val third = knockAtA(2)
-        assertEquals("A", third.leader)          // 3–3: the tie goes to the most recent winner (LEANING on the screen)
-        assertEquals(3, third.wins)
-        val fourth = knockAtA(3)
-        assertEquals("A", fourth.leader)
-        assertEquals(4, fourth.wins)             // 4 of 6: CLOSEST on the screen
-        assertEquals(6, fourth.knocks)
+        assertEquals("A", third.leader)
+        assertEquals(3, third.wins)              // 3 of 4: CLOSEST on the screen
+        assertEquals(4, third.knocks)
     }
 
     /** 27 Sep 06:05: the fixed 2.2 s wait was most of the lag. A knock is judged once every phone has reported past it. */
@@ -147,7 +146,18 @@ class ClosestTest {
         c.tick(10_000)
         val s = c.summary(10_000)!!
         assertEquals("B", s.leader)
-        assertEquals(5, s.wins)
+        assertEquals(Closest.WINDOW_KNOCKS - 1, s.wins)   // 3 of the last 4
+    }
+
+    /** Two clear knocks are enough to name a phone (09:35, team); one is not. */
+    @Test fun twoKnocksNameAPhone() {
+        val c = Closest()
+        c.add("B", 1000, 0.08f, 30f); c.add("A", 1000, 0.01f, 9f)
+        c.tick(5000)
+        assertEquals(null, c.summary(5000))
+        c.add("B", 2000, 0.08f, 30f); c.add("A", 2000, 0.01f, 9f)
+        c.tick(6000)
+        assertEquals("B", c.summary(6000)!!.leader)
     }
 
     @Test fun followsTheKnockerWhenOldKnocksExpire() {

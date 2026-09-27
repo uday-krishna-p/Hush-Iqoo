@@ -25,10 +25,11 @@ class Closest(private val matchMs: Long = MATCH_MS, private val readyMarginMs: L
         const val READY_MARGIN_MS = 250L
         const val HISTORY_MS = 20_000L     // knocks older than this are forgotten: the panel clears when the knocking stops
         /** The panel decides from this many most recent clear knocks (27 Sep 06:00: counting 20 s of wins took 7–10 s to follow
-         *  the knocker to the next phone; with 6 the new phone leads after 3 knocks and is CLOSEST after 4). */
-        const val WINDOW_KNOCKS = 6
+         *  the knocker to the next phone; with 6 the new phone leads after 3 knocks and is CLOSEST after 4).
+         *  27 Sep 09:35 (team: fewer knocks before the map's arrow points): 4, so a new phone leads after 2 knocks. */
+        const val WINDOW_KNOCKS = 4
         const val MIN_LOUD_RATIO = 8f      // at least one phone heard it ≥ ×8 over its background (room noises ×2–6)
-        const val MIN_KNOCKS = 3
+        const val MIN_KNOCKS = 2        // clear knocks before any phone is named (was 3; 1 would let one stray bang point the arrow)
         /** A knock counts only when its loudest phone leads the next by this much (first run, 27 Sep 05:55: knocks
          *  between clear runs were won by 0–2 dB and hopped between phones; clear knocks led by 8–23 dB). */
         const val MIN_LEAD_DB = 3f
