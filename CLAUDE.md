@@ -253,6 +253,18 @@ clocks from the chirps (third-party chirps, unaffected), and the arrow now point
 locator's spot (`Engine.localSourceArrow`). ef39 held a stale 0.40 m tape layout from 06:17, which is why the locator
 ran during the arrow test with radius ~10 m. Tags: `v-closest-working` (9a12fcc, last confirmed), `v-before-chirps`.
 
+**Auto-locate: positions from the chirps every round, 27 Sep (`AutoLocate.kt`; team: "have it auto locate every few
+seconds with the chirps"):** the chirp range error is a fixed amount per phone (from the three 06:49-06:52 rounds on the
+1.2 m triangle: ef39 +0.70/+0.74/+0.73 m, 6a46 +0.14/+0.09/+0.15, 991e +0.13/+0.18/+0.10). With a tape layout on the
+commander, each round's chirp - tape = b_i + b_j gives every phone's error (`AUTOLOCATE calibration round: ...`); two
+rounds agreeing within 0.10 m switch it on (`AUTOLOCATE on: range errors ...`). Then every round subtracts the errors,
+rebuilds the triangle from its three sides and turns (or mirrors) it onto the previous positions (2-D Kabsch; distances
+say nothing about orientation, so the arrows stay right only while the phones do not ALL move a lot between rounds);
+when some phone moved > 0.08 m the positions replace the layout in memory (`AUTOLOCATE round: corrected ... -> ...
+moved N m, map updated`, export `autolocate`). Rounds run back to back (2 s gap, ~9 s per cycle with three serial
+chirps). Three phones only (A and the first two sensors). A new tape layout recalibrates. `AutoLocateTest` (5) passes.
+Needs on the phones: the tape layout entered once with the phones on it, then two rounds (~20 s) before moving them.
+
 **Timing locator back, inaudible chirps, every phone locates, 27 Sep 04:40 (team: "we are just pointing a compass
 … not using the power of multiple devices to triangulate"; "if the chirps are made, make them at such high frequencies
 that humans cant hear"):** (1) *Top-band test* (`tools/calibration/ultrasweep.py` makes the file,

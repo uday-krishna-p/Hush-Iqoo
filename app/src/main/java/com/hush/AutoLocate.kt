@@ -1,0 +1,94 @@
+package com.hush
+
+import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.hypot
+import kotlin.math.sin
+import kotlin.math.sqrt
+
+/**
+ * Phone positions from the inaudible chirps, every round (27 Sep; team: "have it auto locate every few seconds with the
+ * chirps").
+ *
+ * Chirp ranging on these phones is wrong by a FIXED amount per phone: for the team's 1.2 m triangle three rounds read
+ * AB 2.03/2.02/2.08, AC 2.02/2.11/2.03, BC 1.46/1.46/1.45 m, i.e. ef39 +0.70/+0.74/+0.73 m, 6a46 +0.14/+0.09/+0.15,
+ * 991e +0.13/+0.18/+0.10 on every distance it is part of (its own chirp's arrival is off). So:
+ *  1. [bias]: with the phones on the taped layout, each round gives every phone's error (chirp − tape = b_i + b_j).
+ *  2. [place]: later rounds subtract the errors, rebuild the triangle from its three sides, and turn (or mirror) it onto
+ *     the previous positions, because distances say nothing about which way the triangle faces. The orientation (and
+ *     with it the arrows) stays right as long as the phones do not ALL move a lot between two rounds.
+ * Three phones only (the solver for more is not built): the others keep their previous positions.
+ */
+object AutoLocate {
+    /** Two calibration rounds must agree this well per phone. */
+    const val BIAS_AGREE_M = 0.10
+    /** Positions move only when some phone moved more than this (chirp rounds repeat within ±5 cm). */
+    const val MOVE_M = 0.08
+
+    /**
+     * Every phone's range error (metres) from one round on a known layout: chirp − tape = b_i + b_j for each pair.
+     * Least squares (exact for three phones). Null when the pairs do not connect every phone.
+     */
+    fun bias(chirp: Map<Pair<String, String>, Double>, tape: Map<Pair<String, String>, Double>): Map<String, Double>? {
+        val pairs = chirp.keys.filter { tape.containsKey(it) }
+        val names = pairs.flatMap { listOf(it.first, it.second) }.distinct().sorted()
+        if (names.size < 3 || pairs.size < names.size) return null
+        // Normal equations for e_p = b_i + b_j: (AᵀA) b = Aᵀe, solved by Gauss–Jordan (n is 3 or 4).
+        val n = names.size
+        val m = Array(n) { DoubleArray(n + 1) }
+        for (p in pairs) {
+            val e = chirp.getValue(p) - tape.getValue(p)
+            val i = names.indexOf(p.first); val j = names.indexOf(p.second)
+            for ((r, other) in listOf(i to j, j to i)) { m[r][r] += 1.0; m[r][other] += 1.0; m[r][n] += e }
+        }
+        for (c in 0 until n) {
+            val piv = (c until n).maxBy { abs(m[it][c]) }
+            if (abs(m[piv][c]) < 1e-9) return null
+            val t = m[c]; m[c] = m[piv]; m[piv] = t
+            for (r in 0 until n) if (r != c) { val f = m[r][c] / m[c][c]; for (k in c..n) m[r][k] -= f * m[c][k] }
+        }
+        return names.withIndex().associate { (i, name) -> name to m[i][n] / m[i][i] }
+    }
+
+    /**
+     * New positions of three phones from their corrected pair distances, turned onto [prev] (same names). Null when a
+     * distance is missing or the three sides cannot form a triangle.
+     */
+    fun place(dist: Map<Pair<String, String>, Double>, prev: Map<String, Pair<Double, Double>>): Map<String, Pair<Double, Double>>? {
+        val names = prev.keys.sorted()
+        if (names.size != 3) return null
+        fun d(a: String, b: String) = dist[a to b] ?: dist[b to a]
+        val (p, q, r) = names
+        val dpq = d(p, q) ?: return null; val dpr = d(p, r) ?: return null; val dqr = d(q, r) ?: return null
+        if (dpq <= 0 || dpr <= 0 || dqr <= 0) return null
+        if (dpq + dpr < dqr || dpq + dqr < dpr || dpr + dqr < dpq) return null
+        // p at the origin, q on +x, r above or below (the two mirror images).
+        val rx = (dpq * dpq + dpr * dpr - dqr * dqr) / (2 * dpq)
+        val ry = sqrt((dpr * dpr - rx * rx).coerceAtLeast(0.0))
+        var best: Map<String, Pair<Double, Double>>? = null; var bestErr = Double.MAX_VALUE
+        for (s in listOf(1.0, -1.0)) {
+            val local = mapOf(p to (0.0 to 0.0), q to (dpq to 0.0), r to (rx to s * ry))
+            val (fit, err) = fitOnto(local, prev)
+            if (err < bestErr) { bestErr = err; best = fit }
+        }
+        return best
+    }
+
+    /** Rotation + translation (no scaling) of [pts] that best matches [target] (2-D Kabsch). Returns the moved points and the RMS misfit. */
+    fun fitOnto(pts: Map<String, Pair<Double, Double>>, target: Map<String, Pair<Double, Double>>): Pair<Map<String, Pair<Double, Double>>, Double> {
+        val ks = pts.keys.filter { target.containsKey(it) }
+        val cx = ks.map { pts.getValue(it).first }.average(); val cy = ks.map { pts.getValue(it).second }.average()
+        val tx = ks.map { target.getValue(it).first }.average(); val ty = ks.map { target.getValue(it).second }.average()
+        var sxx = 0.0; var sxy = 0.0
+        for (k in ks) {
+            val (ax, ay) = pts.getValue(k).let { (it.first - cx) to (it.second - cy) }
+            val (bx, by) = target.getValue(k).let { (it.first - tx) to (it.second - ty) }
+            sxx += ax * bx + ay * by; sxy += ax * by - ay * bx
+        }
+        val th = atan2(sxy, sxx); val c = cos(th); val s = sin(th)
+        val moved = pts.mapValues { (_, v) -> val x = v.first - cx; val y = v.second - cy; (tx + c * x - s * y) to (ty + s * x + c * y) }
+        val err = sqrt(ks.sumOf { val a = moved.getValue(it); val b = target.getValue(it); val e = hypot(a.first - b.first, a.second - b.second); e * e } / ks.size)
+        return moved to err
+    }
+}

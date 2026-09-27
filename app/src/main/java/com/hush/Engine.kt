@@ -1074,6 +1074,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         } catch (e: Exception) { HLog.d("LAYOUT: bad spec '$spec': $e"); return "Bad layout '$spec' (want B=x,y;C=x,y or 991e=x,y)" }
         layoutByName.clear(); layoutByName.putAll(byName)
         savePrefs()
+        rangeBias = null; lastBiasRound = null; autoLocateRounds = 0   // a new tape: calibrate the chirp distances again
         return applyLayout()
     }
 
@@ -1455,7 +1456,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         if (handPositions()) {
             clockRoundsDone++
             val missing = letters.filter { it != "A" && !locator.hasClock(it) }
-            setRangingStatus("Clocks: inaudible chirp round $clockRoundsDone, " + (if (missing.isEmpty()) "all phones timed" else "no clock yet for ${missing.joinToString(" ")}"))
+            setRangingStatus("Clocks: inaudible chirp round $clockRoundsDone, " + (if (missing.isEmpty()) "all phones timed" else "no clock yet for ${missing.joinToString(" ")}") +
+                (if (rangeBias != null) " · positions from the chirps" else if (autoLocateRounds > 0) " · calibrating the chirp distances" else ""))
+            try { autoLocateStep(letters, dist) } catch (e: Exception) { HLog.d("ERROR in auto-locate: $e") }
             if (pendingHushSeconds > 0) { val s = pendingHushSeconds; pendingHushSeconds = 0; broadcastHush(s) }
             return
         }
@@ -2115,6 +2118,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         live.clear()
         boardEvents.clear(); boardEventMs.clear(); boardNames.clear(); boardStatus = ""; boardDiscovered = ""; lastBoardMs = 0L; boardLoggedT.clear()
         boardPos.clear(); boardScale = null; boardRot = null; placedByHand = false; clockRoundsDone = 0; lastSyncRef = null
+        rangeBias = null; lastBiasRound = null; autoLocateRounds = 0
         main.removeCallbacks(clockTimer)
         lastRanking = emptyList()
         lastBrief = ""
@@ -2482,6 +2486,65 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         if (role != ROLE_COMMANDER || !handPositions() || peers.isEmpty() || rangingInProgress || inHush) return
         HLog.d("Clock round ($why, inaudible 19–21.5 kHz)")
         autoPlace()
+    }
+
+    // ---- Auto-locate: phone positions from the chirps every round (AutoLocate.kt) ----
+
+    /** Every phone's fixed chirp-range error (metres, by name suffix), measured on the tape layout; null = not calibrated. */
+    @Volatile var rangeBias: Map<String, Double>? = null
+        private set
+    private var lastBiasRound: Map<String, Double>? = null
+    private var autoLocateRounds = 0
+    /** Pause between auto-locate rounds; a round of three serial chirps itself takes ~7 s. */
+    private const val AUTO_GAP_MS = 2000L
+
+    /**
+     * Commander, after each tape-layout chirp round. Calibrating: the round's chirp distances against the tape give every
+     * phone's error; two rounds agreeing within [AutoLocate.BIAS_AGREE_M] switch auto-locate on. Then every round: the
+     * corrected distances rebuild the triangle (turned onto the previous positions) and, when a phone moved, the
+     * positions replace the layout (in memory; the tape in the preferences stays). The next round starts [AUTO_GAP_MS] later.
+     */
+    private fun autoLocateStep(letters: List<String>, dist: Map<String, Double>) {
+        val three = letters.take(3)
+        if (three.size < 3) return
+        val names = three.associateWith { l -> (phoneName(l) ?: return).takeLast(4).lowercase() }
+        fun key(k: String) = names.getValue(k.substring(0, 1)) to names.getValue(k.substring(1, 2))
+        val chirp = dist.filterKeys { it.length == 2 && it.substring(0, 1) in three && it.substring(1, 2) in three }.mapKeys { key(it.key) }
+        autoLocateRounds++
+        val bias = rangeBias
+        if (bias == null) {
+            val tape = tapeDistances(three).mapKeys { key(it.key) }
+            val b = AutoLocate.bias(chirp, tape)
+            if (b == null) { HLog.d("AUTOLOCATE: calibration round incomplete (pairs ${chirp.keys})"); main.postDelayed({ clockRound("auto-locate calibration") }, AUTO_GAP_MS); return }
+            HLog.d("AUTOLOCATE calibration round: " + b.entries.joinToString(" ") { "%s %+.2f m".format(it.key, it.value) } +
+                " (chirp " + chirp.entries.joinToString(" ") { "%s-%s %.2f".format(it.key.first, it.key.second, it.value) } + ")")
+            val prev = lastBiasRound
+            lastBiasRound = b
+            if (prev != null && b.keys.all { k -> prev[k] != null && kotlin.math.abs(prev.getValue(k) - b.getValue(k)) <= AutoLocate.BIAS_AGREE_M }) {
+                rangeBias = b.keys.associateWith { k -> (prev.getValue(k) + b.getValue(k)) / 2 }
+                HLog.d("AUTOLOCATE on: range errors " + rangeBias!!.entries.joinToString(" ") { "%s %+.2f m".format(it.key, it.value) } + "; positions now follow the chirps")
+                sessionLog.addRecord("autolocate_on", rangeBias!!.mapValues { it.value })
+            }
+        } else {
+            val corrected = chirp.mapValues { (p, d) -> d - (bias[p.first] ?: 0.0) - (bias[p.second] ?: 0.0) }
+            val aName = names.getValue("A")
+            val prev = names.values.associateWith { n -> layoutByName[n] ?: if (n == aName) (0.0 to 0.0) else null }
+            if (prev.values.any { it == null }) { HLog.d("AUTOLOCATE: a phone has no previous position ($prev)"); return }
+            @Suppress("UNCHECKED_CAST") val now = AutoLocate.place(corrected, prev as Map<String, Pair<Double, Double>>)
+            val dText = corrected.entries.joinToString(" ") { "%s-%s %.2f".format(it.key.first, it.key.second, it.value) }
+            if (now == null) { HLog.d("AUTOLOCATE round: corrected $dText m do not form a triangle, positions kept") }
+            else {
+                val moved = now.keys.maxOf { k -> kotlin.math.hypot(now.getValue(k).first - prev.getValue(k).first, now.getValue(k).second - prev.getValue(k).second) }
+                HLog.d("AUTOLOCATE round: corrected $dText m -> " + now.entries.joinToString(" ") { "%s(%.2f,%.2f)".format(it.key, it.value.first, it.value.second) } +
+                    " moved %.2f m%s".format(moved, if (moved > AutoLocate.MOVE_M) ", map updated" else ""))
+                if (moved > AutoLocate.MOVE_M) {
+                    layoutByName.putAll(now)
+                    sessionLog.addRecord("autolocate", now.mapValues { "%.2f,%.2f".format(it.value.first, it.value.second) })
+                    applyLayout()
+                }
+            }
+        }
+        main.postDelayed({ clockRound("auto-locate") }, AUTO_GAP_MS)
     }
 
     /** Pair distances from the tape positions, keyed like the ranging ("AB"). */
