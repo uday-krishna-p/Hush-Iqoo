@@ -39,11 +39,30 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
     private var knockArrowTicks = 0
     protected fun drawKnockArrow(v: ArrowView): Boolean {
         v.twinAngleDeg = null
-        val ka = Engine.knockArrow()
+        // First: the spot the timing locator found (arrival-time differences between phones; clocks from the inaudible
+        // chirps, positions from the TAPE layout: chirp ranging read AB 2.03 / AC 2.02 / BC 1.46 m for a 1.2 m triangle,
+        // 27 Sep 06:49, ef39 about +0.7 m on every pair it is in), seen from THIS phone. The two-mic fusion below it read "beyond my top edge" on almost
+        // every knock whichever way the phone lay (06:43–06:47), and 991e's two-mic delays reached −42 samples where
+        // 17 cm of mic spacing allows ±24: the stereo recording is not in step, so that arrow stays off.
+        val loc = Engine.localSourceArrow()
+        if (loc != null) {
+            v.confidence = if (loc.edge) 0.4f else 0.9f
+            val where = if (loc.edge) "far, direction only" else "%.1f m from this phone ±%.1f m".format(loc.metres, loc.radius)
+            if (loc.screenDeg != null) {
+                if (++knockArrowTicks % 20 == 0) com.hush.HLog.d("ARROW drawn (located): screen %.0f°, %s, %d knocks, heading %.0f°".format(loc.screenDeg, where, loc.knocks, Engine.headingDeg))
+                v.active = true; v.angleDeg = loc.screenDeg
+                v.label = "→ KNOCKING · $where · located by timing across the phones (${loc.knocks} knocks)"
+            } else {
+                v.active = false
+                v.label = "Located: $where. For the arrow: tap SYNC with the phones' tops towards the layout's +y, or point the commander at a sensor and tap Align"
+            }
+            return true
+        }
+        val ka: Pair<com.hush.KnockDirection.Result, Float>? = null   // the two-mic fusion (Engine.knockArrow()) is off, see above
         val sync = if (Engine.compassSynced) "" else " · NOT SYNCED: lay the phones parallel, tap SYNC, then turn them"
         if (ka == null) {
             v.active = false
-            v.label = "Arrow: appears after 2–3 knocks heard by 2+ phones lying still$sync"
+            v.label = "Arrow: needs the tape layout on the commander, a chirp round for the clocks, and 2+ phones hearing the knocks$sync"
             return true
         }
         val (r, screen) = ka
