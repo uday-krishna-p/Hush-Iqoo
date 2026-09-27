@@ -79,6 +79,20 @@ class SoundAlertsTest {
     }
 
     @Test
+    fun speechAtThreeTimesTheRoomCalls() {
+        val d = SoundAlerts().also { it.enabled.add(Category.SPEECH) }   // SPEECH is off by default
+        var t = warm(d)
+        // Too soft (x2): never.
+        repeat(3) { assertNull(d.onSecond(second(t, mapOf("Speech" to 0.9f), loud = 2f))); t += 1000 }
+        // x3 for three seconds in a row: the third one calls.
+        assertNull(d.onSecond(second(t, mapOf("Speech" to 0.9f), loud = 3f))); t += 1000
+        assertNull(d.onSecond(second(t, mapOf("Speech" to 0.9f), loud = 3f))); t += 1000
+        val a = d.onSecond(second(t, mapOf("Speech" to 0.9f), loud = 3f))
+        assertNotNull(a)
+        assertEquals(Category.SPEECH, a!!.category)
+    }
+
+    @Test
     fun knocksNeverFireAnAlert() {
         // No knock classifier in the alerts: loud onsets and knock-like model scores stay silent, even with KNOCK switched on.
         val d = SoundAlerts().also { it.enabled.add(Category.KNOCK) }

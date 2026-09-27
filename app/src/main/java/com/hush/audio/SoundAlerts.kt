@@ -60,7 +60,7 @@ class SoundAlerts {
             0.3f, 3, 2f, 0, longArrayOf(0, 200), defaultOn = false),
         SPEECH("SOMEONE CALLING", 0xFF546E7A.toInt(),
             setOf("Speech", "Child speech, kid speaking", "Conversation", "Narration, monologue"),
-            0.5f, 3, 8f, 0, longArrayOf(0, 300, 200, 300), defaultOn = false),
+            0.5f, 3, 3f, 0, longArrayOf(0, 300, 200, 300), defaultOn = false),   // loud ×3 (was ×8: normal talking measured ×2–3, 27 Sep)
         /** A sound the person taught the phone (SoundLibrary): the word is the name they gave it, the colour the library's. */
         TAUGHT("MY SOUND", 0xFFC2185B.toInt(), emptySet(), 9f, 9, 2f, 5, longArrayOf(0, 150, 100, 500, 100, 150), defaultOn = false),
         /** Not a sound category: the whistle counter's DONE / "check the cooker" use this colour and pattern (no classes, never fires by itself). */
