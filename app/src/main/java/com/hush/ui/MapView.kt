@@ -45,11 +45,16 @@ class MapView(context: Context, attrs: AttributeSet? = null) : View(context, att
 
     var onPlaced: ((String) -> Unit)? = null
 
+    private val dp = resources.displayMetrics.density
+    private val sp = resources.displayMetrics.scaledDensity
+
+    init { clipToOutline = true }   // rounded corners from the background shape
+
     private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(40, 90, 160) }
     private val strongPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(27, 138, 58) }
     private val commanderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(90, 90, 90) }
-    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 40f; textAlign = Paint.Align.CENTER; isFakeBoldText = true }
-    private val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(120, 120, 120); textSize = 34f; textAlign = Paint.Align.CENTER }
+    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 15f * sp; textAlign = Paint.Align.CENTER; isFakeBoldText = true }
+    private val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(91, 103, 118); textSize = 14f * sp; textAlign = Paint.Align.CENTER }
     private val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(200, 200, 200); style = Paint.Style.STROKE; strokeWidth = 4f }
     private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(27, 138, 58); style = Paint.Style.STROKE; strokeWidth = 14f; strokeCap = Paint.Cap.ROUND }
     private val arrowHead = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(27, 138, 58); style = Paint.Style.FILL }
@@ -80,12 +85,10 @@ class MapView(context: Context, attrs: AttributeSet? = null) : View(context, att
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val w = width.toFloat()
-        canvas.drawColor(Color.rgb(245, 245, 245))
-        canvas.drawRect(2f, 2f, w - 2f, w - 2f, framePaint)
         val r = w * 0.045f
 
         placing?.let { canvas.drawText("Tap where Sensor $it sits", w / 2, w * 0.08f, hintPaint) }
-        if (dots.isEmpty() && placing == null) canvas.drawText("Tap a sensor row, then tap its spot here", w / 2, w / 2, hintPaint)
+        if (dots.isEmpty() && placing == null) canvas.drawText("Phones appear here once their positions are measured", w / 2, w / 2, hintPaint)
 
         // Arrow from A: toward the located SOURCE when there is one (red), else toward the strongest sensor (green).
         val from = dots["A"]

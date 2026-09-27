@@ -16,6 +16,9 @@ import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import com.hush.net.Probe
 import com.hush.ui.CommanderScreen
 import com.hush.ui.SensorScreen
@@ -64,6 +67,7 @@ class MainActivity : AppCompatActivity() {
         HLog.init(applicationContext)
         HLog.d("MainActivity created on ${Build.MANUFACTURER} ${Build.MODEL}, Android API ${Build.VERSION.SDK_INT}")
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        fitInsideSystemBars()
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -151,12 +155,26 @@ class MainActivity : AppCompatActivity() {
 
     private fun showRolePicker() {
         setContentView(R.layout.activity_main)
-        findViewById<Button>(R.id.btnCommander).setOnClickListener { pickRole(Engine.ROLE_COMMANDER) }
-        findViewById<Button>(R.id.btnSensor).setOnClickListener { pickRole(Engine.ROLE_SENSOR) }
+        findViewById<android.view.View>(R.id.btnCommander).setOnClickListener { pickRole(Engine.ROLE_COMMANDER) }
+        findViewById<android.view.View>(R.id.btnSensor).setOnClickListener { pickRole(Engine.ROLE_SENSOR) }
         findViewById<Button>(R.id.btnAlerts).setOnClickListener { pickRole(Engine.ROLE_ALERT) }
         findViewById<Button>(R.id.btnHome).setOnClickListener { pickRole(Engine.ROLE_HOME) }
         findViewById<Button>(R.id.btnBackground).setOnClickListener { askBackgroundAllowance(force = true) }
         findViewById<TextView>(R.id.status).text = getString(R.string.pick_role)
+    }
+
+    /**
+     * Android 15+ draws apps under the status bar and the navigation bar (edge to edge). Pad the content by
+     * exactly the bars, the camera cut-out and the keyboard so nothing hides behind them, on every screen.
+     */
+    private fun fitInsideSystemBars() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowCompat.getInsetsController(window, window.decorView).apply { isAppearanceLightStatusBars = true; isAppearanceLightNavigationBars = true }
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content)) { v, insets ->
+            val b = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime())
+            v.setPadding(b.left, b.top, b.right, b.bottom)
+            WindowInsetsCompat.CONSUMED
+        }
     }
 
     private fun backgroundAllowed(): Boolean =
@@ -304,7 +322,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             // Every rescue phone shows the same screen (27 Sep, team); on a sensor its data comes from the commander.
             setContentView(R.layout.screen_commander)
-            CommanderScreen(this)
+            CommanderScreen(this, name)
         }
         Engine.listener = screen
     }

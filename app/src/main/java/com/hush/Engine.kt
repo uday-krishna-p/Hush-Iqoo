@@ -2862,7 +2862,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     fun aimArrow(): AimArrow {
         val me = posOf(letter) ?: return AimArrow(null, "Arrow off", "Waiting for the chirps to place the phones (about 30 s after the roles start)")
-        val f = aim.frame() ?: return AimArrow(null, "Arrow off", "One-time setup: aim this phone's top at another phone and tap POINT & TAP below")
+        val f = aim.frame() ?: return AimArrow(null, "Arrow off", "One-time setup: aim the top of this phone at another phone and tap the blue button below")
         val side = if (f.mirrored == null) " · aim at a 2nd phone to confirm left/right" else ""
         // Target: the loudness spot (between the phones, LoudnessLocator), else the closest phone's position.
         val spot = (if (role == ROLE_COMMANDER) wherePoint?.let { it.x to it.y } else boardWhere?.let { it.first to it.second })

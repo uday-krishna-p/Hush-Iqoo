@@ -21,10 +21,15 @@ import com.hush.model.SensorEvent
  * once-a-second Board, the map from its Fix, the arrow from [SensorScreen]'s logic, and the buttons ask the commander.
  * Map editing (Place, Align, Auto-place, Flip) stays on the commander, which owns the map.
  */
-class CommanderScreen(activity: Activity) : SensorScreen(activity,
-    activity.getString(if (Engine.role == Engine.ROLE_COMMANDER) R.string.my_mic_a else R.string.role_sensor)) {
+class CommanderScreen(activity: Activity, role: String) : SensorScreen(activity, activity.getString(R.string.my_mic_a), role) {
 
-    private val isCommander = Engine.role == Engine.ROLE_COMMANDER
+    companion object {
+        /** Whether "Technical details" is unfolded; kept while the app runs so a screen rebuild does not fold it again. */
+        private var detailsOpen = false
+    }
+
+    // The role the phone was started in, not Engine.role: the service sets that a few ms after this screen is built.
+    private val isCommander = role == Engine.ROLE_COMMANDER
     private val screenTitle: TextView = activity.findViewById(R.id.screenTitle)
     private val compassText: TextView = activity.findViewById(R.id.compassText)
     private val compassTick = object : Runnable {
@@ -36,7 +41,15 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity,
     private val briefText: TextView = activity.findViewById(R.id.briefText)
     private val closestText: TextView = activity.findViewById(R.id.closestText)
     private val warmthText: TextView = activity.findViewById(R.id.warmthText)
-    private val btnSensitivity: Button = activity.findViewById(R.id.btnSensitivity)
+    private val btnSensitivity: androidx.appcompat.widget.SwitchCompat = activity.findViewById(R.id.btnSensitivity)
+    private var settingSwitch = false
+    private val connectionText: TextView = activity.findViewById(R.id.connectionText)
+    private val phoneChip: TextView = activity.findViewById(R.id.phoneChip)
+    private val closestCard: View = activity.findViewById(R.id.closestCard)
+    private val closestOverline: TextView = activity.findViewById(R.id.closestOverline)
+    private val closestTitle: TextView = activity.findViewById(R.id.closestTitle)
+    private val detailsToggle: TextView = activity.findViewById(R.id.detailsToggle)
+    private val detailsBody: View = activity.findViewById(R.id.detailsBody)
     private val peersText: TextView = activity.findViewById(R.id.peersText)
     private val commanderStatus: TextView = activity.findViewById(R.id.commanderStatus)
     private val discoveredText: TextView = activity.findViewById(R.id.discoveredText)
@@ -205,7 +218,9 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity,
             android.widget.Toast.makeText(activity, msg, android.widget.Toast.LENGTH_LONG).show()
         }
         modeButtons.forEach { (mode, btn) -> btn.setOnClickListener { Engine.chooseMode(mode); renderMode() } }
-        btnSensitivity.setOnClickListener { Engine.setSensitivity(!Engine.sensitiveHigh); renderClosest() }
+        btnSensitivity.setOnCheckedChangeListener { _, on -> if (!settingSwitch && on != Engine.sensitiveHigh) { Engine.setSensitivity(on); renderClosest() } }
+        detailsToggle.setOnClickListener { detailsOpen = !detailsOpen; renderDetails() }
+        renderDetails()
         val sync = activity.findViewById<Button>(R.id.btnSyncCompass)
         sync.setOnClickListener { android.widget.Toast.makeText(activity, Engine.syncCompasses(), android.widget.Toast.LENGTH_LONG).show() }
         // POINT & TAP (Aim.kt): the button names the phone to aim at; tapping records this phone's orientation.
@@ -244,19 +259,40 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity,
         render()
     }
 
+    private fun renderDetails() {
+        detailsBody.visibility = if (detailsOpen) View.VISIBLE else View.GONE
+        detailsToggle.text = activity.getString(if (detailsOpen) R.string.details_hide else R.string.details_show)
+    }
+
     private fun renderMode() {
         modeButtons.forEach { (mode, btn) -> btn.alpha = if (mode == Engine.mode) 1f else 0.45f }
     }
 
     override fun onLinkStatus(text: String) {
         super.onLinkStatus(text)
-        screenTitle.text = if (isCommander) activity.getString(R.string.role_commander) else activity.getString(R.string.sensor_title, Engine.letter)
+        screenTitle.text = if (isCommander) activity.getString(R.string.role_commander_title) else activity.getString(R.string.sensor_title, Engine.letter)
+        val me = if (isCommander) "A" else Engine.letter
+        phoneChip.text = activity.getString(R.string.phone_chip, if (me == "?") Engine.name.takeLast(4) else "$me · ${Engine.name.takeLast(4)}")
+        renderConnection(text)
         commanderStatus.text = (if (isCommander) listOf(text, Engine.probeStatus, Engine.rangingStatus, if (Engine.radioStatus.isEmpty()) "" else "Radio: ${Engine.radioStatus}")
                                 else listOf(text, Engine.probeStatus, Engine.boardStatus)).filter { it.isNotEmpty() }.joinToString("\n")
         // Ranging may have replaced the dots, and the locator may have moved the source.
         map.dots.clear(); map.dots.putAll(Engine.screenDots())
         renderSource()
         map.invalidate()
+    }
+
+    /** The one plain line under the title: how many sensors (commander) or whether the commander is reached (sensor). */
+    private fun renderConnection(link: String = "") {
+        val ok: Boolean
+        connectionText.text = if (isCommander) {
+            ok = peers.isNotEmpty()
+            if (ok) activity.getString(R.string.conn_commander, peers.size) else activity.getString(R.string.conn_commander_none)
+        } else {
+            ok = Engine.letter != "?" && !link.startsWith("Searching") && !link.contains("not connected")
+            activity.getString(if (ok) R.string.conn_sensor_ok else R.string.conn_sensor_searching)
+        }
+        connectionText.setTextColor(activity.getColor(if (ok) R.color.good else R.color.warn))
     }
 
     private fun renderSource() {
@@ -305,10 +341,12 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity,
     override fun onDiscovered(phones: List<Engine.Discovered>) {
         val text = if (isCommander) Engine.discoveredText(phones) else Engine.boardDiscovered
         discoveredText.text = text.ifEmpty { activity.getString(R.string.discovered_none) }
+        discoveredText.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
     }
 
     override fun onPeers(peers: List<Engine.Peer>) {
         this.peers = peers
+        if (isCommander) renderConnection()
         map.dots.clear(); map.dots.putAll(Engine.screenDots()); map.invalidate()
         renderPlaceButtons()
         render()
@@ -319,18 +357,19 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity,
         val st = Engine.warmthByLetter[Engine.letter]
         if (st == null) { warmthText.visibility = View.GONE; return }
         warmthText.visibility = View.VISIBLE
-        val (head, hint, bg, fg) = when (st.trend) {
-            com.hush.Warmth.Trend.WARMER -> listOf("▲ WARMER %+.0f dB".format(st.deltaDb), "this phone is getting closer: keep going this way", "#FFE0B2", "#BF360C")
-            com.hush.Warmth.Trend.COLDER -> listOf("▼ COLDER %+.0f dB".format(st.deltaDb), "this phone is moving away: turn back", "#BBDEFB", "#0D47A1")
-            com.hush.Warmth.Trend.SAME -> listOf("= NO CHANGE (%+.0f dB)".format(st.deltaDb), "carry this phone and knock: it says warmer or colder", "#EEEEEE", "#424242")
+        val (title, hint, bg, fg) = when (st.trend) {
+            com.hush.Warmth.Trend.WARMER -> listOf(R.string.warm_title, R.string.warm_hint, R.color.warm_soft, R.color.warm)
+            com.hush.Warmth.Trend.COLDER -> listOf(R.string.cold_title, R.string.cold_hint, R.color.cold_soft, R.color.cold)
+            com.hush.Warmth.Trend.SAME -> listOf(R.string.same_title, R.string.same_hint, R.color.surface_muted, R.color.text)
         }
-        val text = "$head\n$hint\nhears the knock %+.0f dB vs the phones lying still".format(st.relDb)
-        val sb = SpannableStringBuilder(text)
+        val sign = when (st.trend) { com.hush.Warmth.Trend.WARMER -> "▲  "; com.hush.Warmth.Trend.COLDER -> "▼  "; else -> "" }
+        val head = sign + activity.getString(title) + "  %+.0f dB".format(st.deltaDb)
+        val sb = SpannableStringBuilder(head).append("\n").append(activity.getString(hint))
         sb.setSpan(StyleSpan(Typeface.BOLD), 0, head.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        sb.setSpan(RelativeSizeSpan(1.8f), 0, head.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        sb.setSpan(RelativeSizeSpan(1.5f), 0, head.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         warmthText.text = sb
-        warmthText.setBackgroundColor(android.graphics.Color.parseColor(bg))
-        warmthText.setTextColor(android.graphics.Color.parseColor(fg))
+        warmthText.backgroundTintList = android.content.res.ColorStateList.valueOf(activity.getColor(bg))
+        warmthText.setTextColor(activity.getColor(fg))
     }
 
     override fun onClosest(text: String) {
@@ -340,26 +379,47 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity,
         map.invalidate()
     }
 
-    /** The big panel: which phone hears the knocking loudest (Closest.kt). The first line is enlarged. */
+    /**
+     * The headline card: which phone hears the knocking loudest (Closest.kt). Engine's panel text is
+     * "CLOSEST|LEANING[ (voice)]: Sensor B · 6a46", then "loudest on ...", the per-phone tally ("A 1  B 5") and the
+     * optional "Sound ≈ ..." / "Carried: ..." lines. The card shows the phone big and the readable lines under it;
+     * the tally stays in the log.
+     */
     private fun renderClosest() {
         renderWarmth()
-        btnSensitivity.text = if (Engine.sensitiveHigh) "Sensitivity: HIGH (quieter knocks count, warmer/colder at 2 dB) · tap for NORMAL"
-                              else "Sensitivity: NORMAL · tap for HIGH (quieter knocks, warmer/colder at 2 dB)"
+        if (btnSensitivity.isChecked != Engine.sensitiveHigh) { settingSwitch = true; btnSensitivity.isChecked = Engine.sensitiveHigh; settingSwitch = false }
         val text = Engine.closestText
-        if (text.isEmpty()) { closestText.text = activity.getString(R.string.closest_idle); closestText.setTextColor(0xFF1B5E20.toInt()); return }
-        val sb = SpannableStringBuilder(text)
-        val end = text.indexOf('\n').let { if (it < 0) text.length else it }
-        sb.setSpan(StyleSpan(Typeface.BOLD), 0, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        sb.setSpan(RelativeSizeSpan(1.8f), 0, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        closestText.text = sb
-        closestText.setTextColor(if (text.startsWith("CLOSEST")) 0xFF1B5E20.toInt() else 0xFF8D6E00.toInt())
+        val tint: Int
+        if (text.isEmpty()) {
+            closestOverline.text = activity.getString(R.string.closest_overline)
+            closestTitle.text = activity.getString(R.string.closest_idle_title)
+            closestText.text = activity.getString(R.string.closest_idle)
+            tint = R.color.surface_muted
+        } else {
+            val lines = text.split('\n')
+            val head = lines[0]
+            val sure = head.startsWith("CLOSEST")
+            val who = head.substringAfter(": ", head)
+            val phone = who.substringBefore(" · ")
+            val suffix = who.substringAfter(" · ", "")
+            closestOverline.text = activity.getString(if (sure) R.string.closest_overline else R.string.closest_overline_leaning) +
+                if (head.contains("(voice)")) " · by voice" else ""
+            closestTitle.text = if (suffix.isEmpty()) phone else "$phone  ·  $suffix"
+            val tally = Regex("^[A-Z] \\d+(\\s|$)")
+            closestText.text = lines.drop(1).filter { !tally.containsMatchIn(it) }.joinToString("\n") { l ->
+                l.replace(" · red circle on the map", "").replace("≈", "about").replaceFirstChar { it.uppercase() }
+            }
+            tint = if (sure) R.color.good_soft else R.color.warn_soft
+        }
+        closestCard.backgroundTintList = android.content.res.ColorStateList.valueOf(activity.getColor(tint))
+        closestTitle.setTextColor(activity.getColor(when (tint) { R.color.good_soft -> R.color.good; R.color.warn_soft -> R.color.warn; else -> R.color.text }))
     }
 
     override fun onRanking(ranks: List<Engine.Rank>, brief: String) {
         this.ranks = ranks
         map.strongest = ranks.firstOrNull()?.takeIf { it.score > 0f }?.letter
         briefText.text = brief
-        briefText.setTextColor(if (ranks.firstOrNull()?.let { it.evidence >= 0.9f } == true) 0xFF1B8A3A.toInt() else 0xFF333333.toInt())
+        briefText.setTextColor(activity.getColor(if (ranks.firstOrNull()?.let { it.evidence >= 0.9f } == true) R.color.good else R.color.text))
         render()
     }
 

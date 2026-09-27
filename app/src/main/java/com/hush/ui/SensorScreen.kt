@@ -13,7 +13,7 @@ import kotlin.math.log10
  * Draws this phone's own hearing: loudness bar, tap line, top class, raw top-5, link status, countdown.
  * Pure display; the microphone lives in [Engine]. The commander screen reuses it for its own mic block.
  */
-open class SensorScreen(protected val activity: Activity, private val roleName: String) : Engine.Listener {
+open class SensorScreen(protected val activity: Activity, private val roleName: String, protected val role: String? = Engine.role) : Engine.Listener {
 
     private val roleLabel: TextView = activity.findViewById(R.id.roleLabel)
     private val sourceLabel: TextView = activity.findViewById(R.id.sourceLabel)
@@ -29,7 +29,7 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
 
     /** Only on a sensor: the arrow (fused bearing, own two mics, or the commander's fix). The commander draws its own. */
     private val sensorArrow: ArrowView? = activity.findViewById(R.id.sensorArrow)
-        ?: if (Engine.role != Engine.ROLE_COMMANDER) activity.findViewById(R.id.arrow) else null
+        ?: if (role != Engine.ROLE_COMMANDER) activity.findViewById(R.id.arrow) else null
     private var arrowTicks = 0
     /**
      * The one arrow (27 Sep 07:05, KnockDirection.kt): the direction fused from confirmed knocks, through this phone's
@@ -45,18 +45,28 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
         // POINT & TAP (Aim.kt, 27 Sep): this phone's own orientation from pointing at other phones, positions from the
         // chirps, target = the loudness spot or the closest phone. Everything below this block is the older logic, not used.
         val aa = Engine.aimArrow()
-        v.label = aa.label
+        v.label = friendlyArrowLabel(aa.label)
         if (aa.screenDeg != null) { v.active = true; v.angleDeg = aa.screenDeg; v.confidence = if (Engine.aimFrame()?.mirrored == null) 0.6f else 0.95f }
         else v.active = false
         aimHint?.text = aa.hint
         val next = Engine.aimCandidates().firstOrNull()
         btnAim?.let { b ->
             b.isEnabled = next != null
-            b.text = if (next == null) "POINT & TAP: waiting for the chirps to place the phones"
-                     else "POINT & TAP: aim this phone's top at ${if (next == "A") "Commander A" else "Sensor $next"}, then tap"
+            b.text = if (next == null) activity.getString(R.string.aim_waiting)
+                     else activity.getString(R.string.aim_target, if (next == "A") "the commander (A)" else "Sensor $next")
         }
         if (++knockArrowTicks % 20 == 0) com.hush.HLog.d("ARROW: %s | %s%s".format(aa.label, aa.hint, aa.screenDeg?.let { " | screen %.0f° heading %.0f°".format(it, Engine.headingDeg) } ?: ""))
         return true
+    }
+
+    /** Engine's short arrow labels ("→ KNOCK · 1.2 m", "Arrow off", "HERE"…) as plain words for the screen; the log keeps the originals. */
+    private fun friendlyArrowLabel(l: String): String = when {
+        l == "Arrow off" -> "No direction yet"
+        l == "HERE" -> "Right here"
+        l == "THIS phone is closest" -> "This phone is closest"
+        l.startsWith("→ KNOCK · ") -> "Sound · " + l.removePrefix("→ KNOCK · ") + " away"
+        l.startsWith("→ ") -> l.removePrefix("→ ")
+        else -> l
     }
 
     @Suppress("unused")
