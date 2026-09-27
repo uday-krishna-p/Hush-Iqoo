@@ -234,6 +234,25 @@ resolved conf 0.8 from A,B,C over 6 knocks`, per phone `ARROW drawn: screen .. =
 `knockdir`. `KnockDirectionTest` (5) passes. The delay-to-angle curve is still the cosine law (rotation test never
 done): expect +-30 deg until measured.
 
+**Correction:** the clock times in the entries above from "Where between the phones" on (06:40, 06:55, 07:10) were
+estimated, not read: the phones' clocks put the arrow test at 06:43-06:47 and the chirp test at 06:49.
+
+**Why the fused arrow failed, and what the chirps showed, 27 Sep 06:43-06:52 (phones' clocks):** SYNC worked (A 136,
+B 137, C 139 deg). But almost every knock gave each phone an end-on two-mic delay (about -24 samples, "beyond my top
+edge") whichever way it lay: B at 266 deg and C at 347 deg both read -24 for the same knocks, and 991e reached -42
+samples where 17 cm of mic spacing allows +-24, so the stereo channels are not in step (capture processing?). The fusion
+therefore jumped between the phones' own top directions (138 / 266 / 347 deg). The two-mic arrow is off
+(`SensorScreen.drawKnockArrow`, code kept, tag `v-before-chirps`). Chirp test (`--ez range true`, 19-21.5 kHz at alarm
+x0.8): every phone heard every other phone's chirp at 15-155x the threshold (the band carries: no need for a lower
+frequency or more volume); clock offsets repeat round to round (B 29, C 14 samples in a minute: drift); arrival-time
+differences between phones for the same knock repeat (C then B, +0.4..+0.6 ms). But chirp DISTANCES are wrong for the
+team's 1.2 m equilateral triangle: AB 2.03/2.02/2.08, AC 2.02/2.11/2.03, BC 1.46/1.46/1.45 m (repeatable, wrong):
+split per phone, ef39 about +0.7 m and 6a46, 991e about +0.1 m each (a phone's own-chirp arrival is off, as in the
+00:30 notes). So positions come from the TAPE (`--es layout "6a46=0,0;ef39=1.2,0;991e=0.6,-1.04"` on the commander),
+clocks from the chirps (third-party chirps, unaffected), and the arrow now points from each phone to the timing
+locator's spot (`Engine.localSourceArrow`). ef39 held a stale 0.40 m tape layout from 06:17, which is why the locator
+ran during the arrow test with radius ~10 m. Tags: `v-closest-working` (9a12fcc, last confirmed), `v-before-chirps`.
+
 **Timing locator back, inaudible chirps, every phone locates, 27 Sep 04:40 (team: "we are just pointing a compass
 … not using the power of multiple devices to triangulate"; "if the chirps are made, make them at such high frequencies
 that humans cant hear"):** (1) *Top-band test* (`tools/calibration/ultrasweep.py` makes the file,
