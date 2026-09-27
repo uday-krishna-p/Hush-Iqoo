@@ -43,6 +43,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val REQ_PERMS = 1
+        private const val REQ_SMS = 2
         const val EXTRA_ROLE = "role"
         const val EXTRA_PROBE = "probe"
         const val EXTRA_HUSH = "hush"
@@ -161,6 +162,50 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnHome).setOnClickListener { pickRole(Engine.ROLE_HOME) }
         findViewById<Button>(R.id.btnBackground).setOnClickListener { askBackgroundAllowance(force = true) }
         findViewById<TextView>(R.id.status).text = getString(R.string.pick_role)
+        findViewById<Button>(R.id.btnReport).setOnClickListener { confirmReport() }
+        findViewById<TextView>(R.id.sosContact).setOnClickListener { editContact() }
+        showContact()
+    }
+
+    private fun showContact() {
+        val c = Sos.contact(this)
+        findViewById<TextView>(R.id.sosContact)?.text = if (c == null) getString(R.string.sos_contact_none) else getString(R.string.sos_contact_set, c)
+    }
+
+    private fun editContact() {
+        val input = android.widget.EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_PHONE
+            hint = getString(R.string.sos_contact_hint)
+            setText(Sos.contact(this@MainActivity) ?: "")
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle(R.string.sos_contact_title)
+            .setView(input)
+            .setPositiveButton(R.string.save) { _, _ -> Sos.setContact(this, input.text.toString()); showContact() }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    /** A confirmation first: with a SIM in, this texts the real 108. */
+    private fun confirmReport() {
+        HLog.d("REPORT AN EMERGENCY pressed, asking to confirm")
+        android.app.AlertDialog.Builder(this)
+            .setTitle(R.string.report_confirm_title)
+            .setMessage(R.string.report_confirm_text)
+            .setPositiveButton(R.string.report_send) { _, _ ->
+                if (!Sos.canSend(this)) { pendingReport = true; ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.SEND_SMS), REQ_SMS) }
+                else sendReport()
+            }
+            .setNegativeButton(R.string.cancel) { _, _ -> HLog.d("REPORT AN EMERGENCY cancelled") }
+            .show()
+    }
+
+    private var pendingReport = false
+
+    private fun sendReport() {
+        val out = findViewById<TextView>(R.id.sosResult) ?: return
+        out.visibility = android.view.View.VISIBLE
+        Sos.sendReport(this) { s -> if (!isDestroyed) out.text = s }
     }
 
     /**
@@ -255,6 +300,7 @@ class MainActivity : AppCompatActivity() {
         }
         p += Manifest.permission.ACCESS_FINE_LOCATION      // GPS overlay for large sites
         p += Manifest.permission.ACTIVITY_RECOGNITION      // step detector for placement dead reckoning
+        p += Manifest.permission.SEND_SMS                  // SOS: asked at first launch, a woken phone behind the lock screen cannot ask
         if (Build.VERSION.SDK_INT >= 36) p += "android.permission.RANGING"   // Bluetooth Channel Sounding spike
         return p
     }
@@ -287,6 +333,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_SMS && pendingReport) {
+            pendingReport = false
+            HLog.d("SMS permission ${if (Sos.canSend(this)) "granted" else "refused"}, sending the report")
+            sendReport()   // without the permission Sos opens the messages app instead
+            return
+        }
         if (requestCode != REQ_PERMS) return
         val missing = missingPermissions()
         HLog.d("Permissions result, still missing: $missing")

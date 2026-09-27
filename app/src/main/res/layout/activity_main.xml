@@ -122,6 +122,40 @@
                 android:text="@string/role_home" />
         </LinearLayout>
 
+        <!-- SOS: text the ambulance (108) with this phone's location; the contact is also texted by an unanswered rescue alert. -->
+        <Button
+            android:id="@+id/btnReport"
+            style="@style/Widget.Hush.Button.Danger"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:minHeight="64dp"
+            android:text="@string/report_emergency"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/sosContact"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:padding="8dp"
+            android:background="?android:attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:text="@string/sos_contact_none"
+            style="@style/Hush.Caption" />
+
+        <TextView
+            android:id="@+id/sosResult"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/bg_panel"
+            android:padding="14dp"
+            android:visibility="gone"
+            style="@style/Hush.Body" />
+
         <!-- Readiness of the passive wake-up (armed / needs background permission). -->
         <TextView
             android:id="@+id/status"

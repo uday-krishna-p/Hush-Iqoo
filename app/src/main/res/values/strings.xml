@@ -24,6 +24,19 @@
     <string name="beacon_status_perms">Open Hush once to allow the microphone.</string>
     <string name="beacon_commander">Rescuer phone %1$s · signal %2$d dBm</string>
     <string name="beacon_open">OPEN HUSH</string>
+    <string name="beacon_sos_countdown">SOS in %1$d s\nIf you do not press I AM SAFE, Hush texts the ambulance (108) and your emergency contact with your location.</string>
+    <string name="beacon_sos_sending">No answer. Sending SOS…</string>
+    <string name="beacon_sos_result">SOS · no answer\n%1$s</string>
+    <string name="report_emergency">🚨 REPORT AN EMERGENCY</string>
+    <string name="report_confirm_title">Report an emergency?</string>
+    <string name="report_confirm_text">Hush will text the ambulance number (108) that there is an emergency here, with this phone\'s GPS location as a Google Maps link.</string>
+    <string name="report_send">SEND</string>
+    <string name="cancel">Cancel</string>
+    <string name="sos_contact_none">Emergency contact: not set · tap to add</string>
+    <string name="sos_contact_set">Emergency contact: %1$s · tap to change</string>
+    <string name="sos_contact_title">Emergency contact</string>
+    <string name="sos_contact_hint">Phone number (texted when you do not answer a rescue alert)</string>
+    <string name="save">Save</string>
     <string name="beacon_safe">I AM SAFE · STOP</string>
     <string name="perms_denied">Hush needs the microphone and nearby-devices permissions. Tap a role again to allow them.</string>
 

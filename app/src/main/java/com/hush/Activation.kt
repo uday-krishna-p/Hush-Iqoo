@@ -86,5 +86,8 @@ object Activation {
         try { context.applicationContext.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID) } catch (e: Exception) { HLog.d("Activation: cancel failed $e") }
     }
 
+    /** Wall-clock time of the probe that brought up the current alert; the SOS countdown runs from it. */
+    fun lastProbeAt(context: Context): Long = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(KEY_LAST_PROBE, 0L)
+
     fun activatedBy(context: Context): String? = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_ACTIVATED_BY, null)
 }

@@ -179,6 +179,18 @@ and corrected); more than three phones in AutoLocate; re-aiming after all phones
 
 The paragraphs below are the chronological log, newest first.
 
+**SOS by text message, 27 Sep (`Sos.kt`; team: "for now as we dont have a sim its fine to send a failed message"):**
+(1) The red wake-up screen counts down 30 s from the probe; if neither I AM SAFE nor OPEN HUSH is pressed, it texts
+the ambulance number **108** (team's choice: the real number) and the emergency contact with the phone's name and a
+Google Maps link of its location (a fresh GPS/network fix if one comes within 8 s, else the newest last-known fix).
+Once per probe; a recreated screen does not restart it. (2) First screen: red REPORT AN EMERGENCY (confirm dialog) texts
+108 "emergency reported in this area" with the location; the emergency contact is set by tapping the line under it
+(`hush` preferences, `sosContact`). **SMS only, never a call**: Android places emergency calls without a SIM. Each
+message's radio result (SENT / FAILED no service / radio off / …) shows on screen and in a notification; log lines
+`SOS …`. SEND_SMS is asked at first launch (a woken phone behind the lock screen cannot ask); without it the
+messages app opens pre-filled. All three phones: SIM ABSENT, so every message fails on the phone. **With a SIM in,
+these messages really reach 108.**
+
 **Confirmed working, 27 Sep ~09:40 (tag `v-map-2knocks-working`, `4617848`), on top of the UI clean-up below:**
 (1) *Knocks beside a phone count:* "moving" is the MEDIAN high-passed shake of the second > 0.15 m/s² (`AccelChannel`),
 not the RMS; knocks on the table a phone lies on pushed its RMS to 0.65–2.2 and 30–40 % of all knocks (always the ones
@@ -927,6 +939,7 @@ app/src/main/java/com/hush/
   Ranging.kt               // two-way acoustic distance maths, triangle
   Locator.kt               // WHERE the sound is: clock offsets from chirps, mic axes, onset matching, grid fusion
   LoudnessLocator.kt       // WHERE between the phones: per-knock peaks + hand-layout positions, 1/r fit on a grid
+  Sos.kt                   // SOS texts (108 + emergency contact) with a Google Maps link: unanswered wake alert, REPORT AN EMERGENCY
   Closest.kt               // WHICH phone hears each knock loudest (per-knock peaks matched across phones): the demo headline
   Crossing.kt              // where the phones' own-arrow bearing lines cross (least squares, mirror combinations, in-front rule)
   GpsLayout.kt             // positions from every phone's GPS fix (median, east/north of A, accepted only when far enough apart)
