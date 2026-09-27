@@ -205,6 +205,8 @@
     <string name="conn_commander_none">Waiting for sensors to join</string>
     <string name="conn_sensor_ok">Connected to the commander</string>
     <string name="conn_sensor_searching">Looking for the commander…</string>
+    <string name="mic_off_here">Microphone off on this phone. Android has paused Hush\'s listening. Close any other app using the microphone (camera, voice assistant, remote control), then tap here.</string>
+    <string name="mic_off_other">%1$s hears nothing: its microphone is off. Open Hush on that phone.</string>
     <string name="phone_chip">Phone %1$s</string>
     <string name="warm_title">Warmer</string>
     <string name="cold_title">Colder</string>

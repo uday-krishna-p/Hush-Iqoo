@@ -50,6 +50,23 @@ class CommanderScreen(activity: Activity, role: String) : SensorScreen(activity,
     private val closestTitle: TextView = activity.findViewById(R.id.closestTitle)
     private val detailsToggle: TextView = activity.findViewById(R.id.detailsToggle)
     private val detailsBody: View = activity.findViewById(R.id.detailsBody)
+    private val micBanner: TextView = activity.findViewById(R.id.micBanner)
+    private var micBannerKey = ""
+
+    /** Red banner while any phone's microphone is silenced (this one first). Called on every status line and second. */
+    private fun renderMicBanner() {
+        val silent = Engine.silentPhones()
+        val key = silent.joinToString(",")
+        if (key == micBannerKey) return
+        micBannerKey = key
+        if (silent.isEmpty()) { micBanner.visibility = View.GONE; return }
+        micBanner.visibility = View.VISIBLE
+        micBanner.text = silent.joinToString("\n\n") { l ->
+            if (l == Engine.letter && Engine.micSilent) activity.getString(R.string.mic_off_here)
+            else activity.getString(R.string.mic_off_other, if (l == "A") "The commander" else "Sensor $l")
+        }
+        com.hush.HLog.d("MIC BANNER: silent ${key}")
+    }
     private val peersText: TextView = activity.findViewById(R.id.peersText)
     private val commanderStatus: TextView = activity.findViewById(R.id.commanderStatus)
     private val discoveredText: TextView = activity.findViewById(R.id.discoveredText)
@@ -220,6 +237,14 @@ class CommanderScreen(activity: Activity, role: String) : SensorScreen(activity,
         modeButtons.forEach { (mode, btn) -> btn.setOnClickListener { Engine.chooseMode(mode); renderMode() } }
         btnSensitivity.setOnCheckedChangeListener { _, on -> if (!settingSwitch && on != Engine.sensitiveHigh) { Engine.setSensitivity(on); renderClosest() } }
         detailsToggle.setOnClickListener { detailsOpen = !detailsOpen; renderDetails() }
+        // Silenced microphone on THIS phone: ask for the listening service in the foreground again (what reopening Hush does).
+        micBanner.setOnClickListener {
+            if (!Engine.micSilent) return@setOnClickListener
+            try {
+                androidx.core.content.ContextCompat.startForegroundService(activity, android.content.Intent(activity, com.hush.SensorService::class.java).putExtra(com.hush.SensorService.EXTRA_ROLE, role))
+                com.hush.HLog.d("MIC BANNER: tapped, listening service re-asserted in the foreground")
+            } catch (e: Exception) { com.hush.HLog.d("MIC BANNER: could not re-assert the service: $e") }
+        }
         renderDetails()
         val sync = activity.findViewById<Button>(R.id.btnSyncCompass)
         sync.setOnClickListener { android.widget.Toast.makeText(activity, Engine.syncCompasses(), android.widget.Toast.LENGTH_LONG).show() }
@@ -269,6 +294,7 @@ class CommanderScreen(activity: Activity, role: String) : SensorScreen(activity,
         val me = if (isCommander) "A" else Engine.letter
         phoneChip.text = activity.getString(R.string.phone_chip, if (me == "?") Engine.name.takeLast(4) else "$me · ${Engine.name.takeLast(4)}")
         renderConnection(text)
+        renderMicBanner()
         commanderStatus.text = (if (isCommander) listOf(text, Engine.probeStatus, Engine.rangingStatus, if (Engine.radioStatus.isEmpty()) "" else "Radio: ${Engine.radioStatus}")
                                 else listOf(text, Engine.probeStatus, Engine.boardStatus)).filter { it.isNotEmpty() }.joinToString("\n")
         // Ranging may have replaced the dots, and the locator may have moved the source.
@@ -329,6 +355,7 @@ class CommanderScreen(activity: Activity, role: String) : SensorScreen(activity,
     }
 
     override fun onEvent(event: SensorEvent, peerName: String) {
+        renderMicBanner()
         latest[event.sensorId] = event
         render()
     }
@@ -422,6 +449,7 @@ class CommanderScreen(activity: Activity, role: String) : SensorScreen(activity,
     }
 
     override fun onRanking(ranks: List<Engine.Rank>, brief: String) {
+        renderMicBanner()
         this.ranks = ranks
         map.strongest = mapLeader(ranks)
         briefText.text = brief

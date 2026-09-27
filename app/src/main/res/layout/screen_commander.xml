@@ -60,6 +60,22 @@
                 android:textSize="14sp" />
         </LinearLayout>
 
+        <!-- Red banner: a phone's microphone is silenced (Android paused the recording). Hidden while all hear. -->
+        <TextView
+            android:id="@+id/micBanner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/bg_panel"
+            android:backgroundTint="@color/danger"
+            android:clickable="true"
+            android:focusable="true"
+            android:padding="16dp"
+            android:textColor="@color/surface"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
         <!-- Closest phone: the headline result -->
         <LinearLayout
             android:id="@+id/closestCard"
@@ -103,8 +119,8 @@
             android:textSize="16sp"
             android:visibility="gone" />
 
-        <!-- Direction -->
-        <LinearLayout style="@style/Hush.Card">
+        <!-- Direction (arrow + point & tap): removed from the demo screen on 27 Sep (team); code kept, card hidden. -->
+        <LinearLayout style="@style/Hush.Card" android:visibility="gone">
 
             <TextView
                 android:layout_width="wrap_content"

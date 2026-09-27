@@ -1231,7 +1231,26 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 val audio = cap.snapshot(startSample, count)
                 if (audio == null) { HLog.d("Chirp search: audio for $letter not in buffer"); return@Thread }
                 val t0 = SystemClock.elapsedRealtime()
-                val det = com.hush.audio.Chirp.detect(audio, count)
+                var det = com.hush.audio.Chirp.detect(audio, count)
+                // Second microphone (27 Sep, team: "use both microphones"): search mic 1 too. It takes over when mic 0
+                // missed the chirp (a hand, cloth or the table in the way) or when its arrival is more than 30 samples
+                // EARLIER than mic 0's (the mics are 17 cm = 24 samples apart, so mic 0 then locked onto an echo;
+                // echoes only come later). Otherwise mic 0 stays: the per-phone range errors were measured on it.
+                if (cap.stereo) cap.snapshot(startSample, count, 1)?.let { m1 ->
+                    val d1 = com.hush.audio.Chirp.detect(m1, count)
+                    val ok0 = det.offset >= 0 && det.ratio >= 5f
+                    val ok1 = d1.offset >= 0 && d1.ratio >= 5f
+                    val why = when {
+                        ok1 && !ok0 -> "mic 0 missed it (ratio %.1f)".format(det.ratio)
+                        // An echo trails by 1-30 ms; seconds apart means one mic caught another phone's chirp (09:29: 2-2.6 s): keep mic 0.
+                        ok1 && ok0 && d1.offset < det.offset - 30 && det.offset - d1.offset <= 1440 -> "mic 0 was %d samples later (an echo)".format(det.offset - d1.offset)
+                        else -> null
+                    }
+                    if (why != null) {
+                        HLog.d("Chirp from $letter: using mic 1 (offset ${d1.offset}, ratio %.1f): $why".format(d1.ratio))
+                        det = d1
+                    }
+                }
                 val at = startSample + det.offset
                 if (det.offset >= 0 && det.ratio >= 5f) lastChirpDetectedSample = at
                 HLog.d("Chirp from $letter heard by ${this.letter}: offset=${det.offset} sample=$at peak=%.2f ratio=%.1f firstArrivalShift=%d (%d ms)".format(det.peak, det.ratio, det.firstArrivalShift, SystemClock.elapsedRealtime() - t0))
@@ -2281,6 +2300,21 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     /** Consecutive seconds in which the microphone delivered exact digital zeros (Android silenced it). */
     private var silentSeconds = 0
+    /** True while this phone's microphone delivers pure zeros (Android paused our recording). Shown as a red banner. */
+    @Volatile var micSilent = false
+        private set
+
+    /**
+     * Phones whose microphone is silenced right now: this one, plus any whose latest second (from the commander's
+     * board, or received directly on the commander) was exactly zero. 27 Sep 09:09-09:22: ef39 was silent for 14 min,
+     * every chirp round failed, and the warning sat in a folded status line.
+     */
+    fun silentPhones(): List<String> {
+        val now = SystemClock.elapsedRealtime()
+        val out = boardEvents.filter { (l, e) -> l != letter && e.rms <= 0f && (role != ROLE_COMMANDER || now - (boardEventMs[l] ?: 0L) <= 5000L) }.keys.toMutableList()
+        if (micSilent) out.add(0, letter)
+        return out
+    }
 
     override fun onWindow(pcm48k: ShortArray, n48: Int, startSample: Long, pcm16k: FloatArray, n16: Int, rms: Float) {
         val now = SystemClock.elapsedRealtime()
@@ -2292,12 +2326,13 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         for (i in 0 until n48) if (pcm48k[i].toInt() != 0) { nonZero = true; break }
         if (!nonZero) {
             silentSeconds++
+            if (silentSeconds == 3) { micSilent = true; main.post { listener?.onLinkStatus(lastStatus) } }
             if (silentSeconds == 3 || silentSeconds % 60 == 0) {
                 HLog.d("ERROR: microphone delivers digital silence for $silentSeconds s: Android has silenced Hush (was the screen off when the role started?). Open Hush on this phone.")
                 main.post { listener?.onLinkStatus("MICROPHONE SILENCED by Android: open Hush on this phone") }
             }
         } else {
-            if (silentSeconds >= 3) HLog.d("Microphone back after $silentSeconds s of digital silence")
+            if (silentSeconds >= 3) { HLog.d("Microphone back after $silentSeconds s of digital silence"); micSilent = false; main.post { listener?.onLinkStatus(lastStatus) } }
             silentSeconds = 0
         }
         val tap = tapDetector.analyse(pcm48k, n48, now - 1000)

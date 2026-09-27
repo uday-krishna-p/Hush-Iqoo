@@ -29,7 +29,7 @@ object Chirp {
     /** Centre of the sweep: the carrier of the matched-filter output. */
     const val F_CENTRE = (F_START + F_END) / 2
     const val SPEED_OF_SOUND = 343f          // m/s at ~20 °C
-    const val VOLUME_FRACTION = 0.8f         // of max alarm volume. Inaudible now, so loud; was 0.4 while it was an audible 2–6 kHz sweep
+    const val VOLUME_FRACTION = 1.0f         // of max alarm volume (team, 27 Sep 09:25: max, for a noisy hall; was 0.8, and 0.4 while it was an audible 2–6 kHz sweep)
 
     val template: FloatArray by lazy {
         val n = SAMPLE_RATE * DURATION_MS / 1000
