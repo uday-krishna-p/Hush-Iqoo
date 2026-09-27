@@ -187,6 +187,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         /** ALERT role, captions on: a piece of recognised speech ([final] false = still being recognised). */
         fun onCaption(text: String, final: Boolean) {}
         fun onCaptionStatus(status: String) {}
+        /** Every phone: the closest-phone panel changed (commander computes it, sensors get it in the Board). */
+        fun onClosest(text: String) {}
     }
 
     // ---- Probe / discovered phones (PRD 2.1) ----
@@ -2085,7 +2087,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         link?.stop(); link = null
         ble?.stop(); ble = null
         radioDistance.clear(); peerBleAddress.clear(); radioStatus = ""
-        locator.reset(); peerHeading.clear(); doaAll.clear()
+        locator.reset(); peerHeading.clear(); doaAll.clear(); closest.reset(); closestText = ""
         com.hush.audio.KnockBearing.reset(); ownArrowUntilMs = 0L
         soundAlerts.reset(); homeAlerts.reset(); whistles.reset(); classifierRun = 0; classifierSkipped = 0
         walk.reset(); walkState = walk.state; com.hush.audio.KnockBearing.rescueTuning()
@@ -2367,7 +2369,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                     runLocatorHere()
                 }
                 ROLE_COMMANDER -> {
-                    onsetReport?.let { locator.addReport(it); if (peers.isNotEmpty() && it.onsets.isNotEmpty()) link?.sendDown(it.toJson()) }; recordEvent(event); boardEvents["A"] = event; boardEventMs["A"] = now
+                    onsetReport?.let { locator.addReport(it); feedClosest(it, remote = false); if (peers.isNotEmpty() && it.onsets.isNotEmpty()) link?.sendDown(it.toJson()) }; recordEvent(event); boardEvents["A"] = event; boardEventMs["A"] = now
+                    closestTick()
                     listener?.onEvent(event, localName); sendBoardDown()
                 }
                 ROLE_ALERT -> try { alertSecond(w, selfNoise, now) } catch (e: Exception) { HLog.d("ERROR in household alerts: $e") }
@@ -2439,7 +2442,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             // (In the HOME role's HUM mode sharp onsets are not the noise being looked for, so they do not vote.)
             val used = if (role == ROLE_HOME && findMode == FindMode.HUM) false else com.hush.audio.KnockBearing.add(delay, q, o.ratio, rhythmNow, felt, headingDeg, ms)
             if (used && o.ratio >= LOUD_KNOCK_RATIO) synchronized(loudOnsetMs) { loudOnsetMs.addLast(ms) }
-            out.add(com.hush.model.Onset(abs, o.peak, o.ratio, delay, q, felt))
+            out.add(com.hush.model.Onset(abs, o.peak, o.ratio, delay, q, felt, SystemClock.elapsedRealtime() - ms))
             HLog.d("Onset @%d (+%d ms) peak=%.3f x%.0f rise=%d dl=%s q=%s%s heading=%.0f%s".format(abs, o.sampleInWindow / 48, o.peak, o.ratio, o.riseSamples,
                 delay?.let { "%.2f".format(it) } ?: "-", q?.let { "%.2f".format(it) } ?: "-", if (felt) " felt" else "", headingDeg, if (used) " arrow" else ""))
         }
@@ -2557,6 +2560,57 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         private set
     @Volatile var boardDiscovered: String = ""
         private set
+    // ---- Which phone is closest to the knocking (27 Sep 05:30, after the RCA) ----
+    // The phone that hears a knock loudest is the nearest one. No compass, no clocks, no mirror. See Closest.kt.
+
+    private val closest = Closest()
+    /** What the big panel shows on every phone; "" while nothing is judged. */
+    @Volatile var closestText = ""
+        private set
+    /** A remote report reaches the commander about this long after it was built (measured 0.04–0.15 s). */
+    private const val RELAY_MS = 80L
+
+    /** Commander: every knock of a report on the commander's clock. [remote] = arrived over the mesh. */
+    private fun feedClosest(r: com.hush.model.OnsetReport, remote: Boolean) {
+        if (r.moving) return   // a phone being handled rattles: its levels mean nothing
+        val now = SystemClock.elapsedRealtime()
+        for (o in r.onsets) {
+            val age = o.ageMs ?: continue   // older build on that phone
+            closest.add(r.letter, now - age - (if (remote) RELAY_MS else 0L), o.peak, o.ratio)
+        }
+        closestTick()
+    }
+
+    /** Commander, once a second and on every report: judge the knocks whose reports are all in, update the panel. */
+    private fun closestTick() {
+        if (role != ROLE_COMMANDER) return
+        val now = SystemClock.elapsedRealtime()
+        for (k in closest.tick(now)) {
+            val levels = k.peaks.entries.sortedByDescending { it.value }.joinToString(" ") { (l, p) -> "%s=%.4f".format(l, p) }
+            HLog.d("CLOSEST knock: %s -> %s%s%s".format(levels, k.winner, k.leadDb?.let { " +%.1f dB over %s".format(it, k.runnerUp) } ?: " (only phone that heard it)",
+                if (k.decisive) "" else " (tie, not counted)"))
+            sessionLog.addRecord("closest_knock", mapOf("peaks" to k.peaks.toString(), "winner" to k.winner, "lead_db" to k.leadDb, "counted" to k.decisive))
+        }
+        val s = closest.summary(now)
+        val text = if (s == null) "" else buildString {
+            val sure = s.wins * 10 >= s.knocks * 6
+            append(if (sure) "CLOSEST: " else "LEANING: ").append(if (s.leader == "A") "Commander A" else "Sensor ${s.leader}")
+            phoneName(s.leader)?.let { append(" · ").append(it.takeLast(4)) }
+            append("\nloudest on ${s.wins} of ${s.knocks} clear knocks")
+            if (s.leadDb != null && s.runnerUp != null) append(" · %.0f dB louder than %s".format(s.leadDb, s.runnerUp))
+            append("\n").append(s.winsBy.entries.joinToString("  ") { "${it.key} ${it.value}" })
+            if (s.lastWinner != s.leader) append("  · last knock: ${s.lastWinner}")
+        }
+        if (text != closestText) {
+            closestText = text
+            HLog.d("CLOSEST panel: ${text.replace('\n', '|').ifEmpty { "(none)" }}")
+            listener?.onClosest(text)
+            sendBoardDown(force = true)
+        }
+    }
+
+    private fun phoneName(l: String): String? = if (l == "A") localName else peers.values.firstOrNull { it.letter == l }?.name
+
     private var lastBoardMs = 0L
     private val boardLoggedT = HashMap<String, Long>()
 
@@ -2605,7 +2659,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val board = com.hush.model.Board(lastBrief, mode.name, lastRanking.map { com.hush.model.Board.Rank(it.letter, it.score, it.evidence, it.source) },
             names, fresh, status, discoveredText(discoveredPhones()),
             LinkedHashMap<String, Pair<Double, Double>>().apply { for (k in mapDots.keys) posMetres(k)?.let { put(k, it) } },
-            mapMetresPerUnit, mapRotationDeg)
+            mapMetresPerUnit, mapRotationDeg, closestText)
         l.sendDown(board.toJson())
     }
 
@@ -2626,6 +2680,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         lastRanking = b.ranks.map { Rank(it.letter, it.score, it.evidence, null, 0, false, 0, it.source) }
         if (b.brief != lastBrief && b.brief.isNotEmpty()) HLog.d("BOARD brief: ${b.brief}")
         lastBrief = b.brief
+        if (b.closest != closestText) { closestText = b.closest; HLog.d("BOARD closest: ${b.closest.replace('\n', '|').ifEmpty { "(none)" }}"); listener?.onClosest(b.closest) }
         val l = listener ?: return
         if (peersChanged) l.onPeers(boardPeers())
         b.events.forEach { l.onEvent(it, b.names[it.sensorId] ?: "") }
@@ -2848,7 +2903,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                     return
                 }
                 if (peers.values.none { it.letter == msg.letter }) { HLog.d("Onsets from unassigned sensor '${msg.letter}' ignored"); return }
-                peerHeading[msg.letter] = msg.heading; locator.addReport(msg)
+                peerHeading[msg.letter] = msg.heading; locator.addReport(msg); feedClosest(msg, remote = true)
                 if (msg.onsets.isNotEmpty()) link?.sendDown(text)
             }
             is com.hush.model.ClockRound -> if (role == ROLE_SENSOR) { link?.sendDown(text); onClockRound(msg) }

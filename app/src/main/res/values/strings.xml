@@ -173,4 +173,5 @@
     <string name="sync_compass">SYNC COMPASS (all phones lying parallel)</string>
     <string name="sensor_title">SENSOR %1$s</string>
     <string name="map_edit_on_commander">The map is edited on the commander (A).</string>
+    <string name="closest_idle">CLOSEST PHONE\nKnock near the phones: the one that hears it loudest shows here. Spread the phones 1.5 m or more apart, on cloth.</string>
 </resources>

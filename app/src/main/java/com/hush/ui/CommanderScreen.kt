@@ -34,6 +34,7 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity,
     private val btnHush: Button = activity.findViewById(R.id.btnHush)
     private val bigCountdown: TextView = activity.findViewById(R.id.bigCountdown)
     private val briefText: TextView = activity.findViewById(R.id.briefText)
+    private val closestText: TextView = activity.findViewById(R.id.closestText)
     private val peersText: TextView = activity.findViewById(R.id.peersText)
     private val commanderStatus: TextView = activity.findViewById(R.id.commanderStatus)
     private val discoveredText: TextView = activity.findViewById(R.id.discoveredText)
@@ -229,6 +230,7 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity,
         }
         renderPlaceButtons()
         renderMode()
+        renderClosest()
         render()
     }
 
@@ -298,6 +300,20 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity,
         map.dots.clear(); map.dots.putAll(Engine.screenDots()); map.invalidate()
         renderPlaceButtons()
         render()
+    }
+
+    override fun onClosest(text: String) = renderClosest()
+
+    /** The big panel: which phone hears the knocking loudest (Closest.kt). The first line is enlarged. */
+    private fun renderClosest() {
+        val text = Engine.closestText
+        if (text.isEmpty()) { closestText.text = activity.getString(R.string.closest_idle); closestText.setTextColor(0xFF1B5E20.toInt()); return }
+        val sb = SpannableStringBuilder(text)
+        val end = text.indexOf('\n').let { if (it < 0) text.length else it }
+        sb.setSpan(StyleSpan(Typeface.BOLD), 0, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        sb.setSpan(RelativeSizeSpan(1.8f), 0, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        closestText.text = sb
+        closestText.setTextColor(if (text.startsWith("CLOSEST")) 0xFF1B5E20.toInt() else 0xFF8D6E00.toInt())
     }
 
     override fun onRanking(ranks: List<Engine.Rank>, brief: String) {
