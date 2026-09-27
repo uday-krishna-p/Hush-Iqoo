@@ -13,7 +13,7 @@ import kotlin.math.log10
  * Draws this phone's own hearing: loudness bar, tap line, top class, raw top-5, link status, countdown.
  * Pure display; the microphone lives in [Engine]. The commander screen reuses it for its own mic block.
  */
-open class SensorScreen(protected val activity: Activity, private val roleName: String) : Engine.Listener {
+open class SensorScreen(protected val activity: Activity, private val roleName: String, protected val role: String? = Engine.role) : Engine.Listener {
 
     private val roleLabel: TextView = activity.findViewById(R.id.roleLabel)
     private val sourceLabel: TextView = activity.findViewById(R.id.sourceLabel)
@@ -27,24 +27,153 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
     private val topClass: TextView = activity.findViewById(R.id.topClass)
     private val top5: TextView = activity.findViewById(R.id.top5)
 
-    /** Only on the sensor screen: an arrow at the source the commander located (Engine.sensorArrow). */
+    /** Only on a sensor: the arrow (fused bearing, own two mics, or the commander's fix). The commander draws its own. */
     private val sensorArrow: ArrowView? = activity.findViewById(R.id.sensorArrow)
+        ?: if (role != Engine.ROLE_COMMANDER) activity.findViewById(R.id.arrow) else null
     private var arrowTicks = 0
+    /**
+     * The one arrow (27 Sep 07:05, KnockDirection.kt): the direction fused from confirmed knocks, through this phone's
+     * synced heading, the same on every phone. It replaces the older sources (own arrow, shared bearing, crossing,
+     * locator), which pointed at room noises and parallel-phone mirrors. Always returns true: nothing else draws.
+     */
+    private var knockArrowTicks = 0
+    private val aimHint: TextView? = activity.findViewById(R.id.aimHint)
+    private val aimRow: android.widget.LinearLayout? = activity.findViewById(R.id.aimRow)
+    private val aimInstruction: TextView? = activity.findViewById(R.id.aimInstruction)
+    private val btnAimClear: android.widget.Button? = activity.findViewById(R.id.btnAimClear)
+    private var aimRowKey: String? = null
+
+    /**
+     * One "Point at X" button per other placed phone (✓ once set; tapping again redoes it), and "Clear pointing".
+     * Rebuilt only when the phones or the set ones change (this runs 20 times a second).
+     */
+    private fun renderAimButtons() {
+        val row = aimRow ?: return
+        val others = Engine.aimCandidates().sorted()
+        val done = Engine.aimedTargets()
+        val key = others.joinToString(",") + "|" + done.joinToString(",")
+        if (key == aimRowKey) return
+        aimRowKey = key
+        row.removeAllViews()
+        aimInstruction?.text = activity.getString(if (others.isEmpty()) R.string.aim_waiting else R.string.aim_instruction)
+        btnAimClear?.visibility = if (done.isEmpty()) View.GONE else View.VISIBLE
+        for ((i, l) in others.withIndex()) {
+            val name = if (l == "A") "Commander" else "Sensor $l"
+            val set = l in done
+            val b = android.widget.Button(activity, null, 0, if (set) R.style.Widget_Hush_Button else R.style.Widget_Hush_Button_Primary)
+            b.text = activity.getString(if (set) R.string.aim_button_done else R.string.aim_button, name)
+            b.layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                .apply { if (i > 0) marginStart = (8 * activity.resources.displayMetrics.density).toInt() }
+            b.setOnClickListener {
+                android.widget.Toast.makeText(activity, Engine.aimTap(l), android.widget.Toast.LENGTH_LONG).show()
+                aimRowKey = null
+            }
+            row.addView(b)
+        }
+    }
+
+    protected fun drawKnockArrow(v: ArrowView): Boolean {
+        v.twinAngleDeg = null
+        // POINT & TAP (Aim.kt, 27 Sep): this phone's own orientation from pointing at other phones, positions from the
+        // chirps, target = the loudness spot or the closest phone. Everything below this block is the older logic, not used.
+        val aa = Engine.aimArrow()
+        v.label = friendlyArrowLabel(aa.label)
+        if (aa.screenDeg != null) { v.active = true; v.angleDeg = aa.screenDeg; v.confidence = if (Engine.aimFrame()?.mirrored == null) 0.6f else 0.95f }
+        else v.active = false
+        // Before the first pointing the instruction above the buttons says it all; the log keeps Engine's hint.
+        aimHint?.text = if (aa.hint.startsWith("One-time setup")) "" else aa.hint
+        aimHint?.visibility = if (aimHint?.text.isNullOrEmpty()) View.GONE else View.VISIBLE
+        renderAimButtons()
+        if (++knockArrowTicks % 20 == 0) com.hush.HLog.d("ARROW: %s | %s%s".format(aa.label, aa.hint, aa.screenDeg?.let { " | screen %.0f° heading %.0f°".format(it, Engine.headingDeg) } ?: ""))
+        return true
+    }
+
+    /** Engine's short arrow labels ("→ KNOCK · 1.2 m", "Arrow off", "HERE"…) as plain words for the screen; the log keeps the originals. */
+    private fun friendlyArrowLabel(l: String): String = when {
+        l == "Arrow off" -> "No direction yet"
+        l == "HERE" -> "Right here"
+        l == "THIS phone is closest" -> "This phone is closest"
+        l.startsWith("→ KNOCK · ") -> "Sound · " + l.removePrefix("→ KNOCK · ") + " away"
+        l.startsWith("→ ") -> l.removePrefix("→ ")
+        else -> l
+    }
+
+    @Suppress("unused")
+    private fun drawOlderArrow(v: ArrowView): Boolean {
+        v.twinAngleDeg = null
+        // First: the spot the timing locator found (arrival-time differences between phones; clocks from the inaudible
+        // chirps, positions from the TAPE layout: chirp ranging read AB 2.03 / AC 2.02 / BC 1.46 m for a 1.2 m triangle,
+        // 27 Sep 06:49, ef39 about +0.7 m on every pair it is in), seen from THIS phone. The two-mic fusion below it read "beyond my top edge" on almost
+        // every knock whichever way the phone lay (06:43–06:47), and 991e's two-mic delays reached −42 samples where
+        // 17 cm of mic spacing allows ±24: the stereo recording is not in step, so that arrow stays off.
+        val loc = Engine.localSourceArrow()
+        if (loc != null) {
+            v.confidence = if (loc.edge) 0.4f else 0.9f
+            val where = if (loc.edge) "far, direction only" else "%.1f m from this phone ±%.1f m".format(loc.metres, loc.radius)
+            if (loc.screenDeg != null) {
+                if (++knockArrowTicks % 20 == 0) com.hush.HLog.d("ARROW drawn (located): screen %.0f°, %s, %d knocks, heading %.0f°".format(loc.screenDeg, where, loc.knocks, Engine.headingDeg))
+                v.active = true; v.angleDeg = loc.screenDeg
+                v.label = "→ KNOCKING · $where · located by timing across the phones (${loc.knocks} knocks)"
+            } else {
+                v.active = false
+                v.label = "Located: $where. For the arrow: tap SYNC with the phones' tops towards the layout's +y, or point the commander at a sensor and tap Align"
+            }
+            return true
+        }
+        val ka: Pair<com.hush.KnockDirection.Result, Float>? = null   // the two-mic fusion (Engine.knockArrow()) is off, see above
+        val sync = if (Engine.compassSynced) "" else " · NOT SYNCED: lay the phones parallel, tap SYNC, then turn them"
+        if (ka == null) {
+            v.active = false
+            v.label = "Arrow: needs the tape layout on the commander, a chirp round for the clocks, and 2+ phones hearing the knocks$sync"
+            return true
+        }
+        val (r, screen) = ka
+        if (++knockArrowTicks % 20 == 0) com.hush.HLog.d("ARROW drawn: screen %.0f° = bearing %.0f° − heading %.0f°%s, conf %.2f from %s%s".format(
+            screen, r.bearingDeg, Engine.headingDeg, if (r.resolved) "" else " (unresolved)", r.confidence, r.phones.joinToString(","), if (Engine.compassSynced) "" else " NOT SYNCED"))
+        v.active = true
+        v.angleDeg = screen
+        v.confidence = r.confidence
+        v.label = (if (r.resolved) "→ KNOCKING · from %s · confidence %d%%".format(r.phones.joinToString(","), (r.confidence * 100).toInt())
+                   else "→ KNOCKING? left/right unsure (%d%%) · lay the phones at clearly different angles".format((r.confidence * 100).toInt())) + sync
+        return true
+    }
+
     private val sensorArrowTick = object : Runnable {
         override fun run() {
             val v = sensorArrow ?: return
+            if (drawKnockArrow(v)) { v.postDelayed(this, 50); return }
             val own = Engine.ownArrow()
-            val shared = if (own == null) Engine.sharedArrow() else null
+            val sharedRaw = Engine.sharedArrow()
+            val shared = if (Engine.preferShared(sharedRaw, own)) sharedRaw else null
             val a = Engine.sensorArrow()
-            v.twinAngleDeg = own?.twinDeg ?: shared?.twinDeg
-            if (own != null) {
-                // This phone hears knocking: its own two mics say where. First claim on the arrow, no commander needed.
+            v.twinAngleDeg = null   // one arrow only (team, 27 Sep 03:30); the mirror shows as low confidence instead
+            v.confidence = shared?.confidence ?: own?.confidence ?: 1f
+            val point = a?.takeIf { !it.here && it.near == null && it.screenDeg != null }
+            val loc = Engine.localSourceArrow()
+            if (loc?.screenDeg != null) {
+                // Step 3: this phone's own locator (every phone's knock timings, clocks from the inaudible chirps).
+                v.active = true; v.angleDeg = loc.screenDeg
+                v.label = activity.getString(R.string.arrow_located, loc.metres, loc.radius, loc.knocks)
+            } else if (loc != null && own == null) {
+                v.active = false
+                v.label = activity.getString(R.string.arrow_located_no_north, loc.metres, loc.radius)
+            } else if (own != null && Engine.ownHeardWell(own)) {
+                // This phone hears it: its own mics point from where it lies; the others only settled left/right.
+                v.active = true; v.angleDeg = own.screenDeg
+                v.label = activity.getString(R.string.arrow_heard_here, own.knocks, own.resolvedBy ?: "turning")
+            } else if (point != null) {
+                // The commander has a point (crossing of the phones' bearing lines, or a located source): aim at it.
+                v.active = true; v.angleDeg = point.screenDeg!!
+                v.label = activity.getString(R.string.sensor_arrow, if (point.edge) " · far" else point.metres?.let { " · %.1f m".format(it) } ?: "", point.north.ifEmpty { "?" })
+            } else if (shared != null) {
+                // Only a direction: the one the hearing phones agree on, drawn through this phone's heading.
+                v.active = true; v.angleDeg = shared.screenDeg
+                v.label = activity.getString(if (shared.twinDeg == null) R.string.arrow_shared else R.string.arrow_shared_unresolved, shared.phones, (shared.confidence * 100).toInt()) +
+                    if (shared.others) activity.getString(R.string.arrow_parallel) else ""
+            } else if (own != null) {
+                // No fusion yet (or this phone is the only one hearing it): its own two mics.
                 v.active = true; v.angleDeg = own.screenDeg
                 v.label = ownArrowLabel(activity, own)
-            } else if (shared != null) {
-                // Other phones hear it: their fused bearing, turned to this screen by this phone's compass.
-                v.active = true; v.angleDeg = shared.screenDeg
-                v.label = activity.getString(if (shared.twinDeg == null) R.string.arrow_shared else R.string.arrow_shared_unresolved, shared.phones)
             } else if (a != null && a.here) {
                 v.active = false; v.angleDeg = 0f
                 v.label = activity.getString(R.string.arrow_here)
@@ -80,6 +209,10 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
         roleLabel.text = roleName
         sourceLabel.text = activity.getString(R.string.mic_starting)
         sensorArrow?.let { it.label = activity.getString(R.string.sensor_arrow_wait); it.post(sensorArrowTick) }
+        btnAimClear?.setOnClickListener {
+            android.widget.Toast.makeText(activity, Engine.aimClear(), android.widget.Toast.LENGTH_LONG).show()
+            aimRowKey = null
+        }
     }
 
     override fun onOwnWindow(w: Engine.Window) {
@@ -135,7 +268,8 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
             e.resolved -> activity.getString(R.string.arrow_knock, e.knocks)
             else -> activity.getString(R.string.arrow_knock_unresolved, e.knocks)
         }
-        return if (e.felt * 2 > e.knocks) base + activity.getString(R.string.arrow_knock_table) else base
+        val withConf = base + activity.getString(R.string.arrow_conf, (e.confidence * 100).toInt())
+        return if (e.felt * 2 > e.knocks) withConf + activity.getString(R.string.arrow_knock_table) else withConf
     }
 
     /** Maps RMS to a 0..100 bar on a decibel scale. Phone mics sit around -70 dB in a quiet room: -85 dB → 0, -15 dB → 100. */

@@ -39,7 +39,11 @@ class SensorService : Service() {
         val open = PendingIntent.getActivity(this, 2, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = Notification.Builder(this, CHANNEL)
             .setContentTitle("Hush")
-            .setContentText(if (byProbe) "Rescue sensor active (woken by a rescuer's probe)" else "Listening as $role")
+            .setContentText(when {
+                byProbe -> "Rescue sensor active (woken by a rescuer's probe)"
+                Engine.isHousehold(role) -> "Listening for household sounds (nothing leaves the phone)"
+                else -> "Listening as $role"
+            })
             .setSmallIcon(android.R.drawable.ic_lock_silent_mode)
             .setContentIntent(open)
             .setOngoing(true)

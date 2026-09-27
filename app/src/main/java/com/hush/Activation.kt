@@ -66,11 +66,28 @@ object Activation {
         nm.notify(NOTIFICATION_ID, n)
         HLog.d("Activation: notification posted (notifications enabled=$allowed, full-screen allowed=$canFullScreen)")
         Haptics.rescuePulse(app)
+        alarmBeep(app)
+    }
+
+    /** Loudness of the wake alarm, fraction of the maximum alarm volume (team, 27 Sep: 70 %). The phone's own alarm
+     *  volume is put back afterwards. The alarm stream sounds in silent mode, not through Do Not Disturb. */
+    const val ALARM_BEEP_VOLUME = 0.70f
+
+    /** Only when the app was closed (a woken phone): 4 bursts of 3 quick 2.8 kHz beeps, ~5 s, alongside the vibration. */
+    private fun alarmBeep(app: Context) {
+        val burst = listOf(2800 to 180, 0 to 70, 2800 to 180, 0 to 70, 2800 to 180, 0 to 600)
+        try {
+            com.hush.audio.Ping.play(app, List(4) { burst }.flatten(), ALARM_BEEP_VOLUME)
+            HLog.d("Activation: alarm beep at ${(ALARM_BEEP_VOLUME * 100).toInt()} % alarm volume")
+        } catch (e: Exception) { HLog.d("Activation: alarm beep failed: $e") }
     }
 
     fun cancel(context: Context) {
         try { context.applicationContext.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID) } catch (e: Exception) { HLog.d("Activation: cancel failed $e") }
     }
+
+    /** Wall-clock time of the probe that brought up the current alert; the SOS countdown runs from it. */
+    fun lastProbeAt(context: Context): Long = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(KEY_LAST_PROBE, 0L)
 
     fun activatedBy(context: Context): String? = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_ACTIVATED_BY, null)
 }

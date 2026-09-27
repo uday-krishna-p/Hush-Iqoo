@@ -1,5 +1,11 @@
 # Plan: personas B and C, one phone at home (27 Sep 2026)
 
+**Progress (27 Sep 04:00):** steps 1–5 are built on branch `worktree-personas-bc` (5 commits, 53 unit tests pass, APK
+builds), not yet installed on the phones and not yet tested on real sounds. Step 0 (measure) and step 6 (numbers) remain,
+and step 0 must come before any threshold is trusted. Differences from the text below: TEACH lives on the ALERT screen
+only (not on COUNT yet); the FIND map reuses `MapView` unchanged (marks 1 2 3, walker A); knock alerts are never
+"extended" (each burst buzzes); a TAUGHT alert outranks DOORBELL and carries the taught sound's own colour.
+
 From the PRD (v2.2, `docs/PRD-v2.2.md`), two lines each:
 
 - **Persona B, everyday household user, single phone.** Goal: locate a mysterious noise in the house, track kitchen

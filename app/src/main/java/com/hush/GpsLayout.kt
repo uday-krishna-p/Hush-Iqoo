@@ -19,8 +19,11 @@ object GpsLayout {
 
     const val MAX_AGE_MS = 60_000L
     const val MIN_SAMPLES = 3
-    const val MAX_ACC_M = 20.0
-    const val SEPARATION_FACTOR = 2.0
+    const val MAX_ACC_M = 15.0
+    const val SEPARATION_FACTOR = 3.0
+    /** Indoors the fixes scatter by more than their claimed accuracy (27 Sep 03:08: phones 0.5 m apart were placed 14 m apart
+     *  at ±7 m); no pair closer than this is ever accepted from GPS. */
+    const val MIN_PAIR_M = 8.0
     private const val M_PER_DEG_LAT = 110_574.0
     private const val M_PER_DEG_LON_EQUATOR = 111_320.0
 
@@ -46,8 +49,9 @@ object GpsLayout {
         var minPair = Double.MAX_VALUE
         val ps = pos.values.toList()
         for (i in ps.indices) for (j in i + 1 until ps.size) minPair = minOf(minPair, hypot(ps[i].first - ps[j].first, ps[i].second - ps[j].second))
-        if (minPair < SEPARATION_FACTOR * worst)
-            return null to "phones too close for GPS: nearest pair %.0f m, need ≥ %.0f m (%.0f× the worst accuracy ±%.0f m)".format(minPair, SEPARATION_FACTOR * worst, SEPARATION_FACTOR, worst)
+        val need = maxOf(SEPARATION_FACTOR * worst, MIN_PAIR_M)
+        if (minPair < need)
+            return null to "phones too close for GPS: nearest pair %.0f m, need ≥ %.0f m (%.0f× the worst accuracy ±%.0f m, at least %.0f m)".format(minPair, need, SEPARATION_FACTOR, worst, MIN_PAIR_M)
         return Result(pos, worst, minPair) to "ok"
     }
 

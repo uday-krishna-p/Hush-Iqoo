@@ -16,6 +16,9 @@ import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import com.hush.net.Probe
 import com.hush.ui.CommanderScreen
 import com.hush.ui.SensorScreen
@@ -34,6 +37,7 @@ import com.hush.ui.SensorScreen
  *   adb shell am start -n com.hush/.MainActivity --es layout clear                      (commander: drop the stored hand layout and pointing, so GPS may place the phones)
  *   adb shell am start -n com.hush/.MainActivity --es mic1top false                     (any role: recording channel 1 is the BOTTOM mic)
  *   adb shell am start -n com.hush/.MainActivity --ef micspacing 0.14                   (any role: distance between the two mics, metres)
+ *   adb shell am start -n com.hush/.MainActivity --ez sync true                         (any role: SYNC COMPASS, phones lying parallel)
  *   adb shell am start -n com.hush/.MainActivity --ez crashtest true                    (any role: fire the fall alarm: countdown screen, siren, escalation)
  *   adb shell am start -n com.hush/.MainActivity --es crashmode dryrun|live             (any role: whether escalation really texts and calls; default dryrun)
  *   adb shell am start -n com.hush/.MainActivity --es contacts "Priya:+919…;Ravi:+919…" (any role: emergency contacts, in calling order; "clear" empties)
@@ -43,6 +47,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val REQ_PERMS = 1
+        private const val REQ_SMS = 2
         const val EXTRA_ROLE = "role"
         const val EXTRA_PROBE = "probe"
         const val EXTRA_HUSH = "hush"
@@ -53,6 +58,9 @@ class MainActivity : AppCompatActivity() {
         const val EXTRA_PLAY_LEVEL = "level"
         const val EXTRA_MIC1TOP = "mic1top"
         const val EXTRA_MICSPACING = "micspacing"
+        const val EXTRA_ALERTTEST = "alerttest"
+        const val EXTRA_CAPTIONS = "captions"
+        const val EXTRA_SYNC = "sync"
         const val EXTRA_CRASHTEST = "crashtest"
         const val EXTRA_CRASHMODE = "crashmode"
         const val EXTRA_CONTACTS = "contacts"
@@ -60,7 +68,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private var role: String? = null
-    private var screen: SensorScreen? = null
+    private var screen: Engine.Listener? = null
     private var pendingRole: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -68,6 +76,7 @@ class MainActivity : AppCompatActivity() {
         HLog.init(applicationContext)
         HLog.d("MainActivity created on ${Build.MANUFACTURER} ${Build.MODEL}, Android API ${Build.VERSION.SDK_INT}")
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        fitInsideSystemBars()
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -116,6 +125,15 @@ class MainActivity : AppCompatActivity() {
             HLog.d("Hook: range")
             if (Engine.role == Engine.ROLE_COMMANDER) Engine.autoPlace() else HLog.d("Hook: range ignored, not a commander")
         }
+        if (intent.hasExtra(EXTRA_CAPTIONS)) {
+            val on = intent.getBooleanExtra(EXTRA_CAPTIONS, false)
+            HLog.d("Hook: captions $on")
+            if (Engine.role == Engine.ROLE_ALERT) HLog.d("Hook: captions now ${Engine.setCaptions(on)}") else HLog.d("Hook: captions ignored, not the ALERT role")
+        }
+        intent.getStringExtra(EXTRA_ALERTTEST)?.let { c ->
+            HLog.d("Hook: alerttest $c")
+            HLog.d("Hook: " + Engine.alertTest(c))
+        }
         intent.getStringExtra(EXTRA_ALIGN)?.let { l ->
             HLog.d("Hook: align $l")
             HLog.d("Hook: align result: " + Engine.alignByPointing(l))
@@ -129,6 +147,10 @@ class MainActivity : AppCompatActivity() {
             val spacing = if (intent.hasExtra(EXTRA_MICSPACING)) intent.getFloatExtra(EXTRA_MICSPACING, 0f) else null
             HLog.d("Hook: mic geometry mic1top=$top spacing=$spacing")
             HLog.d("Hook: " + Engine.setMicGeometry(top, spacing))
+        }
+        if (intent.getBooleanExtra(EXTRA_SYNC, false)) {
+            HLog.d("Hook: sync compasses")
+            HLog.d("Hook: sync result: " + Engine.syncCompasses())
         }
         intent.getStringExtra(EXTRA_PLAY)?.let { name ->
             val fraction = intent.getFloatExtra(EXTRA_PLAY_LEVEL, 0.5f)
@@ -148,17 +170,97 @@ class MainActivity : AppCompatActivity() {
         intent.removeExtra(EXTRA_CRASHTEST); intent.removeExtra(EXTRA_CRASHMODE); intent.removeExtra(EXTRA_CONTACTS); intent.removeExtra(EXTRA_MOTIONREC)
         intent.removeExtra(EXTRA_ROLE); intent.removeExtra(EXTRA_PROBE); intent.removeExtra(EXTRA_HUSH)
         intent.removeExtra(EXTRA_RANGE); intent.removeExtra(EXTRA_PLAY); intent.removeExtra(EXTRA_PLAY_LEVEL); intent.removeExtra(EXTRA_ALIGN); intent.removeExtra(EXTRA_LAYOUT)
-        intent.removeExtra(EXTRA_MIC1TOP); intent.removeExtra(EXTRA_MICSPACING)
+        intent.removeExtra(EXTRA_MIC1TOP); intent.removeExtra(EXTRA_MICSPACING); intent.removeExtra(EXTRA_ALERTTEST); intent.removeExtra(EXTRA_CAPTIONS); intent.removeExtra(EXTRA_SYNC)
     }
 
     private fun showRolePicker() {
         setContentView(R.layout.activity_main)
-        findViewById<Button>(R.id.btnCommander).setOnClickListener { pickRole(Engine.ROLE_COMMANDER) }
-        findViewById<Button>(R.id.btnSensor).setOnClickListener { pickRole(Engine.ROLE_SENSOR) }
+        findViewById<android.view.View>(R.id.btnCommander).setOnClickListener { pickRole(Engine.ROLE_COMMANDER) }
+        findViewById<android.view.View>(R.id.btnSensor).setOnClickListener { pickRole(Engine.ROLE_SENSOR) }
+        findViewById<Button>(R.id.btnAlerts).setOnClickListener { pickRole(Engine.ROLE_ALERT) }
+        findViewById<Button>(R.id.btnHome).setOnClickListener { pickRole(Engine.ROLE_HOME) }
         findViewById<Button>(R.id.btnBackground).setOnClickListener { askBackgroundAllowance(force = true) }
         findViewById<Button>(R.id.btnContacts).setOnClickListener { startActivity(Intent(this, ContactsActivity::class.java)) }
         renderContactsButton()
         findViewById<TextView>(R.id.status).text = getString(R.string.pick_role)
+        findViewById<Button>(R.id.btnReport).setOnClickListener { confirmReport() }
+        findViewById<TextView>(R.id.sosContact).setOnClickListener { editContact() }
+        showContact()
+    }
+
+    private fun showContact() {
+        val c = Sos.contact(this)
+        findViewById<TextView>(R.id.sosContact)?.text = if (c == null) getString(R.string.sos_contact_none) else getString(R.string.sos_contact_set, c)
+    }
+
+    /** Type a number (empty = no contact) or pick one from the phone's contacts; the picker needs no contacts permission. */
+    private fun editContact() {
+        val input = android.widget.EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_PHONE
+            hint = getString(R.string.sos_contact_hint)
+            setText(Sos.contact(this@MainActivity) ?: "")
+        }
+        val box = android.widget.FrameLayout(this).apply {
+            val pad = (20 * resources.displayMetrics.density).toInt()
+            setPadding(pad, 0, pad, 0)
+            addView(input)
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle(R.string.sos_contact_title)
+            .setMessage(R.string.sos_contact_message)
+            .setView(box)
+            .setPositiveButton(R.string.save) { _, _ -> Sos.setContact(this, input.text.toString()); showContact() }
+            .setNeutralButton(R.string.sos_contact_pick) { _, _ ->
+                try { pickContact.launch(Intent(Intent.ACTION_PICK, android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI)) }
+                catch (e: Exception) { HLog.d("SOS: no contacts app to pick from: $e") }
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private val pickContact = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { r ->
+        val uri = r.data?.data ?: run { HLog.d("SOS: contact pick cancelled"); return@registerForActivityResult }
+        try {
+            contentResolver.query(uri, arrayOf(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER), null, null, null)?.use { c ->
+                if (c.moveToFirst()) { Sos.setContact(this, c.getString(0)); showContact() } else HLog.d("SOS: picked contact has no number")
+            }
+        } catch (e: Exception) { HLog.d("SOS: reading the picked contact failed: $e") }
+    }
+
+    /** A confirmation first: with a SIM in, this texts the real 108. */
+    private fun confirmReport() {
+        HLog.d("REPORT AN EMERGENCY pressed, asking to confirm")
+        android.app.AlertDialog.Builder(this)
+            .setTitle(R.string.report_confirm_title)
+            .setMessage(R.string.report_confirm_text)
+            .setPositiveButton(R.string.report_send) { _, _ ->
+                if (!Sos.canSend(this)) { pendingReport = true; ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.SEND_SMS), REQ_SMS) }
+                else sendReport()
+            }
+            .setNegativeButton(R.string.cancel) { _, _ -> HLog.d("REPORT AN EMERGENCY cancelled") }
+            .show()
+    }
+
+    private var pendingReport = false
+
+    private fun sendReport() {
+        val out = findViewById<TextView>(R.id.sosResult) ?: return
+        out.visibility = android.view.View.VISIBLE
+        Sos.sendReport(this) { s -> if (!isDestroyed) out.text = s }
+    }
+
+    /**
+     * Android 15+ draws apps under the status bar and the navigation bar (edge to edge). Pad the content by
+     * exactly the bars, the camera cut-out and the keyboard so nothing hides behind them, on every screen.
+     */
+    private fun fitInsideSystemBars() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowCompat.getInsetsController(window, window.decorView).apply { isAppearanceLightStatusBars = true; isAppearanceLightNavigationBars = true }
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content)) { v, insets ->
+            val b = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime())
+            v.setPadding(b.left, b.top, b.right, b.bottom)
+            WindowInsetsCompat.CONSUMED
+        }
     }
 
     /** "EMERGENCY CONTACTS · 2 set", orange while none are set (docs/PLAN-crash.md). */
@@ -248,6 +350,7 @@ class MainActivity : AppCompatActivity() {
         }
         p += Manifest.permission.ACCESS_FINE_LOCATION      // GPS overlay for large sites
         p += Manifest.permission.ACTIVITY_RECOGNITION      // step detector for placement dead reckoning
+        p += Manifest.permission.SEND_SMS                  // SOS: asked at first launch, a woken phone behind the lock screen cannot ask
         if (Build.VERSION.SDK_INT >= 36) p += "android.permission.RANGING"   // Bluetooth Channel Sounding spike
         p += Manifest.permission.SEND_SMS            // crash escalation: text the emergency contacts (docs/PLAN-crash.md)
         p += Manifest.permission.CALL_PHONE          // crash escalation: call them one after another
@@ -264,9 +367,13 @@ class MainActivity : AppCompatActivity() {
         it == Manifest.permission.RECORD_AUDIO || it.startsWith("android.permission.BLUETOOTH")
     }
 
+    /** The household roles only listen: microphone (and notifications for the alerts). No Bluetooth, location or steps asked for. */
+    private fun neededFor(roleName: String, perms: List<String>): List<String> =
+        if (Engine.isHousehold(roleName)) perms.filter { it == Manifest.permission.RECORD_AUDIO || it == Manifest.permission.POST_NOTIFICATIONS } else perms
+
     private fun pickRole(name: String) {
         HLog.d("Role picked: $name")
-        val missing = missingPermissions()
+        val missing = neededFor(name, missingPermissions())
         if (missing.isEmpty()) {
             role = name
             startRole()
@@ -279,12 +386,18 @@ class MainActivity : AppCompatActivity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_SMS && pendingReport) {
+            pendingReport = false
+            HLog.d("SMS permission ${if (Sos.canSend(this)) "granted" else "refused"}, sending the report")
+            sendReport()   // without the permission Sos opens the messages app instead
+            return
+        }
         if (requestCode != REQ_PERMS) return
         val missing = missingPermissions()
         HLog.d("Permissions result, still missing: $missing")
         val wanted = pendingRole
         pendingRole = null
-        if (essentialMissing().isNotEmpty()) {
+        if ((if (wanted != null) neededFor(wanted, essentialMissing()) else essentialMissing()).isNotEmpty()) {
             findViewById<TextView>(R.id.status)?.text = getString(R.string.perms_denied)
             return
         }
@@ -305,12 +418,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun showRoleScreen() {
         val name = role ?: return
-        screen = if (name == Engine.ROLE_COMMANDER) {
-            setContentView(R.layout.screen_commander)
-            CommanderScreen(this)
+        screen = if (name == Engine.ROLE_ALERT) {
+            setContentView(R.layout.screen_alert)
+            com.hush.ui.AlertScreen(this)
+        } else if (name == Engine.ROLE_HOME) {
+            setContentView(R.layout.screen_home)
+            com.hush.ui.HomeScreen(this)
         } else {
-            setContentView(R.layout.screen_sensor)
-            SensorScreen(this, getString(R.string.role_sensor))
+            // Every rescue phone shows the same screen (27 Sep, team); on a sensor its data comes from the commander.
+            setContentView(R.layout.screen_commander)
+            CommanderScreen(this, name)
         }
         Engine.listener = screen
     }

@@ -25,7 +25,7 @@ class KnockBearingTest {
     fun stillPhoneShowsBothCandidates() {
         KnockBearing.reset()
         var t = 1000L
-        repeat(4) { KnockBearing.add(delayFor(40.0, 0.0), 0.9f, 15f, false, 0f, t); t += 700 }
+        repeat(4) { KnockBearing.add(delayFor(40.0, 0.0), 0.9f, 15f, 0.9f, false, 0f, t); t += 700 }
         val e = KnockBearing.estimate(t, 0f)
         assertNotNull(e)
         assertFalse(e!!.resolved)
@@ -38,8 +38,8 @@ class KnockBearingTest {
     fun turningResolvesTheMirror() {
         KnockBearing.reset()
         var t = 1000L
-        repeat(4) { KnockBearing.add(delayFor(40.0, 0.0), 0.9f, 15f, false, 0f, t); t += 700 }
-        repeat(4) { KnockBearing.add(delayFor(40.0, 90.0), 0.9f, 15f, false, 90f, t); t += 700 }
+        repeat(4) { KnockBearing.add(delayFor(40.0, 0.0), 0.9f, 15f, 0.9f, false, 0f, t); t += 700 }
+        repeat(4) { KnockBearing.add(delayFor(40.0, 90.0), 0.9f, 15f, 0.9f, false, 90f, t); t += 700 }
         val e = KnockBearing.estimate(t, 90f)
         assertNotNull(e)
         assertTrue("resolved after a 90° turn", e!!.resolved)
@@ -54,7 +54,7 @@ class KnockBearingTest {
     fun knockStraightAheadNeedsNoTurn() {
         KnockBearing.reset()
         var t = 1000L
-        repeat(3) { KnockBearing.add(delayFor(0.0, 0.0), 0.9f, 15f, false, 0f, t); t += 700 }
+        repeat(3) { KnockBearing.add(delayFor(0.0, 0.0), 0.9f, 15f, 0.9f, false, 0f, t); t += 700 }
         val e = KnockBearing.estimate(t, 0f)
         assertNotNull(e)
         assertTrue(e!!.resolved)
@@ -64,16 +64,16 @@ class KnockBearingTest {
     @Test
     fun junkAndWeakDelaysAreIgnored() {
         KnockBearing.reset()
-        assertFalse(KnockBearing.add(45f, 0.9f, 15f, false, 0f, 1000L))     // more than the mics allow
-        assertFalse(KnockBearing.add(5f, 0.3f, 15f, false, 0f, 1000L))      // poor correlation
-        assertFalse(KnockBearing.add(null, 0.9f, 15f, false, 0f, 1000L))
+        assertFalse(KnockBearing.add(45f, 0.9f, 15f, 0.9f, false, 0f, 1000L))     // more than the mics allow
+        assertFalse(KnockBearing.add(5f, 0.3f, 15f, 0.9f, false, 0f, 1000L))      // poor correlation
+        assertFalse(KnockBearing.add(null, 0.9f, 15f, 0.9f, false, 0f, 1000L))
         assertNull(KnockBearing.estimate(2000L, 0f))
     }
 
     @Test
     fun oldKnocksExpire() {
         KnockBearing.reset()
-        repeat(5) { KnockBearing.add(delayFor(90.0, 0.0), 0.9f, 15f, false, 0f, 1000L + it * 500) }
+        repeat(5) { KnockBearing.add(delayFor(90.0, 0.0), 0.9f, 15f, 0.9f, false, 0f, 1000L + it * 500) }
         assertNotNull(KnockBearing.estimate(5000L, 0f))
         assertNull(KnockBearing.estimate(1000L + KnockBearing.ACTIVE_MS + 5000L, 0f))
     }

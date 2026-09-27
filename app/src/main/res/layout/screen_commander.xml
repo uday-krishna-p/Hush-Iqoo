@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The one rescue screen every phone shows (commander and sensors). Top: what the demo needs.
+     Bottom: "Technical details", folded by default, holding every status line, list and debug readout. -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
@@ -7,15 +9,58 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="24dp">
+        android:paddingStart="16dp"
+        android:paddingTop="12dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="24dp">
 
-        <TextView
-            android:layout_width="wrap_content"
+        <!-- Header: role + letter, phone name suffix, connection -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/role_commander"
-            android:textSize="28sp"
-            android:textStyle="bold" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp">
 
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/screenTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/role_commander_title"
+                    android:textColor="@color/text"
+                    android:textSize="26sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/connectionText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="15sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/phoneChip"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_chip"
+                android:paddingStart="12dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="6dp"
+                android:textColor="@color/text_secondary"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <!-- Red banner: a phone's microphone is silenced (Android paused the recording). Hidden while all hear. -->
         <TextView
             android:id="@+id/crashRow"
             android:layout_width="match_parent"
@@ -29,180 +74,402 @@
             android:visibility="gone" />
 
         <TextView
-            android:id="@+id/commanderStatus"
-            android:layout_width="wrap_content"
+            android:id="@+id/micBanner"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/bg_panel"
+            android:backgroundTint="@color/danger"
+            android:clickable="true"
+            android:focusable="true"
+            android:padding="16dp"
+            android:textColor="@color/surface"
             android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/btnModeTapping"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/mode_tapping" />
-
-            <Button
-                android:id="@+id/btnModeVoice"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/mode_voice" />
-
-            <Button
-                android:id="@+id/btnModeAny"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/mode_any" />
-        </LinearLayout>
-
-        <Button
-            android:id="@+id/btnActivate"
-            android:layout_width="match_parent"
-            android:layout_height="64dp"
-            android:layout_marginBottom="8dp"
-            android:backgroundTint="#E65100"
-            android:text="@string/activate_button"
-            android:textColor="#FFFFFF"
-            android:textSize="18sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/discovered_heading"
-            android:textSize="14sp" />
-
-        <TextView
-            android:id="@+id/discoveredText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
-            android:fontFamily="monospace"
-            android:text="@string/discovered_none"
-            android:textSize="14sp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/btnHush"
-                android:layout_width="0dp"
-                android:layout_height="96dp"
-                android:layout_weight="3"
-                android:text="@string/hush_button"
-                android:textSize="32sp"
-                android:textStyle="bold" />
-
-            <Button
-                android:id="@+id/btnStop"
-                android:layout_width="0dp"
-                android:layout_height="96dp"
-                android:layout_weight="1"
-                android:backgroundTint="#B71C1C"
-                android:text="@string/stop_button"
-                android:textColor="#FFFFFF"
-                android:textStyle="bold" />
-        </LinearLayout>
-
-        <TextView
-            android:id="@+id/bigCountdown"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center"
-            android:textSize="120sp"
             android:textStyle="bold"
             android:visibility="gone" />
 
-        <TextView
-            android:id="@+id/briefText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="@string/brief_idle"
-            android:textSize="22sp"
-            android:textStyle="bold" />
-
-        <com.hush.ui.ArrowView
-            android:id="@+id/arrow"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp" />
-
-
-        <com.hush.ui.MapView
-            android:id="@+id/map"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp" />
-
+        <!-- Closest phone: the headline result -->
         <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="horizontal">
+            android:id="@+id/closestCard"
+            style="@style/Hush.Card"
+            android:background="@drawable/bg_panel">
 
-            <Button
-                android:id="@+id/btnAutoPlace"
-                android:layout_width="0dp"
+            <TextView
+                android:id="@+id/closestOverline"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_weight="2"
-                android:text="@string/auto_place" />
+                android:text="@string/closest_overline"
+                style="@style/Hush.Overline" />
 
-            <Button
-                android:id="@+id/btnFlip"
-                android:layout_width="0dp"
+            <TextView
+                android:id="@+id/closestTitle"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/flip" />
+                android:layout_marginTop="4dp"
+                android:text="@string/closest_idle_title"
+                android:textColor="@color/text"
+                android:textSize="28sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/closestText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/closest_idle"
+                style="@style/Hush.Body" />
         </LinearLayout>
 
-        <LinearLayout
-            android:id="@+id/placeRow"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="horizontal" />
-
-        <LinearLayout
-            android:id="@+id/alignRow"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:orientation="horizontal" />
-
+        <!-- Warmer / colder: only while this phone is being carried -->
         <TextView
-            android:layout_width="wrap_content"
+            android:id="@+id/warmthText"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="@string/sensors_heading"
-            android:textSize="16sp" />
+            android:layout_marginTop="12dp"
+            android:background="@drawable/bg_panel"
+            android:padding="18dp"
+            android:textSize="16sp"
+            android:visibility="gone" />
 
+        <!-- Direction (arrow + point & tap): removed from the demo screen on 27 Sep (team); code kept, card hidden. -->
+        <LinearLayout style="@style/Hush.Card" android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/direction_heading"
+                style="@style/Hush.Overline" />
+
+            <com.hush.ui.ArrowView
+                android:id="@+id/arrow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp" />
+
+            <TextView
+                android:id="@+id/aimHint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_horizontal"
+                style="@style/Hush.Caption" />
+
+            <!-- Point & tap: one button per other phone (filled in by SensorScreen), then Clear. -->
+            <TextView
+                android:id="@+id/aimInstruction"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="@string/aim_instruction"
+                style="@style/Hush.Body" />
+
+            <LinearLayout
+                android:id="@+id/aimRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal" />
+
+            <Button
+                android:id="@+id/btnAimClear"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/aim_clear"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <!-- Map of the phones -->
+        <LinearLayout style="@style/Hush.Card">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/map_heading"
+                style="@style/Hush.Overline" />
+
+            <com.hush.ui.MapView
+                android:id="@+id/map"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/bg_map" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/map_legend"
+                style="@style/Hush.Caption" />
+        </LinearLayout>
+
+        <!-- Actions -->
+        <LinearLayout style="@style/Hush.Card">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/actions_heading"
+                style="@style/Hush.Overline" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/btnSensitivity"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:minHeight="52dp"
+                android:text="@string/sensitivity_switch"
+                android:textColor="@color/text"
+                android:textSize="16sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/sensitivity_hint"
+                style="@style/Hush.Caption" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="16dp"
+                android:background="@color/outline" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnHush"
+                    style="@style/Widget.Hush.Button.Primary"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="2"
+                    android:minHeight="56dp"
+                    android:text="@string/hush_button" />
+
+                <Button
+                    android:id="@+id/btnStop"
+                    style="@style/Widget.Hush.Button.Danger"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:layout_weight="1"
+                    android:minHeight="56dp"
+                    android:text="@string/stop_button" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/bigCountdown"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center"
+                android:textColor="@color/primary"
+                android:textSize="64sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/hush_hint"
+                style="@style/Hush.Caption" />
+
+            <TextView
+                android:id="@+id/briefText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/brief_idle"
+                android:textColor="@color/text"
+                android:textSize="15sp" />
+
+            <Button
+                android:id="@+id/btnActivate"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/activate_button" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/activate_hint"
+                style="@style/Hush.Caption" />
+
+            <TextView
+                android:id="@+id/discoveredText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/discovered_none"
+                android:visibility="gone"
+                style="@style/Hush.Mono" />
+        </LinearLayout>
+
+        <!-- Technical details: folded until tapped -->
         <TextView
-            android:id="@+id/peersText"
+            android:id="@+id/detailsToggle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            android:fontFamily="monospace"
-            android:textSize="15sp" />
+            android:layout_marginTop="12dp"
+            android:background="@drawable/btn_secondary"
+            android:clickable="true"
+            android:focusable="true"
+            android:minHeight="52dp"
+            android:gravity="center_vertical"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:text="@string/details_show"
+            android:textColor="@color/text"
+            android:textSize="16sp"
+            android:fontFamily="sans-serif-medium" />
 
-        <Button
-            android:id="@+id/btnExport"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="24dp"
-            android:text="@string/export_button" />
+        <LinearLayout
+            android:id="@+id/detailsBody"
+            style="@style/Hush.Card"
+            android:visibility="gone">
 
-        <include layout="@layout/block_sensor" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/details_status"
+                style="@style/Hush.Overline" />
+
+            <TextView
+                android:id="@+id/commanderStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                style="@style/Hush.Mono" />
+
+            <TextView
+                android:id="@+id/compassText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                style="@style/Hush.Mono" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/sensors_heading"
+                style="@style/Hush.Overline" />
+
+            <TextView
+                android:id="@+id/peersText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                style="@style/Hush.Mono" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/mode_heading"
+                style="@style/Hush.Overline" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnModeTapping"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/mode_tapping" />
+
+                <Button
+                    android:id="@+id/btnModeVoice"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:text="@string/mode_voice" />
+
+                <Button
+                    android:id="@+id/btnModeAny"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/mode_any" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/map_tools_heading"
+                style="@style/Hush.Overline" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnAutoPlace"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="2"
+                    android:text="@string/auto_place" />
+
+                <Button
+                    android:id="@+id/btnFlip"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:layout_weight="1"
+                    android:text="@string/flip" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/placeRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal" />
+
+            <LinearLayout
+                android:id="@+id/alignRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal" />
+
+            <Button
+                android:id="@+id/btnSyncCompass"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/sync_compass"
+                android:visibility="gone" />
+
+            <Button
+                android:id="@+id/btnExport"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="@string/export_button" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginTop="18dp"
+                android:layout_marginBottom="14dp"
+                android:background="@color/outline" />
+
+            <include layout="@layout/block_sensor" />
+        </LinearLayout>
     </LinearLayout>
 </ScrollView>

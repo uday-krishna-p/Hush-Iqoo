@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- One calm light palette for every screen (27 Sep UI clean-up). -->
+    <color name="bg">#F3F5F8</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="surface_muted">#EDF0F4</color>
+    <color name="outline">#DDE2E8</color>
+    <color name="text">#18212B</color>
+    <color name="text_secondary">#5B6776</color>
+    <color name="text_disabled">#9AA4AF</color>
+    <color name="primary">#1F5FAE</color>
+    <color name="primary_pressed">#184C8C</color>
+    <color name="primary_disabled">#B9C8DB</color>
+    <color name="danger">#C0392B</color>
+    <color name="danger_soft">#FBEAE8</color>
+    <color name="good">#1B7A48</color>
+    <color name="good_soft">#E6F4EC</color>
+    <color name="warn">#8A5A00</color>
+    <color name="warn_soft">#FFF3D6</color>
+    <color name="cold">#1A4F8B</color>
+    <color name="cold_soft">#E3EEFA</color>
+    <color name="warm">#B2461B</color>
+    <color name="warm_soft">#FDEBDD</color>
+</resources>

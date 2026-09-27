@@ -22,19 +22,29 @@ audio ever crosses the network; only small JSON events (see contract below).
    accelerometer movement, battery, compass heading, GPS fix if any. It fuses those into one headline:
    **HUMAN TAPPING → HUMAN VOICE → MACHINERY → quiet**, with a ⚠moving flag and a "✓felt" tag.
 4. **Live ranking.** The commander scores every sensor continuously: quality-gated, decayed (15 s) loudness above a
-   rolling-median noise floor, divided by a chirp-calibrated mic gain, times the evidence for the chosen listen mode
-   (TAPPING / VOICE / ANY). The brief ("Live · Human tapping · 90% · strongest at Sensor B · rhythm steady") and the
-   starred row update every second. Multiple knock sources are separated by tempo/pattern ("Source 1 … | Source 2 …").
-5. **HUSH = silence call.** One button: chirp ranging (~8 s, "chirps…" on every screen) → 20 s window with a strong
-   three-pulse buzz and a quiet double beep at start, two pulses and a beep at the end → "Window ·" brief. STOP ends the
-   window on every phone and cancels chirps. HUSH refuses with zero sensors unless long-pressed.
-6. **Map + arrow.** Sensors are placed on a square map automatically by acoustic ranging (or by hand as a fallback).
-   North comes, in order of preference, from the two-mic direction of the chirps, from the commander's own walk, or from
-   how sensors were carried out. The commander's dot walks between rangings by step counting.
-7. **Source location (added 26 Sep evening).** The commander no longer just points at the strongest sensor: it works
-   out where the knocking (or voice) itself is and draws it as a red cross-hair with an uncertainty disc; the arrow
-   points at that spot with the distance ("→ SOURCE · 3.4 m ±0.5 · 6 knocks"). Falls back to the strongest sensor
-   until a fix exists. See "How the source is located" below.
+   rolling-median noise floor (mic gains taken as 1: identical phones, no chirp calibration), times the evidence for
+   the chosen listen mode (TAPPING by default / VOICE / ANY). The brief ("Live · Human tapping · 90% · strongest at
+   Sensor B · rhythm steady") and the starred row update every second. Multiple knock sources are separated by
+   tempo/pattern ("Source 1 … | Source 2 …").
+5. **HUSH = silence call.** One button: 20 s window with a strong three-pulse buzz and a quiet double beep at start,
+   two pulses and a beep at the end → "Window ·" brief. STOP ends the window on every phone. HUSH refuses with zero
+   sensors unless long-pressed. Nothing chirps on its own any more (team, 27 Sep: chirps are impossible on a chaotic
+   site); AUTO-PLACE and `--ez range` still chirp on request.
+6. **The arrow (compass plan, 27 Sep, `docs/PLAN-compass.md`).** Every phone times each knock at its two microphones
+   and turns the delay into an angle from its own top edge (`KnockBearing`); left/right is a mirror the two mics
+   cannot tell, so each knock votes for both compass bearings and the true one wins when the phone is turned or when
+   the other phones settle it. Phantom clicks (the same signal in both channels) are dropped. The commander adds every
+   phone's bearing votes (quality × rhythm, fading over 10 s) into one **fused bearing with a confidence** and sends it
+   down the moment a vote arrives; **every phone draws that one arrow** through its own compass, gliding smoothly, and
+   uses its own estimate only until the fusion arrives. Calibrated for this phone model: mic spacing 0.17 m, channel 1 =
+   top mic. Works with no positions at all; meant for phones within a metre or so of each other (same direction seen
+   from all of them).
+7. **Map + crossing.** Positions come from a hand layout (`--es layout`, Place buttons, Align by pointing) or from
+   GPS outdoors (strict rules, north-up); the chirp-based auto placement still exists behind AUTO-PLACE. With
+   positions the commander draws each phone's bearing line on the map and crosses them into a red cross-hair with a
+   rough radius, which adds a distance to the arrow when two lines meet at ≥ 20° in front of every phone. The
+   timing-based locator (`Locator.kt`, "How the source is located") needs chirp clock sync and is dormant until the
+   silent ultrasonic chirp (plan step 4) exists.
 8. **Radio ranging.** Bluetooth sessions run silently to every sensor. Channel Sounding is refused by the phones so far
    (see Status); signal-strength ranging works but is far too coarse and is shown with "?" and never trusted.
 9. **Export.** One JSON-lines file per session to `Downloads/` (header with sensors, dots, mode; every event; hush,
@@ -91,8 +101,8 @@ knocks (phones on the same slab) arrive faster than through air: onsets tagged "
   radio event is in there.
 - **The phones are lock-screen protected.** From adb, `am start` of MainActivity lands behind the lock screen (so its dialogs are invisible and screenshots are black); only BeaconActivity shows over the lock screen. Unlock the phone by hand before driving MainActivity from the laptop.
 - **vivo remote-control app** (Office Kit, used to control the laptop) sits on top of Hush on the phones. Force Hush to
-  the front with `adb shell am start -n com.hush/.MainActivity` before tapping by coordinates. Role picker button centres
-  at 1440-wide: COMMANDER ≈ (540, 646), SENSOR ≈ (720, 1241). `uiautomator dump` is flaky on these phones.
+  the front with `adb shell am start -n com.hush/.MainActivity` before tapping by coordinates. Prefer
+  `--es role COMMANDER|SENSOR` to tapping (the role cards moved in the 27 Sep UI clean-up). `uiautomator dump` is flaky on these phones.
 - **Demo radio setup (3 taps per phone):** airplane mode ON, then Bluetooth ON, then Wi-Fi radio ON without joining a
   network. Nearby needs both radios even with no internet.
 
@@ -118,10 +128,10 @@ knocks (phones on the same slab) arrive faster than through air: onsets tagged "
 | Language / UI | Kotlin, XML Views, `MainActivity` (role picker + screens) + `SensorService` (foreground, microphone type) + `Engine` singleton owning everything. |
 | SDKs | minSdk 29, targetSdk 35, **compileSdk 36** (Android 16 Ranging API). |
 | Libraries | AGP 8.13.2, Kotlin 2.4.20 (Nearby 19.5.0 needs ≥ 2.4), Gradle 8.14.3, appcompat 1.7.1, core-ktx 1.13.1, play-services-nearby 19.5.0, tensorflow-lite 2.17.0. JSON via `org.json`. No location library (framework `LocationManager`). |
-| Link | `NearbyLink` v2, `Strategy.P2P_CLUSTER`, service id `com.hush.v2`. Advertised name `C|<name>` / `S|<name>|<hops>`; a sensor advertises only once routed (no loops). Up: events, chirp/placement reports, `join`/`leave`. Down: commands (`ASSIGN` carries `to=<name>` and the commander's Bluetooth address). The commander keys sensors by **name**. One-hop verified from the laptop; multi-hop needs a hall test. |
+| Link | `NearbyLink` v2, `Strategy.P2P_CLUSTER`, service id `com.hush.v2`. Advertised name `C|<name>` / `S|<name>|<hops>`; a sensor advertises only once routed (no loops). Up: events, chirp/placement reports, `join`/`leave`. Down: commands (`ASSIGN` carries `to=<name>` and the commander's Bluetooth address). The commander keys sensors by **name**. One-hop verified from the laptop; multi-hop needs a hall test. Since 27 Sep 03:05 links are `ConnectionType.NON_DISRUPTIVE` (Bluetooth, no Wi-Fi hotspot upgrade: the upgrades stalled links 2.5–4 s at a time). Down also: `Fix` (fused bearing, crossing or loudest phone, dots, north). |
 | Audio capture | `AudioRecord` **stereo** (both mics are distinct: 78 % channel difference), 48 kHz, 16-bit. Source order VOICE_RECOGNITION → MIC → UNPROCESSED (UNPROCESSED measured ~10 dB quieter). Room level is ≈ −60 dB RMS on these phones. Mic 0 feeds everything; mic 1 only the chirp ring buffer. 8 s ring buffer per mic with an absolute sample counter. |
 | Classifier | Stock YAMNet TFLite (mediapipe float32, input [15600], output [1,521], **no embedding output**). Input peak-normalised with gain capped at ×20 (×1000 turned room rumble into "Vehicle"). Buckets (exact display names): VOICE = Speech, Child speech, Conversation, Narration, Shout, Yell, Children shouting, Screaming, Whistling, Whistle. IMPACT (corroboration only) = Tap, Knock, Hammer, Hands, Thump/thud, Wood, Bang, Slap/smack, Clapping, Finger snapping, Tick, Tick-tock, Dishes, Cutlery, Chop, Chopping, Percussion, Drum, Wood block, Basketball bounce, Bouncing. MACHINE = Engine (+ light/medium/heavy/starting), Idling, Power tool, Tools, Drill, Jackhammer, Sawing, Chainsaw, Vehicle, Motor vehicle (road), Motorcycle, Aircraft, Helicopter. YAMNet is reliable for voice and useless for knocks (calls them Dishes/Stir/Hammer at random). |
-| Tap detector | 10 ms frame energies on mic 0. Onset = frame ≥ **×3** the window median AND ≥ ×2 the loudest of the previous 3 frames; 80 ms refractory; ≤ 8/s; **ring-down**: energy 100 ms later ≤ 60 % of the onset frame (knocks measured 3–27 %, coughs/syllables stay loud). Tuned from two 90 s recordings: quiet ×2–6, speech ×2–5, knuckle knocks ×11–28, soft fingertip ×3–14. Onset times are sample-accurate for later TDOA. |
+| Tap detector | 10 ms frame energies on mic 0. Onset = frame ≥ **×3** the window median AND ≥ ×2 the loudest of the previous 3 frames; 80 ms refractory; ≤ 8/s; **ring-down**: energy 100 ms later ≤ 60 % of the onset frame (knocks measured 3–27 %, coughs/syllables stay loud). Tuned from two 90 s recordings: quiet ×2–6, speech ×2–5, knuckle knocks ×11–28, soft fingertip ×3–14. Onset times are sample-accurate for later TDOA. Since 27 Sep 02:50 onsets that are the same signal in both mic channels (electrical clicks at −42 dBFS, a third of all onsets in a quiet room) are dropped as phantoms before the rhythm tracker and the arrow (`Onset … PHANTOM`, `phantoms=N` in the window line). |
 | Rhythm | `RhythmTracker`, 8 s history, audio only. Steady = ≥ 3 onsets with gap CV < 0.45 at any tempo (people knock at 1/s or 2–3/s; 600 ms grouping once merged fast knocking into one endless group). Patterns ("3-2") from group sizes repeating ≥ 2×, rotated to start with the largest group. Cap 40 onsets/8 s. Reports `tempoMs` (signature). **Single impacts never make a headline.** |
 | Self-noise | The app's own start buzz (3 × 700 ms pulses rattle the phone), beeps and chirps once produced phantom "Source 1 / Source 2". Now: rhythm reset at window start; onsets ignored 3.5 s after start and 1.5 s after any chirp; those seconds carry zero weight in scoring; the noise floor never samples them. |
 | Noise floor | Per phone, **rolling median of the last 30 quiet, still, chirp-free seconds**. (A 3 s mean sampled during chirps once zeroed two sensors' scores.) |
@@ -131,35 +141,373 @@ knocks (phones on the same slab) arrive faster than through air: onsets tagged "
 | Accelerometer | `AccelChannel`, 200 Hz (fastest rate needs a permission and crashed the service), high-passed magnitude. **Jolts are never onsets** (they flooded the tracker on a handled phone). Jolts only tag heard tapping "✓felt" (within 100 ms of an audio onset) and set ⚠moving (rms > 0.25 m/s²; at rest 0.007, handled 0.4–3). Movement never hides a label: in a collapse everything trembles. |
 | Hush signal | Start: 3 × 700 ms pulses at full amplitude, alarm-class vibration, + double 2.5 kHz beep at **10 %** alarm volume. End: 2 × 400 ms + 1.8 kHz beep. Vibration strength is capped by the phone; Settings → Sound & vibration is the last lever. |
 | Acoustic ranging | `Chirp.kt` 80 ms 2–6 kHz Hann sweep at **40 %** alarm volume (team's request; raise for a hall). Matched filter (27 Sep): FFT correlation on a 16 kHz copy as an analytic signal (its magnitude = smooth envelope, so no 4 kHz carrier-cycle slips), first arrival = earliest envelope peak ≥ 0.3 × the strongest and ≥ 6 × the median within 30 ms before it (the direct path between phones on a table is often weaker than a reflection 3–20 ms later), then refined at 48 kHz ±12 samples with the chirp and its quadrature partner, parabolic sub-sample peak. **37–94 ms per 5 s search on the phones** (sample-by-sample: 1.2–5.6 s). `ChirpTest` covers it. SERIAL chirps: one letter at a time, each phone searches ±2.5 s around its command, commander moves on when all reported or after 7 s. Pair distance `D = c/2·[(t_i(j)−t_i(i)) − (t_j(j)−t_j(i))]/fs + 0.12 m` (clock offsets cancel). Measured: AB 0.91 (real ≈ 1.0), AC 0.56 (real ≈ 0.5), later rounds 0.54–0.58 for the same layout. Detection strength 95–1780× vs threshold 5. Self-checks: timing filter ±0.35 s (a wrong peak once produced 59.7 m), triangle inequality and ≤ 30 m, one retry of lost pairs, **two rounds within 20 % before the map moves**. Only the first three letters form the map (N > 3 solver not built). |
-| Map frame | B origin, C on +x, A (commander) moves inside; scale fixed at first ranging (1.6 × the largest side). A's dot moves by step counting between rangings. A settled sensor (moved, then still 3 s) triggers a re-ranging. |
+| Map frame | B origin, C on +x, A (commander) moves inside; scale fixed at first ranging (1.6 × the largest side). A's dot moves by step counting between rangings. A settled sensor (moved, then still 3 s) triggers a re-ranging (only with chirp calibration on). Without chirps: hand layout (`--es layout "B=x,y;C=x,y"`, Place buttons, Align by pointing for north) or GPS outdoors (north-up, A's dot follows its fix); `--es layout clear` drops the stored layout and pointing. |
 | North | Ranging alone cannot know rotation. Sources, best first: (1) **two-mic direction of arrival** of B's and C's chirps at the commander (sub-sample inter-mic delay; mic spacing solved against the triangle's known angle, then held as a median; skipped when phones < 0.8 m apart; rotation smoothed over 5 rounds); (2) the commander's walk (A's shift on the map vs compass bearing walked; moves > 10 m ignored); (3) placement walk (step detector + compass on carried-out sensors); (4) manual Place buttons. First DoA run: spacing 0.10 m, angles 44°/8° vs true 38°, spread 1°. Physical direction test still failing at 50 cm spacing (near field) — needs ≥ 1 m. |
 | Compass arrow | `ArrowView` + rotation-vector `Compass`; angle = mapBearing(A→target) + rotation − heading. Target = the located source when there is a fix < 60 s old, else the strongest sensor. Since 27 Sep 02:30 the drawn arrow glides to its target the shortest way round (τ 0.22 s, ≤ 480°/s, settles in ~0.6 s), the screens update the target 20×/s and the compass runs at GAME rate (~80 ms lag), after the team found the arrow "not fast enough" and asked for "a lazy turning effect". |
-| Own knock arrow (27 Sep) | `KnockBearing.kt`, every phone, first claim on the arrow: the two-mic delay of each knock → angle from the phone's top (spacing 0.155 m, mic 1 = top mic), both mirror bearings voted into a decaying histogram (τ 15 s, 5° bins, σ 12°); faint twin arrow until turning the phone resolves it (best peak ≥ 1.5× the second). Gates q ≥ 0.4, |delay| ≤ 33 samples, felt knocks × 0.3, weight × loudness over background (×10 → 1, clamped 0.3–3); shown while own rhythm ≥ 0.9, a Hush window runs, or 3 knocks ≥ ×8 in 8 s (held 8 s). Measured 27 Sep 02:00: spacing 0.17 m, channel 1 = top mic. When the phone hears nothing it draws the commander's fused bearing of the phones that do (`SHARED:`), and an open twin is settled by it. Constants changeable with `--es mic1top` / `--ef micspacing`, kept in preferences. |
+| Own knock arrow (27 Sep) | `KnockBearing.kt`, every phone, first claim on the arrow: the two-mic delay of each knock → angle from the phone's top (spacing 0.155 m, mic 1 = top mic), both mirror bearings voted into a decaying histogram (τ 8 s since 03:00, 5° bins, σ 12°); faint twin arrow until turning the phone resolves it (best peak ≥ 1.5× the second); the solid arrow is always the stronger candidate, kept only through near ties (within 8 %). Gates q ≥ 0.4, |delay| ≤ 33 samples, felt knocks × 0.3, weight × loudness over background (×10 → 1, clamped 0.3–3); shown while own rhythm ≥ 0.9, a Hush window runs, or 3 knocks ≥ ×8 in 8 s (held 8 s). Measured 27 Sep 02:00: spacing 0.17 m, channel 1 = top mic. When the phone hears nothing it draws the commander's fused bearing of the phones that do (`SHARED:`), and an open twin is settled by it. Constants changeable with `--es mic1top` / `--ef micspacing`, kept in preferences. |
+| Fused bearing (27 Sep) | Commander: every phone's own-arrow bearing (in its once-a-second event: `br`, `bq`, `br2`) is one vote per second into an accumulating 5° histogram with τ = 10 s, weight = correlation quality × (0.5 + rhythm score), half a vote per candidate while mirrored. Peak = the fused bearing; resolved when ≥ 1.5× the runner-up; confidence = share of votes within ±24° (≈ 0.35 with a mirror open, 0.8+ when three phones agree). Sent down in the `Fix` (`sb`, `sb2`, `sbq`, `sby`; `pt=false` when there is no map point) the moment a vote arrives, on a 2° change, ≤ 3/s. Every screen draws it first (one arrow, green deepening with confidence, "fused from A,B,C · confidence N%"), the own estimate only when the fusion is missing, > 4 s old or made of this phone alone; an open own twin is settled by it within 40°. Log: `SHARED: bearing … from A,B, conf …`. |
 | Passive port / probe | `Probe.kt`: victim side = PendingIntent BLE scan, filter on 16-bit UUID 0xA5A7, `SCAN_MODE_LOW_POWER`, re-armed at boot (+10 s), app update (+3 s), every 15 min (inexact alarm) and whenever the app opens; a re-registration waits 2.5 s between stop and start. Commander side = 30 s non-connectable advertisement of 0xA5A7 with its name suffix, high power. Woken phone: notification (channel "rescue", full-screen intent) → `BeaconActivity` → `SensorService` (byProbe) → Nearby SENSOR; tag flags bit 0 = woken by probe; back to passive after 10 min without a commander. Commander shows "Discovered phones" from tag sightings: median RSSI, "~N m?" (−59 dBm at 1 m, exponent 2.7), warmer/colder trend, battery, letter once joined. |
 | Source locator | `Locator.kt`, see "How the source is located". Constants: cell 0.25 m, σ_t 0.5 ms, σ_amp 6 dB (weight 0.5), σ_doa 12° (voice 20°), decay 25 s, hold 3.5 s for late reports, mic spacing = median solved by the chirp rounds else 0.10 m. `LOCATE knock #n heard by A,B,C: A:+0.0ms B:+3.1ms …` and `LOCATE fix: peak (x, y) region … radius … nearest … spread …` in the log. Export gets a `locate` record per update. |
 | Radio ranging | `BleRanging` (Android 16 `RangingManager`). Capabilities on the I2501: CS enabled, RSSI enabled, UWB/RTT absent; own address read from the capabilities object's `toString`. Sensors advertise a connectable BLE tag (service UUID `0000A5A5-…`, data = name suffix); the commander scans for the tag to learn the sensor's **live** (rotating) address, opens a GATT link, then initiates; the sensor learns the commander's live address from its GATT server and answers it. **Result so far: CS opens, starts and closes with reason 3 (UNSUPPORTED) within 1 ms every time**, even over an open link with the responder ready; RSSI ranging then runs continuously but reads 6–14 m for phones 0.5 m apart. RSSI is displayed with "?" and never used to drop a chirp round. Latest build requests a one-time pairing and retries CS once bonded (untested). |
 | GPS | `Gps.kt`, framework `LocationManager`; `lat/lon/gacc` in events when a fix < 60 s old exists; in the export. Since 27 Sep the commander places the phones from it outdoors (`GpsLayout.kt`: 3 fixes each, ≤ 20 m accuracy, nearest pair ≥ 2× the worst accuracy), north-up map, hand layout wins if stored. |
 | Export | `SessionLog`: header (commander, sensors, dots, mode, last brief) + every event line + `hush`/`ranging_start`/`ranging`/`ranking`/`stop` records → `Downloads/hush-<date>-<time>.jsonl` via MediaStore. |
-| Permissions (declared, requested at role pick) | RECORD_AUDIO, BLUETOOTH_SCAN/ADVERTISE/CONNECT, NEARBY_WIFI_DEVICES, ACCESS_FINE/COARSE_LOCATION, ACTIVITY_RECOGNITION, RANGING (API 36), VIBRATE, FOREGROUND_SERVICE(+MICROPHONE), ACCESS/CHANGE_WIFI_STATE, legacy BLUETOOTH/ADMIN, **SEND_SMS, CALL_PHONE, READ_PHONE_STATE** (crash escalation; refused → dialer only). |
+| Permissions (declared, requested at role pick) | RECORD_AUDIO, BLUETOOTH_SCAN/ADVERTISE/CONNECT, NEARBY_WIFI_DEVICES, ACCESS_FINE/COARSE_LOCATION, ACTIVITY_RECOGNITION, RANGING (API 36), VIBRATE, FOREGROUND_SERVICE(+MICROPHONE), ACCESS/CHANGE_WIFI_STATE, legacy BLUETOOTH/ADMIN. |
 
-## Status (27 Sep 00:00)
+## Status (27 Sep ~07:30, confirmed working on the three phones by the team)
 
-**Crash / fall detection + emergency dialing (branch `crash-detection`, worktree `../Hush-Iqoo-crash`, 27 Sep, not yet
-installed on the phones):** `docs/PLAN-crash.md` has the plan and its status. Built: `CrashDetector` (free fall < 3 m/s²
-≥ 100 ms → impact ≥ 30 m/s², or ≥ 60 with no fall, or the sensor pinned at full scale; ≥ 3 of the 5 following seconds
-still; "carried before" gate so a resting sensor phone only triggers on saturation; gyroscope tumble / posture change
-break borderline ties; every candidate logged `Crash: candidate kind=… fall=…ms peak=… still=…/5 carried=… turn=…°/s
-posture=…° → DETECTED|rejected: …`), `CrashGuard` (30 s countdown with full-volume siren and buzz, red `CrashActivity`
-over the lock screen, then ESCALATED: `Alert` up the mesh every 10 s, SOS flag in the Bluetooth tag, texts and calls
-via `EmergencyDialer` with every attempt's outcome kept in a "what this phone did" list, dialer on 112; DRY RUN by
-default), the commander's red row + `CRASH RELAY … nearest=…` down to every phone (ranging distance → GPS → SOS-tag
-signal "~N m?" → "look around"), every other phone's `CrashAlarmActivity` (CALL <their contact>, CALL 112, I'M GOING →
-`Response` up, relayed to all, sirens stop, fallen phone shows who is coming), the contacts screen (PICK from the phone
-book, TEST, TEST CALL, dry/live toggle). Measured: both connected phones have **no SIM**, the accelerometer is an
-LSM6DSVX (non-wake-up, so detection needs a running role), a normal app cannot dial 112 itself. AccelChannel now also
-reads the gyroscope and writes `files/motion.csv` (300 s) for tuning; `Ping.play` takes a volume. Next: install,
-`--ez crashtest true`, the cushion-drop and staged-fall traces, then GUARD mode (build C) and the vehicle profile (D).
+**Where things stand: the working demo path** (tag `v-point-and-tap-working`; earlier known-good: `v-closest-working`).
+Everything below is loudness, chirps and one human pointing step; the two-mic direction, the magnetic compass and the
+timing locator are NOT in it (they failed on these phones, see the log).
+1. **Closest phone** (`Closest.kt`): every phone reports each knock's peak and age; the commander matches detections
+   within 350 ms as one knock, judges it as soon as every phone has reported past it (+250 ms), the loudest still phone
+   wins if it leads by >= 3 dB; the green panel decides from the last 6 clear knocks ("CLOSEST: Sensor B · loudest on 5
+   of 6 clear knocks · 17 dB louder than C"; LEANING below 60 %). Team: "working perfectly".
+2. **Warmer / colder** (`Warmth.kt`): a carried phone's level against the phones lying still, last 2 knocks vs the 4
+   before, +-3 dB (HIGH sensitivity: 2 dB, and knocks from x4 instead of x8). Team: working.
+3. **Positions from inaudible chirps** (`AutoLocate.kt`): 19-21.5 kHz rounds back to back (~every 9-12 s) whenever
+   three phones are connected; each phone's fixed range error (ef39 0.72, 6a46 0.13, 991e 0.14 m) is subtracted; the
+   first round places the triangle, later rounds follow moved phones (turned onto the previous map). Measured: 1.24 /
+   1.30 / 1.20 m for the 1.2 m triangle. No tape; stored tape layouts are ignored.
+4. **Where between the phones** (`LoudnessLocator.kt`): the 1/r fit of the same knocks to the chirp positions; panel
+   line "Sound ~ 0.3 m from Sensor B (+-0.2 m)" and a red circle on the map (needs three phones hearing the knock).
+5. **POINT & TAP arrow** (`Aim.kt`): each phone aims its top at another phone and taps (twice, two different phones,
+   for left/right); from then the gyroscope follows its turning and the arrow points from its chirp position to the
+   loudness spot, else to the closest phone. Team, 27 Sep: "perfect ... its working".
+Open next: a hall test at larger spacings; whether the per-phone range errors hold on other days (every round logs raw
+and corrected); more than three phones in AutoLocate; re-aiming after all phones move at once; the timing locator
+(real-knock fixes were 12 m off); the 1 s audio window; removing the debug WAV before any public build.
 
+The paragraphs below are the chronological log, newest first.
+
+**Crash / fall detection + emergency contacts, 27 Sep (branch `crash-detection`, worktree `../Hush-Iqoo-crash`,
+`docs/PLAN-crash.md`):** `CrashDetector` (free fall < 3 m/s² ≥ 100 ms → impact ≥ 30 m/s², or ≥ 60 with no fall, or
+the sensor pinned at full scale; ≥ 3 of the 5 following seconds still; "carried before" gate so a phone lying still
+only triggers on saturation; gyroscope tumble / posture change break borderline ties; every candidate logged `Crash:
+candidate … → DETECTED|rejected: …`). `CrashGuard`: 30 s countdown with siren + buzz on a red `CrashActivity` over
+the lock screen (I'M OK / CALL FOR HELP NOW), then ESCALATED: `Alert` up the mesh every 10 s, SOS flag in the
+Bluetooth tag, `EmergencyDialer` texts every contact, calls them one after another on speaker, opens the dialer on
+108; every attempt and its outcome is kept on screen, in the log and the export (DRY RUN by default: only described).
+The commander shows a red row and relays the alert to every phone with its guess of the nearest one (chirp map
+distance → GPS → SOS-tag signal → "look around"); every other phone gets `CrashAlarmActivity` (CALL their contact,
+CALL 108, I'M GOING → `Response`, relayed; sirens stop; the fallen phone shows who is coming). Contacts: the
+EMERGENCY CONTACTS screen (3, calling order) plus the first screen's single SOS contact. Hooks: `--ez crashtest true`,
+`--es crashmode dryrun|live`, `--es contacts "Name:+91…;…"`, `--ez motionrec true` (300 s accelerometer + gyroscope
+to `files/motion.csv`). New permissions CALL_PHONE, READ_PHONE_STATE. `CrashDetectorTest` (8).
+
+**SOS by text message, 27 Sep (`Sos.kt`; team: "for now as we dont have a sim its fine to send a failed message"):**
+(1) The red wake-up screen counts down 30 s from the probe; if neither I AM SAFE nor OPEN HUSH is pressed, it texts
+the ambulance number **108** (team's choice: the real number) and the emergency contact with the phone's name and a
+Google Maps link of its location (a fresh GPS/network fix if one comes within 8 s, else the newest last-known fix).
+Once per probe; a recreated screen does not restart it. (2) First screen: red REPORT AN EMERGENCY (confirm dialog) texts
+108 "emergency reported in this area" with the location; the emergency contact is set by tapping the line under it
+(`hush` preferences, `sosContact`). **SMS only, never a call**: Android places emergency calls without a SIM. Each
+message's radio result (SENT / FAILED no service / radio off / …) shows on screen and in a notification; log lines
+`SOS …`. SEND_SMS is asked at first launch (a woken phone behind the lock screen cannot ask); without it the
+messages app opens pre-filled. All three phones: SIM ABSENT, so every message fails on the phone. **With a SIM in,
+these messages really reach 108.**
+
+**Confirmed working, 27 Sep ~09:40 (tag `v-map-2knocks-working`, `4617848`), on top of the UI clean-up below:**
+(1) *Knocks beside a phone count:* "moving" is the MEDIAN high-passed shake of the second > 0.15 m/s² (`AccelChannel`),
+not the RMS; knocks on the table a phone lies on pushed its RMS to 0.65–2.2 and 30–40 % of all knocks (always the ones
+beside a phone) were dropped as "moving". Window lines log `accMed=` and `MOVING`. (2) *Map follows the card:* its green
+dot and arrow use the per-knock closest phone, not the 15 s live ranking; `Closest` decides from the last 4 clear knocks,
+2 name a phone (was 3 of 6). (3) *First map in ~14 s after the third phone joins* (was 32 s to minutes): a round starts
+4 s after the third phone joins; stored per-phone range errors are backed off (100/75/50/25/0 %) when they would make the
+triangle impossible (ef39's 0.72 m refused every round at 0.6–1.3 m); the chirp checks use the reference that agrees with
+most readings; mic 1 also times each chirp and takes over when mic 0 missed it or was 30–1440 samples later (an echo;
+ef39's bottom mic ran ~4 ms late). Chirps at 100 % alarm volume. 09:31: 6 of 6 rounds placed, steady within 1–4 cm.
+Absolute distances NOT verified (raw 1.05/1.36/0.61 m vs corrected 0.63/0.95/0.48 m; team says ~1 m): tape the three
+distances and recalibrate. (4) *Mic-off banner:* Android silenced ef39's recording 09:09–09:22 and every round failed
+unseen; now a red banner on that phone ("tap here") and on the others ("Sensor C hears nothing"). (5) Wake nearby: a
+phone with Hush closed also sounds a ~5 s alarm at 70 % alarm volume. (6) Map: pinch-zoom, drag, double-tap reset.
+(7) "Direction to the sound" card (arrow + point & tap) hidden, code kept. Knock sensitivity: keep NORMAL (HIGH made it
+worse in the hall).
+
+**UI clean-up, 27 Sep ~07:55 (`a67e36e`; team: "minimalistic, professional, easy to navigate … logging collapsible"):**
+light theme with rounded cards and buttons (`values/themes.xml`, `values/colors.xml`, `drawable/`); content padded clear of the
+status and navigation bars (Android 15+ draws edge to edge: `MainActivity.fitInsideSystemBars`). Role picker = two role cards,
+the at-home buttons, a short readiness note. Rescue screen, top to bottom: title + connection line + phone chip (letter ·
+suffix), closest-phone card (green = sure, amber = leaning; parsed from `Engine.closestText`, the per-phone tally stays in the
+log), warmer/colder card, direction card (arrow, hint, Point & tap), map, actions (sensitivity switch, Hush + Stop, wake nearby
+phones), then **Technical details**, folded by default: status lines, compass, phone list with scores, listen mode, map tools,
+export, this phone's microphone readouts. Fixed on the way: a freshly picked commander built its screen before the service had
+set `Engine.role`, so it showed "Sensor A" with the map tools off; the screen now receives the picked role.
+
+**Confirmed working, 27 Sep ~07:30:** after the POINT & TAP build (`22a00ea`) the team reported "perfect ... its
+working": closest phone, warmer/colder, chirp positions and the pointed arrow together. Tagged `v-point-and-tap-working`.
+(The entries between here and "Closest phone replaces the arrow" are in the order they happened, oldest first.)
+
+**Voice as well as knocks, 27 Sep (team: "yes build it"; not yet tried on the phones):** every phone's once-a-second
+loudness (200-3000 Hz, the speech band, already in every SensorEvent) goes to a second judge on the commander,
+`closestVoice = Closest(matchMs 600, readyMargin 600, minLoudRatio 3)`: a second counts when some phone's classifier
+says speech (voice bucket >= 0.5) and that phone hears it >= 3x its background; every phone's level takes part (the
+phones' seconds are not aligned, hence the 600 ms match). Seconds within 1.5 s of a chirp trigger are skipped (the
+chirping phone hears its own inaudible chirp ~25x louder and the one-pole band-pass leaks some). Knocks win: voice is
+used only when there were no clear knocks in the last 20 s; then the panel says "CLOSEST (voice): Sensor B · loudest
+on 5 of 6 clear seconds of voice", warmer/colder, the loudness spot and the arrow use the voice seconds. Log `VOICE
+second: A=... B=... -> B +9.1 dB over A`, export `closest_voice`. Note: people talking near the phones during a demo
+steer the panel whenever nobody knocks. `ClosestTest.voiceSecondsFromUnalignedPhonesMatch` passes.
+
+**Closest phone replaces the arrow in the demo path, 27 Sep 05:40 (team after 15 h: "none of the features are even
+remotely working"; RCA from the 04:16-05:18 logs of 6a46 and 991e):** (1) phones 0.4-0.5 m apart make every
+multi-phone cue tiny (04:32 burst: A vs 991e peak levels 1-4 dB apart); (2) the two-mic mirror never resolved because
+the phones lay parallel as SYNC asked (A 106/322, B 123/303, fused confidence 0.44-0.48; median 0.41 over 308
+fusions); (3) compasses jump (B read 122 -> 297 -> 204 deg in 25 s on the table); (4) the live ranking used 1 s RMS minus a
+rolling floor that climbs during knocking (04:32:13: knock x43, rms 0.0011 < floor 0.0017 -> score 0); (5) 0 `LOCATE fix`,
+0 `CROSS: source`, 0 `Clock:` lines on either phone: the timing locator and the crossing never produced a result.
+New: `Closest.kt` (commander) takes every phone's per-knock PEAK (onset reports now carry `ag`, the knock's age in ms,
+so the commander puts it on its own clock), matches detections within 350 ms as one knock (judged 2.2 s later, needs
+one phone >= x8), the loudest phone wins it; the panel counts wins over 20 s: "CLOSEST: Sensor B - loudest on 7 of 9
+knocks - 12 dB louder than A" (LEANING below 60 %). Board field `cl` shows it on every phone. Log `CLOSEST knock: A=0.0780
+B=0.0610 -> A +2.1 dB over B`, `CLOSEST panel: ...`; export record `closest_knock`. Arrow and SYNC COMPASS are hidden
+(layout `gone`, code kept). `ClosestTest` (5) passes. Test: phones in three corners of the 2 m x 1.5 m room on cloth,
+knock 0.3 m from one phone 10x: pass = that phone wins >= 8. Installed on all three 05:52. **First run 05:53-05:56 (team knocking, positions not logged): clear runs A 17 knocks in a row (+12..+22 dB), C 27 of 28 (+8..+20 dB), B 15 in a row (+17..+23 dB); the panel switched C -> B within 2 s (LEANING) and 3 s (CLOSEST). Knocks between runs won by < 3 dB were coin flips.** Since 06:05 such knocks are logged `(tie, not counted)` and left out of the count (`Closest.MIN_LEAD_DB = 3`); the panel says "of N clear knocks". **Second run 06:00-06:01 (ef39 commander, 6a46 B, 991e C; team knocked A, B, C):** B 9 of 10 clear knocks
+(+5..+28 dB), C 20 of 20 (+8..+30), then A 32 of 34 (+6..+23; not in the team's list, ask); ~95 % of knocks to the right
+phone. But the panel needed 7 s (B -> C) and 10 s (C -> A) to switch, because it counted 20 s of wins. Since 06:15 it
+decides from the last 6 clear knocks (`Closest.WINDOW_KNOCKS`): the new phone leads after 3 knocks, CLOSEST after 4. **Third run 06:05 (same roles, A then B then C):** every clear knock right (A 11/11 +7..+17 dB, B 12/12
++10..+25, C 9/9 +28..+33), but the panel still showed the new phone ~4.5 s after the first knock there: the commander
+waited a fixed 2.2 s before judging each knock. Since 06:25 every SensorEvent carries `wa` (ms since that second's audio
+ended), the commander tracks per phone up to when everything is reported, and judges a knock once every talking phone is
+past it + 250 ms (`Closest.READY_MARGIN_MS`; 2.2 s stays as the fallback). A report arriving after its knock was judged is
+dropped (`CLOSEST late:` in the log) so it cannot make a false one-phone win. Each `CLOSEST knock` line ends with
+`judged N ms after the knock`. Next lag cut if needed: the 1 s audio chunk (open item: 250 ms hop). Team 06:30: "working perfectly".
+
+**Where between the phones, from loudness, 27 Sep 06:40 (`LoudnessLocator.kt`):** the same last 6 clear knocks, each
+phone's peak and its hand-layout position: a spot fits when ln(peak) + ln(distance) is equal across the phones (1/r law,
+knock strength cancels), Cauchy misfit with 6 dB per unit, grid 5 cm over the phones + 0.3 m. Needs 3 placed phones
+hearing the knock (two phones = a circle; in the narrow strip around two phones it looked falsely precise). Margin 0.3 m,
+not 1 m: two level ratios are two circles crossing at TWO points, the second outside the phones (simulated: a knock
+0.3 m from B came out 0.9-1.2 m away with a 1 m margin). Simulated in the 2 x 1.5 m corners: 2 dB level noise 0.05-0.35 m
+off (up to 0.6 m in the corner far from both others), 5 dB mostly 0.2-0.5 m, a few 0.8-1.5 m. Panel line "Sound ~ 0.3 m
+from Sensor B (+-0.2 m)", red cross-hair + shaded region on every phone's map (Board field `wp`), log `WHERE: (x, y) m
++-r from N knocks ...`, export record `where`. The layout may now name the commander by its suffix too (any phone can be
+commander): `--es layout "6a46=0,0;ef39=2,0;991e=2,1.5"`. Not yet run on the phones.
+
+**WARMER / COLDER for a carried phone, 27 Sep 06:55 (`Warmth.kt`; team: "since the devices would also move isnt doing
+this useless? we just want something where the devices will point towards the sound"):** positions do not survive
+moving phones, and no phone can know the direction to another (GPS indoors none, BLE RSSI 6-14 m at 0.5 m, Channel
+Sounding refused, no UWB, chirp distance 0.78 for 0.40 m, compass jumped 175 deg in 25 s): no arrow to the closest phone.
+Instead each phone is a metal detector: per judged knock, its peak over the median peak of the other STILL phones (dB;
+knock strength cancels; a carried phone in the reference would make still phones read COLDER), mean of the last 2 knocks
+vs up to 4 before, +-3 dB = WARMER/COLDER. Moving phones now report into `Closest` (flag per detection): they feed the
+trend but never the vote (`CLOSEST knock: ... B=0.0300(moving)`; a knock only moving phones heard = "no vote"). Log
+`WARMTH B: WARMER +4.2 dB (level vs the still phones +8.1 dB, 6 knocks) moving`; Board field `wm`; each phone shows its
+own line under the panel (orange WARMER / blue COLDER / grey no change), the panel adds "Carried: B warmer +4 dB". The
+"Place 3 phones" hint is gone (the loudness point stays dormant without a layout). `WarmthTest` (4) passes.
+
+**The arrow is back, fused from confirmed knocks only, 27 Sep 07:10 (`KnockDirection.kt`; team: "now that the knock
+recognition is so good, try bringing back the compass ... enough phones would form a complete 360 view"):** checked first
+on the 06:05 run (knocks at each phone in turn): a phone >= 1 m from the knock repeats its two-mic delay within +-1 sample
+(ef39 -23.4..-25.3 for C's knocks, 6a46 17.6..18.1 for A's, 991e ~25.7 for A's, ~5 for B's); the phone next to the knock
+(~0.3 m) scatters (ef39 -26..+26 for its own). So every knock `Closest` judges carries each phone's delay, quality,
+heading and felt flag (its loudest detection); still phones vote heading +- angle (both mirrors) weighted by quality,
+felt x0.3, the knock's clear winner (>= 6 dB) x0.3; the last 6 judged knocks (20 s) make a 5 deg histogram; resolved when
+the peak >= 1.5x the runner-up; confidence = share within +-24 deg. Room noises never vote. Board field `kd`; every phone
+draws that one bearing minus its own gyro heading (after SYNC); all older arrow sources are bypassed
+(`SensorScreen.drawKnockArrow`). Arrow and SYNC COMPASS are visible again. Needs: SYNC with the phones parallel, then
+the phones at clearly different angles (parallel phones share the mirror), within ~0.5 m of each other with the knock
+farther away (parallax). Log: `KNOCKDIR knock: A dl=.. q=.. hd=.. -> th.. votes ../.. w..`, `KNOCKDIR fused: 70 deg
+resolved conf 0.8 from A,B,C over 6 knocks`, per phone `ARROW drawn: screen .. = bearing .. - heading ..`; export
+`knockdir`. `KnockDirectionTest` (5) passes. The delay-to-angle curve is still the cosine law (rotation test never
+done): expect +-30 deg until measured.
+
+**Correction:** the clock times in the entries above from "Where between the phones" on (06:40, 06:55, 07:10) were
+estimated, not read: the phones' clocks put the arrow test at 06:43-06:47 and the chirp test at 06:49.
+
+**Why the fused arrow failed, and what the chirps showed, 27 Sep 06:43-06:52 (phones' clocks):** SYNC worked (A 136,
+B 137, C 139 deg). But almost every knock gave each phone an end-on two-mic delay (about -24 samples, "beyond my top
+edge") whichever way it lay: B at 266 deg and C at 347 deg both read -24 for the same knocks, and 991e reached -42
+samples where 17 cm of mic spacing allows +-24, so the stereo channels are not in step (capture processing?). The fusion
+therefore jumped between the phones' own top directions (138 / 266 / 347 deg). The two-mic arrow is off
+(`SensorScreen.drawKnockArrow`, code kept, tag `v-before-chirps`). Chirp test (`--ez range true`, 19-21.5 kHz at alarm
+x0.8): every phone heard every other phone's chirp at 15-155x the threshold (the band carries: no need for a lower
+frequency or more volume); clock offsets repeat round to round (B 29, C 14 samples in a minute: drift); arrival-time
+differences between phones for the same knock repeat (C then B, +0.4..+0.6 ms). But chirp DISTANCES are wrong for the
+team's 1.2 m equilateral triangle: AB 2.03/2.02/2.08, AC 2.02/2.11/2.03, BC 1.46/1.46/1.45 m (repeatable, wrong):
+split per phone, ef39 about +0.7 m and 6a46, 991e about +0.1 m each (a phone's own-chirp arrival is off, as in the
+00:30 notes). So positions come from the TAPE (`--es layout "6a46=0,0;ef39=1.2,0;991e=0.6,-1.04"` on the commander),
+clocks from the chirps (third-party chirps, unaffected), and the arrow now points from each phone to the timing
+locator's spot (`Engine.localSourceArrow`). ef39 held a stale 0.40 m tape layout from 06:17, which is why the locator
+ran during the arrow test with radius ~10 m. Tags: `v-closest-working` (9a12fcc, last confirmed), `v-before-chirps`.
+
+**Auto-locate: positions from the chirps every round, 27 Sep (`AutoLocate.kt`; team: "have it auto locate every few
+seconds with the chirps"):** the chirp range error is a fixed amount per phone (from the three 06:49-06:52 rounds on the
+1.2 m triangle: ef39 +0.70/+0.74/+0.73 m, 6a46 +0.14/+0.09/+0.15, 991e +0.13/+0.18/+0.10). With a tape layout on the
+commander, each round's chirp - tape = b_i + b_j gives every phone's error (`AUTOLOCATE calibration round: ...`); two
+rounds agreeing within 0.10 m switch it on (`AUTOLOCATE on: range errors ...`). Then every round subtracts the errors,
+rebuilds the triangle from its three sides and turns (or mirrors) it onto the previous positions (2-D Kabsch; distances
+say nothing about orientation, so the arrows stay right only while the phones do not ALL move a lot between rounds);
+when some phone moved > 0.08 m the positions replace the layout in memory (`AUTOLOCATE round: corrected ... -> ...
+moved N m, map updated`, export `autolocate`). Rounds run back to back (2 s gap, ~9 s per cycle with three serial
+chirps). Three phones only (A and the first two sensors). A new tape layout recalibrates. `AutoLocateTest` (5) passes.
+Needs on the phones: the tape layout entered once with the phones on it, then two rounds (~20 s) before moving them.
+
+**No tape any more: chirps run continuously and place the phones, 27 Sep ~07:10 (team: "stop caring about where the
+phones are set right now, the chirping needs to keep running and the device needs to keep figuring out each others
+locations"; also "the compass is being horrible, as the devices are not communicating"):** the logs showed the mesh fine
+(991e got a clock round every minute, SYNC agreed 124/128/125 deg) and the arrow test ran on the build BEFORE auto-locate
+(installed 07:03:24-32) with ef39's stale 0.40 m tape layout, so the locator worked on a third-size triangle (radius
+~10 m, "direction only"). Now: a stored tape layout is ignored at commander start (`--es layout` in the session still
+works and still calibrates); chirp rounds run with or without a layout whenever 3 phones are connected, first 15 s
+after the role starts, then back to back (2 s gap); with no positions the first round places A at 0,0 and B on +x from
+distances corrected by built-in per-phone errors (`AutoLocate.DEFAULT_BIAS_M`: ef39 0.72, 6a46 0.13, 991e 0.14, others
+0.13 m, from the 06:49-06:52 rounds; whether they hold after an app restart is unknown: `AUTOLOCATE start from the chirps:
+raw ... -> corrected ...` shows both), clocks use the corrected distances, and every later round follows moved phones
+(`autoLocateStep`). The map's orientation to the room is not known from distances: the arrow still needs SYNC + pointing.
+**Sensitivity toggle** (button under the panel, every phone; a sensor asks the commander, Board field `sh`): HIGH counts
+knocks from x4 over the background (NORMAL x8) and WARMER/COLDER at 2 dB (NORMAL 3); log `SENSITIVITY: ...`.
+
+**POINT & TAP arrow, 27 Sep ~07:25 (`Aim.kt`; team: "the arrow is no longer turning"):** checked first on the phones
+(07:08-07:12): chirp auto-locate worked (corrected sides 1.24 / 1.30 / 1.20 m for the 1.2 m triangle, rounds every
+~12 s, so the built-in per-phone errors survived the restart), but the arrow was grey everywhere: nobody had pressed
+SYNC/Align in that session, so the map's orientation was unknown and the arrow code switched itself off behind a
+one-line, cut-off label; and the timing locator's real-knock fixes were nonsense (12 m away, +-7-12 m) with nearly right
+positions. Now each phone orients ITSELF: POINT & TAP (blue button under the arrow, names the phone to aim at) stores
+the map bearing to that phone and the phone's gyro heading; one tap gives the rotation, a tap at a second phone decides
+whether the map is mirrored (log `AIM: ...`). No SYNC needed (button hidden). Arrow target: the loudness spot
+(LoudnessLocator, now fed by the chirp positions) else the closest phone's position; "THIS phone is closest" / "HERE"
+(< 25 cm) otherwise. Short label on the arrow, the explanation in a text line under it (`aimHint`); log
+`ARROW: label | hint | screen .. heading ..` once a second on every phone. `AimTest` (4) passes. The older arrow logic
+is kept, unused (`SensorScreen.drawOlderArrow`).
+
+**Timing locator back, inaudible chirps, every phone locates, 27 Sep 04:40 (team: "we are just pointing a compass
+… not using the power of multiple devices to triangulate"; "if the chirps are made, make them at such high frequencies
+that humans cant hear"):** (1) *Top-band test* (`tools/calibration/ultrasweep.py` makes the file,
+`ultrasweep_measure.py` measures it): 6a46 playing a 12–23.5 kHz sweep and steady tones to its OWN mics at alarm ×0.5:
+19 kHz 47/31 dB above the background (mic 0 / mic 1), 20 kHz 39/24, 21 kHz 33/17, 22 kHz 21/15, 23 kHz nothing (the
+capture filter). The between-phone level is not measured yet (two phones were off USB). (2) *The chirp* is now a
+120 ms 19–21.5 kHz Hann sweep at alarm ×0.8; the matched filter's coarse pass runs at 48 kHz (the 16 kHz copy could
+not hold it); `ChirpTest` passes (found to the sample, weak direct path before a strong echo). The two-mic delay of a
+chirp is now nearly always ambiguous (2.4 samples per carrier cycle) and stays gated off; the test now checks that an
+accepted delay is right. (3) *Knock detector vs chirps*: an onset whose second-difference energy is > 8× its energy
+(19–21.5 kHz ≈ 13–14, white noise ≈ 6, knocks < 2) is a PHANTOM "(ultrasonic: a chirp)"; the blanking after a chirp
+command dropped from 1.5 s to 0.3 s. (4) *Clocks from tape positions*: with a hand layout (`--es layout
+"B=x,y;C=x,y"`, metres, A at 0,0; or GPS positions) a chirp round only syncs the clocks, using the TAPE distances
+(chirp ranging read 0.78 m for a 0.40 m pair) and preferring third-party chirps (a phone hearing its own chirp had odd
+delays); it never moves a taped map; `RANGING vs tape: AB tape 0.50 chirp 0.52 …` is logged every round (step 4:
+can the inaudible chirp replace the tape?). A round runs 2 s after the layout is applied and every 60 s (commander,
+`Clock round (every 60 s, inaudible …)`), and needs only 2 phones. The status line says "Clocks: inaudible chirp
+round N, all phones timed". The locator's fix is no longer gated on the old `chirpCalibration` flag. (5) *Orientation
+without pointing*: tape the layout with +y along the direction the phones' tops point when SYNC COMPASS is pressed
+(x to the right); SYNC then sets the map rotation (`ALIGN: taped layout oriented by SYNC`). (6) *Every phone locates
+(step 3)*: the commander relays every phone's onset report down the tree and sends each chirp round down
+(`ClockRound`: who heard which chirp at which sample, the distances used); the board carries positions (metres),
+scale and rotation. Each sensor feeds its own `Locator` and runs it once a second (`LOCATE here: …`); every screen's
+arrow now starts with the located point seen from THAT phone's position ("→ KNOCK · 1.2 m ±0.3 · located by timing
+across all phones"), then own-arrow-heard-well, crossing, fused direction. (7) *Step 4, not built*: positions from
+knocks alone (clock offsets + positions solved jointly from TDOA + two-mic angles: in principle ~2 knocks at different
+places for 3 phones, fragile with the mirror and table-borne knocks) and GPS time for clock sync (raw GNSS clock is
+precise, but tying it to the audio sample clock needs AudioRecord timestamps accurate to < 0.1 ms; outdoors only).
+The practical path is the chirp-vs-tape log above. Not tested on phones yet: installed on 6a46 only (ef39 and 991e
+dropped off USB); first test = the between-phone level of the chirp, then a clock round, then knocks.
+
+**Pointing at a nearby knock, gyroscope heading, 27 Sep 03:45 (team: "sensor B and C now point in the same
+direction, but … all point in the direction of the sound"):** the 03:38 round was knocks beside A (A: 11–14 knocks
+at ×14–93, dl ≈ +22.5 = straight off its bottom; B: 3 faint knocks; C: none). The fused bearing is ONE compass
+direction; B and C drew it from where they lie, i.e. parallel to A's line, not at the knock. A fused direction is only
+right for a knock far away compared with the phone spacing; a phone off to the side of a near knock can only point at
+it if it hears it itself or knows where the phones are. Changes: (1) precedence on every screen is now **own arrow
+when this phone hears it well** (resolved by turning or by the other phones, ≥ 3 knocks: `Engine.ownHeardWell`,
+label "heard here … left/right from A,B") > the commander's point (crossing / located source, needs positions) >
+the fused direction (label adds "same direction as the phones that hear it (Place the phones on the map …)") > own
+unresolved. (2) **Heading from the gyroscope** (`TYPE_GAME_ROTATION_VECTOR`, started once from the magnetic
+heading): after the phones were moved, A's magnetic error changed by ~130° while it still reported accuracy 3.
+SYNC is now once per session (not stored); the screen shows "Heading N° (gyroscope) · synced ±N°" or "NOT SYNCED".
+Also seen: C's 03:37 knocks were 14/16 "felt" (through the table), which read as sideways: cloth under the phones.
+991e stopped answering over USB during this install (it joined the mesh; build unknown until re-plugged).
+
+**Compass sync and one screen on every phone, 27 Sep 03:30 (team: "why does sensor A point the opposite way … they
+are all kept parallel"; "they all need to have the same UI (of commander)"):** cause of the backwards arrow: with
+the three phones parallel their compasses read A (6a46) 96–98°, B 236–238°, C 245–246°. Every phone draws the
+fused bearing minus its OWN heading, so A's 141° compass error turned its arrow almost around. A's rotation-vector
+sensor still reported accuracy 3 ("high"), so the phone's own flag cannot catch this. Fix: **SYNC COMPASS** (button
+under the arrow on every phone; `--ez sync true`): with the phones lying parallel, the commander takes every phone's
+current heading (its own plus `hd`, now in every event), picks the circular median (so one bad compass is outvoted;
+with two phones the commander's wins) and sends `SYNC hd=<ref>` down; each phone stores a correction
+(`compassOffset` in the `hush_mic` preferences, kept across restarts) and restarts its bearing votes. Long-press
+clears a phone's correction. Log: `COMPASS SYNC: headings A=96° B=237° C=246° -> every phone reads 237°`, then
+per phone `COMPASS SYNC (…): raw …, now … (correction +141°)`. Measured 03:30: A +141°, B +0°, C −9°, all read
+237°. The screen shows "Compass N° · correction ±N° · accuracy …" (figure-8 hint when the phone says low).
+A constant correction is only right while the disturbance stays the same: re-sync after moving the phones to a new
+place, and check whether A's error changes with its orientation (a magnet in a case would do that). **Same screen:**
+sensors now use the commander's layout. The commander sends a `Board` down once a second after its own second
+(brief, ranking, names, every phone's latest event, status lines, discovered phones); a sensor's HUSH (long-press
+= solo), STOP, ACTIVATE, mode buttons and SYNC go up as a `Request` and the commander runs them (`REQUEST from B:
+…`). The sensor's map shows the commander's dots and point from the Fix; Place / Align / Auto-place / Flip stay on
+the commander. A sensor's export now holds every phone's seconds from the board. Verified from the laptop: boards
+arrive every second (`BOARD brief:` on both sensors), SYNC requested from Sensor B ran on the commander and reached
+all three. Not yet tried by hand: HUSH/STOP from a sensor's screen, the screen itself (phones were locked).
+
+**One arrow, accumulating confidence, 27 Sep 03:35 (team: "instead of jumping around, increase confidence based on
+the readings of the other phones", "why two arrows, it should be one"):** the commander's fusion is no longer a
+snapshot of each phone's latest bearing but an accumulating 5° histogram that decays with τ = 10 s: each phone's
+event adds one vote (weight = correlation quality × (0.5 + rhythm score), a resolved phone one vote, an unresolved
+one half a vote per candidate). Agreeing phones pile up, one phone's swing barely moves the peak, and confidence =
+the share of votes within ±24° of the peak (about 0.35 while a mirror is open, 0.8+ when three phones agree). The
+faint twin arrow is gone on every screen: one arrow, whose green deepens with confidence, and "confidence N%" in
+the label ("turn a phone to firm up" while the mirror is open). Rhythm over class (03:15): knocks in a steady or
+patterned rhythm count up to twice a stray loud onset in each phone's arrow and in the fusion; the listen mode was
+already TAPPING. GPS layout tightened (03:20): never closer than 8 m or 3× the accuracy, and only after two
+solutions 5 s apart agree, after indoor noise placed the 0.5 m cluster 14 m apart at ±7 m. Open: the commander and
+Sensor B disagreed on a world bearing by ~50° half a metre apart, likely compass error between phones (cables,
+laptop, table): check by laying the phones parallel and comparing `heading=` in their logs.
+
+**Fused bearing first, faster relay, Bluetooth-only mesh, 27 Sep 03:15 (team: "it keeps concentrating on a single
+phone", "the relay between the phones is not that fast"):** every phone now draws the commander's FUSED bearing
+first (all phones' microphones, mirrors resolved across phones, drawn through the phone's own compass) and its own
+two-mic estimate only when the fusion is missing, older than 4 s or made of this phone alone (`Engine.preferShared`).
+Labels: "→ KNOCKING · all phones fused: A,B,C" / "fused from A,B · left or right? …". Relay: a sensor's bearing used
+to wait for the commander's own next second before it was fused and sent down, then only when it moved by 5° or
+every 5 s; now the commander fuses and sends the moment a bearing arrives, on a 2° change, at most ~3 times a
+second. Mesh: `ConnectionType.NON_DISRUPTIVE` on advertising and connection requests (Nearby 19.5.0), so links
+stay on Bluetooth instead of upgrading to a Wi-Fi hotspot: the commander logged 29 "nothing from … for 2.5–4 s"
+stalls in the 30 min before, every link at quality 3 (Wi-Fi). What "using every device" means without chirps: the
+fused bearing (weighted votes of every phone's own arrow), the crossing (needs positions: `--es layout` and Align
+for a fixed cluster, then knocks within ~1 m of a 0.5 m cluster get a point, farther ones a direction), and the
+timing locator only with clock sync (silent ultrasonic chirps, plan step 4).
+
+**Personas B and C built on branch `worktree-personas-bc`, 27 Sep 03:00–04:00 (docs/PLAN-personas-bc.md steps 1–5; NOT
+installed on the phones yet, another session was using them; laptop build + 53 unit tests pass):** the first screen has
+an "AT HOME" section with **ALERTS** (persona C) and **HOME** (persona B). Both roles run one phone alone: no Nearby, no
+Bluetooth, no GPS, no chirp warm-up, no debug WAV, and YAMNet only on seconds ≥ 1.5× the floor or with an onset
+(`Household classifier: ran N s, skipped M s` every 10 min). *ALERTS:* `SoundAlerts` folds each second into
+categories (table in the plan) → `Alerting` buzzes the category's pattern (alarm-class; a knock replays its own
+rhythm; ALARM repeats until dismissed), posts a high-importance notification on channel "alerts" whose full-screen
+intent opens `AlertActivity` (colour + word over the lock screen, 2 Hz flash for 3 s, tap to dismiss), appends to
+`files/alerts.jsonl`; the screen shows the last alert big, the history, a switch + TEST per category, TEACH rows,
+a sensitivity switch. *TEACH:* 3 loud seconds → mean YAMNet score vector in `files/sounds.txt`; cosine ≥ 0.85 →
+alert with the sound's name. *HOME → COUNT:* whistle second = whistle classes ≥ 0.3 + loud ≥ 4× + tonal ≥ 6×, or
+tonal ≥ 15× and loud ≥ 6× in 600–4500 Hz; 8 s refractory; DONE = green flash + buzz + notification + loud double
+beeps (60 % alarm volume); TIMER/ALARM alerts also shown. *HOME → FIND:* the own arrow (KnockBearing, tuned to
+τ 60 s / 90 s / 2 knocks, histogram reset on arriving at a new spot) + `DeadReckoning` position → `WalkLocator`
+marks when still ≥ 3 s with an arrow, ≥ 1.5 m apart → `Crossing.candidates` → fix, loudness (1/r) breaks a two-mark
+mirror tie by ≥ 3 dB; prompts; HUM mode uses the whole second's 60–1500 Hz two-mic delay. **All thresholds are
+start values from the plan, untested on real sounds: run step 0 of the plan first (what YAMNet says about a cooker
+whistle, a doorbell, a microwave beep, a door knock, a smoke alarm), then tune `SoundAlerts.Category` and
+`WhistleCounter` from the `window` and `ALERT`/`WHISTLE` log lines.** Laptop test without sounds:
+`--es role ALERT` then `--es alerttest DOORBELL` (phone locked: blue screen over the lock screen).
+**Deaf-aid additions, 27 Sep 04:30 (team: ship features, test briefly):** on the ALERTS screen, *Hearing now* (level bar in dB
+above the room with quiet / LOUD / VERY LOUD, the sound names the model hears, the last 8 distinct sounds with times);
+*Live captions* (`Captions.kt`: Android's speech recogniser, on-device when available, `EXTRA_PREFER_OFFLINE`, restarted
+after every phrase; our own capture is stopped while it runs and restarted after, `Engine.setCaptions`; a typed name is
+flagged "SOMEONE SAID …" with a buzz when it appears in a final caption); *Type to speak* (`Speak.kt`, on-device
+text-to-speech, six quick phrases; while it speaks the alerts treat the sound as our own); *Torch* (`Torch.kt`,
+camera flash at ~3 Hz for 3 s, or until dismissed for ALARM; switch on the screen) and *Night mode* (torch for every
+alert, the alert screen at full brightness stays 20 min); a button to Android's Accessibility settings (system flash
+notifications); KNOCK words carry the side from the own arrow ("KNOCK ×3 · left"). Untested on the phones: whether the
+I2501 has the offline English speech pack (the status line says which recogniser it got), and whether the recogniser
+gets the microphone from us cleanly.
+
+**First run on the phones, 27 Sep 05:20–05:35 (ALERTS on 991e and 6a46, merged build):** the role starts with no radios,
+TTS ready, mic open, model classifying; `--es alerttest DOORBELL` buzzed the pattern, found the back camera's flash
+(`TORCH: camera with flash = 0`) and posted the full-screen notification; ALARM repeated until dismissed on the
+phone. **Found and fixed:** the vibration motor is heard as knocks (×18–154), so every buzz produced a "KNOCK ×2" a
+second later, endlessly; `Haptics.busyUntilMs` now marks seconds up to 0.6 s after any buzz as the phone's own noise
+(alerts and whistles skip them, buzz onsets are dropped). **Captions:** the phone has Google's on-device recogniser
+(`com.google.android.as`), which refuses `en-IN` offline; the code now falls back en-IN → en-US → default, and en-US
+transcribed room speech within 10 s (`CAPTIONS: 'Hello hello the captions open'`). Captions that stop by themselves
+now give the microphone back to our capture (it stayed paused before). Laptop hook: `--ez captions true|false`.
+Not yet tried on the phones: type-to-speak's audible output, TEACH, the HOME role, KNOCK from real door knocks.
 
 **Phantom knocks, 27 Sep 02:50:** in a quiet room a third of all onsets (91 of 269 on 6a46 in 8 min) were clicks of
 about −38 dBFS (peak 0.011–0.016, ×5–8 the median frame) IDENTICAL in both microphone channels: two-mic delay 0.0,
@@ -395,21 +743,27 @@ two-mic north → window → ranking → brief, repeatedly; live brief; radio se
 direction wrong in a test with phones 50–60 cm apart (inside the near-field skip; must be re-run at ≥ 1 m); "Sensor C
 more sensitive than B" traced to the chirp-inflated noise floor (fixed) plus phones sharing one tabletop.
 
-**Open tests (each independent):** source locator on real knocks (after a HUSH/ranging: knock 2 m outside the
-triangle, expect `LOCATE knock` lines with B/C a few ms apart, a red cross-hair, and the arrow on the knock, not on the
-nearest sensor; then knock beside B and expect the cross-hair on the knock, still not on B's dot); `Clock:` spread
-< 10 samples and `Axis:` spread < 15° in the log after a round; live tracking without HUSH; direction at ≥ 1 m while turning the commander; quiet
-window ("No human signal detected"); two-source window; B takes the star when knocked beside; multi-hop ("2 hops" on
-the far sensor); pairing prompts and whether "Radio:" loses its "?".
+**Open tests (each independent, 27 Sep 03:45):** compass agreement (three phones parallel for 10 s, `heading=` in
+the logs within 10°); the arrow on real knocks with all three phones at different angles (one arrow on every phone,
+same direction, confidence rising to 80 %+, `SHARED:` lines with three letters); a knocker walking around the
+cluster (the arrows follow within a few knocks, no jumps); the crossing after a hand layout (`CROSS: source at …`,
+red cross-hair near the knock, "~N m where the arrows cross"); the sweep with one phone armed and the app closed
+(buzz, red screen, joins as a sensor) and the buzz + "Rescuer probe heard" on phones already in a role; the rotation
+test for the delay-to-angle curve; a quiet window ("No human signal detected"); multi-hop ("2 hops" on the far
+sensor). Chirp-era tests (locator on real knocks, `Clock:`/`Axis:` spreads, radio pairing) wait for the silent chirp.
 
 **Known gaps / next steps:**
-1. Channel Sounding refused by the stack — try bonding (in build), then security level 4, then give up on CS and keep
-   RSSI as "nearer/farther" only.
-2. Positions for more than three phones: least-squares from the full distance graph (mesh already relays reports).
-3. Locate: TDOA solver from sample-accurate onsets (timestamps only) + error circle; open-air only, never under rubble.
-4. Call-and-listen through the speaker; torch strobe on the strongest sensor; barometer is absent on this model.
-5. VICTIM mode (trapped person's phone chirps a known pattern + SOS beacon) — biggest upside, not started.
-6. Remove the debug WAV before any public build.
+1. Compass offsets between phones would blur every fused arrow: measure; if real, calibrate the phones against each
+   other from knocks they all hear (per-phone heading offset that makes their bearings agree).
+2. Delay-to-angle curve of this phone model from a rotation test (the cosine law with 0.17 m read a knock straight
+   beyond the cable end as 30° off-axis); a per-model lookup replaces `acos(delay / maxDelay)`.
+3. "Every phone both roles": auto-role at launch (join a visible commander, else become one), HUSH/STOP/SWEEP on every
+   phone forwarded to the hub, the brief sent down in the Fix; the map and list stay on the hub.
+4. Audio hop of 250 ms for the tap detector so a knock is reported within 0.3 s instead of up to 1 s.
+5. Silent ultrasonic chirps (plan step 4, gated on a roll-off test): ranging, clock sync, the timing locator, mic axes.
+6. Channel Sounding refused by the stack; RSSI stays "nearer/farther" only. Positions for more than three phones.
+7. Call-and-listen through the speaker; torch strobe; VICTIM mode (SOS chirp pattern + beacon), not started.
+8. Remove the debug WAV (300 s of raw stereo per role start, private files) before any public build.
 
 ## Roadmap (revised 26 Sep 20:00 against PRD v2.2, `docs/PRD-v2.2.md`)
 
@@ -558,30 +912,38 @@ data class SensorEvent(          // every phone, once a second
     val lat: Double?, val lon: Double?, val gpsAcc: Float?,
     val chirpTs: Long? = null,
     val micDelay: Float? = null, val micQ: Float? = null,  // two-mic delay over the second, voice only
-    val bearing: Float? = null, val bearingQ: Float? = null, val bearingTwin: Float? = null   // the phone's own knock arrow (compass °), only while it shows
+    val bearing: Float? = null, val bearingQ: Float? = null, val bearingTwin: Float? = null,  // the phone's own knock arrow (compass °), only while it shows
+    val heading: Float? = null   // hd: compass heading of the top edge after SYNC COMPASS
 )
 // Bluetooth (not JSON): probe advertisement = service UUID 0xA5A7 + 4-char commander suffix; Hush tag = service data
 // under 0xA5A5 = 4-char suffix + flags byte (1 = woken by probe, 2 = SOS) + battery byte.
 // Every phone, once a second and only when it heard knocks: each knock to the sample, on the sender's own audio clock.
 data class Onset(val sample: Long, val peak: Float, val ratio: Float, val micDelay: Float?, val micQ: Float?, val felt: Boolean)
 data class OnsetReport(val letter: String, val heading: Float, val moving: Boolean, val onsets: List<Onset>)
-data class Command(val type: String /* ASSIGN|HUSH|STOP|CHIRP */, val seconds: Int = 20, val letter: String?, val to: String?, val ble: String?)
+data class Command(val type: String /* ASSIGN|HUSH|STOP|CHIRP|SYNC */, val seconds: Int = 20, val letter: String?, val to: String?, val ble: String?, val heading: Float?)
+// Sensor → commander: a button pressed on a sensor's screen (HUSH|HUSH_SOLO|STOP|SWEEP|MODE arg=TAPPING…|SYNC).
+data class Request(val type: String, val from: String, val arg: String?)
+// Commander → every phone, once a second: what the commander's screen shows (same UI on every phone), plus positions for every phone's locator.
+data class Board(val brief: String, val mode: String, val ranks: List<Rank /* l, s, e, src */>, val names: Map<String, String>,
+                 val events: List<SensorEvent>, val status: String, val discovered: String,
+                 val pos: Map<String, Pair<Double, Double>>, val scale: Float?, val rotation: Float?)
+// Commander → every phone after each chirp round; every OnsetReport is also relayed down (every phone locates).
+data class ClockRound(val letters: List<String>, val heard: Map<String, Map<String, Long>>, val dist: Map<String, Double>)
 data class ChirpReport(val hearer: String, val from: String, val sample: Long, val ratio: Float, val micDelay: Float?, val heading: Float?, val level: Float?)
 data class Placement(val letter: String, val east: Float, val north: Float, val steps: Int)
 data class Join(val name: String, val hops: Int, val leaving: Boolean, val ble: String?)
-// Crash / fall (docs/PLAN-crash.md): up from the fallen phone (COUNTDOWN / ESCALATED / CANCELLED, repeated every 10 s), relayed
-// down by the commander with nearest + distances + responders; contacts travel only once ESCALATED.
-data class Alert(val name: String, val letter: String?, val kind: String, val state: String, val seq: Int, val atMs: Long, val peak: Float,
-    val stillS: Int, val battery: Int, val lat: Double?, val lon: Double?, val gpsAcc: Float?, val cellular: Boolean,
-    val contacts: List<Pair<String, String>>, val actions: List<String>, val nearest: String?, val distances: Map<String, String>, val responders: List<String>)
-data class Response(val name: String, val letter: String?, val forName: String, val action: String /* GOING|CALLED_CONTACT|CALLED_112|SEEN */, val detail: String)
+// Commander → every phone, the moment a bearing vote arrives (≤ 3/s) and every 5 s: where to point.
+data class Fix(val seq: Int, val x: Float, val y: Float, val radius: Float, val knocks: Int, val edge: Boolean,   // map point (located source, crossing or loudest phone)
+               val rotation: Float?, val mirror: Boolean, val scale: Float?, val north: String, val dots: Map<String, Pair<Float, Float>>,
+               val near: String?, val hasPoint: Boolean = true,                                                // pt=false: only the fused bearing is carried
+               val sharedBearing: Float?, val sharedTwin: Float?, val sharedQ: Float?, val sharedBy: String?)  // sb, sb2, sbq, sby: the fused bearing
 ```
 
 ## File layout (single module `app`)
 
 ```
 app/src/main/java/com/hush/
-  MainActivity.kt          // first launch: permissions + arms the passive port; role buttons; back leaves the role
+  MainActivity.kt          // first launch: permissions + arms the passive port; role buttons (rescue + at home); back leaves the role
   BeaconActivity.kt        // red "rescuers nearby" screen over the lock screen; starts the sensor service
   Activation.kt            // the alert notification (full-screen intent) + haptic pulse when a probe is heard
   ProbeReceiver.kt         // system entry points: probe scan results, boot, app update, re-arm alarm
@@ -591,19 +953,26 @@ app/src/main/java/com/hush/
   HLog.kt                  // logcat + private file logger (the phones drop logcat)
   Ranging.kt               // two-way acoustic distance maths, triangle
   Locator.kt               // WHERE the sound is: clock offsets from chirps, mic axes, onset matching, grid fusion
+  LoudnessLocator.kt       // WHERE between the phones: per-knock peaks + hand-layout positions, 1/r fit on a grid
+  CrashDetector.kt, CrashGuard.kt, CrashActivity.kt, CrashAlarmActivity.kt   // fall detection, countdown + escalation, the fallen phone's screen, every other phone's screen
+  EmergencyContacts.kt, EmergencyDialer.kt, ContactsActivity.kt              // up to 3 contacts, texts/calls with recorded outcomes, the contacts screen
+  Sos.kt                   // SOS texts (108 + emergency contact) with a Google Maps link: unanswered wake alert, REPORT AN EMERGENCY
+  Closest.kt               // WHICH phone hears each knock loudest (per-knock peaks matched across phones): the demo headline
   Crossing.kt              // where the phones' own-arrow bearing lines cross (least squares, mirror combinations, in-front rule)
   GpsLayout.kt             // positions from every phone's GPS fix (median, east/north of A, accepted only when far enough apart)
-  CrashDetector.kt         // fall / impact of the OWNER from raw accelerometer + gyroscope (pure maths, docs/PLAN-crash.md)
-  CrashGuard.kt            // the 30 s countdown, siren, escalation (mesh alert, SOS tag, texts/calls), the alarm about another phone
-  CrashActivity.kt         // the fallen phone's red countdown screen over the lock screen (I'M OK / CALL NOW)
-  CrashAlarmActivity.kt    // every other phone's red "CRASH NEARBY" screen: who, how far, call their contact / 112, I'm going
-  EmergencyContacts.kt, EmergencyDialer.kt, ContactsActivity.kt   // contacts storage, real texts/calls with recorded outcomes, the contacts screen
+  Alerting.kt              // persona C effects: vibration pattern, notification + full-screen intent, alerts history, taught-sound file
+  AlertActivity.kt         // the colour screen with the word (DOORBELL, KNOCK x3, SMOKE ALARM...) over the lock screen
+  WalkLocator.kt           // persona B FIND: marks while standing still -> Crossing of the marks' bearing lines, loudness tie-break, prompts
+  SoundLibrary.kt          // TEACH a sound: fingerprint = mean YAMNet scores over 3 loud seconds, cosine match, one line per sound
   audio/AudioCapture.kt    // stereo AudioRecord loop, 1 s windows, ring buffers, debug WAV
   audio/Dsp.kt             // band-pass, RMS, downsample
   audio/Classifier.kt      // YAMNet + buckets
   audio/TapDetector.kt     // onsets with ring-down check, refined to the sample
   audio/Doa.kt             // two-mic cross-correlation → inter-mic delay (knock onsets and voice seconds)
   audio/KnockBearing.kt    // the phone's OWN arrow: two-mic knock delays → left/right candidates, resolved by turning (no chirps)
+  audio/SoundAlerts.kt     // persona C categories (ALARM, DISTRESS, CRASH, DOORBELL, KNOCK, TIMER, PHONE, DOG, WATER, SPEECH, TAUGHT, COOKER): rules, debounce
+  audio/WhistleCounter.kt  // persona B COUNT: whistle seconds (model + loud + tonal), refractory, target, DONE, "check the cooker"
+  audio/Tonality.kt        // 4 x 1024-point FFT on the 16 kHz second: strongest line / median of the 400-5000 Hz band
   audio/RhythmTracker.kt   // steady / pattern / tempo
   audio/AccelChannel.kt    // jolts, moving
   audio/Compass.kt, DeadReckoning.kt, Gps.kt, MicProbe.kt
@@ -615,13 +984,21 @@ app/src/main/java/com/hush/
   model/Events.kt          // all messages + JSON
   log/SessionLog.kt        // export
   ui/CommanderScreen.kt, SensorScreen.kt, MapView.kt, ArrowView.kt
+  ui/AlertScreen.kt        // persona C: last alert big and flashing, history, category switches + TEST, TEACH rows, sensitivity
+  ui/HomeScreen.kt         // persona B: FIND tab (arrow, prompt, warmer/colder, walk map, TICKS/HUM/ANY, MARK) and COUNT tab (whistles)
+  ui/CommanderScreen.kt     // the one screen every phone shows (sensors fill it from the commander's Board and Fix)
+  ui/SensorScreen.kt        // base: this phone's mic block + a sensor's arrow logic; ui/MapView.kt, ui/ArrowView.kt
 app/src/main/assets/yamnet.tflite, yamnet_class_map.csv
 app/src/test/java/com/hush/LocatorTest.kt   // laptop-only synthetic test of the locator (JUnit 4.13.2)
 app/src/test/java/com/hush/KnockBearingTest.kt   // the own arrow: mirror resolved by turning, expiry, junk delays
 app/src/test/java/com/hush/CrossingTest.kt       // bearing lines → point: three lines, a mirrored phone, ambiguity, parallel, behind, range
 app/src/test/java/com/hush/GpsLayoutTest.kt      // GPS positions: wide triangle placed, table triangle refused, stale or poor fixes named
-app/src/test/java/com/hush/CrashDetectorTest.kt  // synthetic 200 Hz traces: drop passes, table slap / sitting down / getting up rejected, saturation, tumble tie-break
-docs/PLAN-crash.md                          // crash / fall detection + emergency dialing plan and its status (branch crash-detection)
+app/src/test/java/com/hush/SoundAlertsTest.kt    // persona C rules: doorbell, quiet TV, warm-up, alarm 2-of-3, extend vs refire, knock rhythm, priorities
+app/src/test/java/com/hush/WhistleCounterTest.kt // 3 whistles -> DONE, double whistle once, frying/water/talk not counted, stale warning, tonality
+app/src/test/java/com/hush/WalkLocatorTest.kt    // three marks find the noise, mirrored marks need a third, moving never marks, warmer/colder, reset
+app/src/test/java/com/hush/DoaTest.kt            // a 100 Hz hum's two-mic delay in the low band, not in the voice band; a click to the sample
+app/src/test/java/com/hush/SoundLibraryTest.kt   // TEACH: 3 loud seconds, match same not others, timeout, file round trip
+tools/calibration/knockdir.py               // per phone: knock bursts, two-mic delays, implied angle (calibrating the arrow's sign and spacing)
 docs/PLAN-compass.md                        // the compass plan (own arrow → bearings on the map → GPS → silent chirps)
 docs/PLAN-personas-bc.md                    // personas B and C: ALERT role (colour flash + haptics), whistle counter, walk-to-triangulate
 .github/workflows/build.yml
@@ -633,30 +1010,37 @@ docs/PLAN-personas-bc.md                    // personas B and C: ALERT role (col
 export JAVA_HOME=/c/Android/jdk17 ANDROID_HOME=/c/Android/Sdk   # if the shell predates the install
 ./gradlew assembleDebug -q
 for s in $(adb devices | awk 'NR>1 && $2=="device"{print $1}'); do adb -s $s install -r app/build/outputs/apk/debug/app-debug.apk; done
-adb -s <serial> shell "run-as com.hush cat files/hush.log" | grep -i 'RANKING\|BRIEF\|RANGING result\|DoA align\|BleRanging\|LOCATE\|Clock:\|Axis:\|Probe\|Activation\|Beacon\|Tag seen'
+adb -s <serial> shell "run-as com.hush cat files/hush.log" | grep -i 'KNOCK ARROW\|SHARED\|CROSS\|FIX sent\|GPS layout\|PHANTOM\|RANKING\|BRIEF\|Probe\|Activation\|Beacon\|nothing from'
+python tools/calibration/knockdir.py --minutes 10   # every phone on USB: knock bursts, two-mic delays, implied angle (calibrating the arrow)
 adb shell am start -n com.hush/.MainActivity --es role COMMANDER    # pick a role without tapping coordinates
 adb shell am start -n com.hush/.MainActivity --ez probe true        # commander: ACTIVATE SENSORS
 adb shell am start -n com.hush/.MainActivity --ez hush true         # commander: HUSH window (solo allowed)
 adb shell am start -n com.hush/.MainActivity --es layout clear      # commander: drop the stored hand layout and pointing so GPS may place the phones
 adb shell am start -n com.hush/.MainActivity --es mic1top false     # any role: channel 1 is the BOTTOM mic (use if the own arrow points backwards)
 adb shell am start -n com.hush/.MainActivity --ef micspacing 0.14   # any role: distance between the two mics, metres (default 0.155)
-adb shell am start -n com.hush/.MainActivity --ez crashtest true     # any role: fire the fall alarm (countdown screen, siren, escalation)
-adb shell am start -n com.hush/.MainActivity --es crashmode dryrun   # or live: whether escalation really texts and calls (default dryrun)
-adb shell am start -n com.hush/.MainActivity --es contacts "Priya:+91…;Ravi:+91…"   # emergency contacts in calling order ("clear" empties)
-adb shell am start -n com.hush/.MainActivity --ez motionrec true     # restart the 300 s accelerometer + gyroscope trace, files/motion.csv
+adb shell am start -n com.hush/.MainActivity --es role ALERT        # persona C: household sound alerts (no radios)
+adb shell am start -n com.hush/.MainActivity --es role HOME         # persona B: FIND a noise / COUNT cooker whistles (no radios)
+adb shell am start -n com.hush/.MainActivity --es alerttest DOORBELL   # ALERT/HOME: flash + buzz + notification without a sound (any category name)
+adb -s <serial> shell "run-as com.hush cat files/hush.log" | grep 'ALERT\|WHISTLE\|WALK\|HUM DoA\|TEACH\|Household classifier'
+adb shell am start -n com.hush/.MainActivity --ez sync true         # any role: SYNC COMPASS (phones lying parallel, tops the same way)
 adb shell dumpsys bluetooth_manager | grep -A8 'com.hush (Registered)'   # Bluetooth's view of the port: scan time, results
-./gradlew testDebugUnitTest -q          # locator maths on synthetic phones, no device needed
-adb -s <serial> exec-out run-as com.hush cat files/debug.wav > debug.wav   # first 90 s of raw audio, laptop analysis only
+./gradlew testDebugUnitTest -q          # 24 laptop tests: knock bearing, crossing, GPS layout, locator, chirp
+adb -s <serial> exec-out run-as com.hush cat files/debug.wav > debug.wav   # first 300 s of raw stereo audio after a role start, laptop analysis only
 ```
 
 ## Demo flow the code supports
 
-1. Three phones spread ≥ 1 m apart on the floor (cloth under them; a shared tabletop carries knocks to every mic).
-   Airplane mode + Bluetooth + Wi-Fi radio on. Pick COMMANDER on one, SENSOR on the others; letters and name suffixes appear.
-2. Tap HUSH. Chirps (~8 s) place the sensors on the map and align north; the buzz and beep call silence; 20 s window.
-3. Someone knocks beside a sensor. The "Window ·" brief names it; the live brief keeps following the knocking afterwards.
-4. Turn or walk with the commander: the arrow keeps pointing at the strongest sensor with the distance.
-5. EXPORT LOG → `Downloads/hush-….jsonl`, shown on the laptop via Office Kit.
+1. Three phones on the floor or cloth, 1-2 m apart (a triangle around the area to search), not on the surface being
+   knocked. Airplane mode + Bluetooth + Wi-Fi radio on. COMMANDER on one, SENSOR on the others; letters appear.
+2. Wait ~30 s: the chirp rounds place the phones (status "positions from the chirps", three dots on the map ~ the real
+   spacing). Nothing to measure or type.
+3. On each phone: pick it up, point its top at the phone the blue POINT & TAP button names, tap; then at the next named
+   phone, tap. Put it down any way round.
+4. Someone knocks steadily from one spot. Within ~3 s of the 3rd-4th knock: the green panel names the CLOSEST phone,
+   the panel's last line gives the spot ("Sound ~ ... m from ..."), every arrow points at it; turn a phone and its arrow
+   stays on the knock. The knocker moves: the panel switches within ~4 knocks.
+5. Pick one phone up and walk: its line says WARMER / COLDER within a knock or two (Sensitivity HIGH for quiet knocks).
+6. Optional: ACTIVATE SENSORS (sweep of an armed phone), HUSH window, EXPORT LOG as before.
 
 ## What we will not claim
 

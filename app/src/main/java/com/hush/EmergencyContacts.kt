@@ -12,16 +12,22 @@ object EmergencyContacts {
     private const val PREFS = "hush_crash"
     private const val KEY = "contacts"
     const val EMERGENCY_NUMBER_KEY = "emergencyNumber"
-    const val DEFAULT_EMERGENCY_NUMBER = "112"
+    const val DEFAULT_EMERGENCY_NUMBER = Sos.AMBULANCE   // 108, the team's choice (27 Sep)
 
     data class Contact(val name: String, val number: String) {
         val label: String get() = if (name.isBlank()) number else name
     }
 
+    /** The contacts set here, plus the single emergency contact from the first screen (Sos.contact) if it is not already one of them. */
     fun list(context: Context): List<Contact> = try {
         val raw = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, "") ?: ""
-        parse(raw)
+        val own = parse(raw)
+        val sos = Sos.contact(context)
+        if (sos == null || own.any { digits(it.number).endsWith(digits(sos).takeLast(10)) }) own
+        else (own + Contact("emergency contact", sos)).take(MAX)
     } catch (e: Exception) { HLog.d("Contacts: unreadable, ignored: $e"); emptyList() }
+
+    private fun digits(n: String) = n.filter { it.isDigit() }
 
     fun save(context: Context, contacts: List<Contact>) {
         val trimmed = contacts.filter { it.number.isNotBlank() }.take(MAX)

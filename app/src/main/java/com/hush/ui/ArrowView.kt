@@ -26,9 +26,12 @@ class ArrowView(context: Context, attrs: AttributeSet? = null) : View(context, a
         set(value) { field = value; invalidate() }
     var active: Boolean = false
         set(value) { field = value; invalidate() }
-    /** A second, faint arrow: the mirror candidate while the two-mic direction is not yet resolved. */
+    /** A second, faint arrow: the mirror candidate while the two-mic direction is not yet resolved (unused since 27 Sep 03:30: one arrow only). */
     var twinAngleDeg: Float? = null
         set(value) { field = value; startAnimating() }
+    /** 0..1: how sure the estimate is; the arrow goes from pale to full green with it. */
+    var confidence: Float = 1f
+        set(value) { field = value.coerceIn(0f, 1f); invalidate() }
 
     companion object {
         /** Seconds for the gap to shrink to 37 %: about 0.6 s to settle within a degree or two. */
@@ -43,11 +46,15 @@ class ArrowView(context: Context, attrs: AttributeSet? = null) : View(context, a
     private var lastFrameNs = 0L
     private val frame = Runnable { step() }
 
-    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(27, 138, 58) }
-    private val dim = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(190, 190, 190) }
-    private val twin = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(80, 27, 138, 58) }
-    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(210, 210, 210); style = Paint.Style.STROKE; strokeWidth = 6f }
-    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(40, 40, 40); textSize = 44f; textAlign = Paint.Align.CENTER; isFakeBoldText = true }
+    private val dp = resources.displayMetrics.density
+    private val sp = resources.displayMetrics.scaledDensity
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(27, 122, 72) }
+    private val dim = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(200, 206, 213) }
+    private val twin = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(80, 27, 122, 72) }
+    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(221, 226, 232); style = Paint.Style.STROKE; strokeWidth = 2f * dp }
+    private val ringFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(243, 245, 248) }
+    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(24, 33, 43); textSize = 20f * sp; textAlign = Paint.Align.CENTER; isFakeBoldText = true }
+    private val labelSize = 20f * sp
 
     private fun startAnimating() {
         if (animating) return
@@ -83,18 +90,27 @@ class ArrowView(context: Context, attrs: AttributeSet? = null) : View(context, a
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
-        setMeasuredDimension(w, (w * 0.6f).toInt())
+        setMeasuredDimension(w, (w * 0.62f).toInt())
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+        val labelBand = labelSize * 1.8f
         val cx = width / 2f
-        val cy = height * 0.45f
-        val r = min(width, height) * 0.38f
+        val cy = (height - labelBand) / 2f
+        val r = min(width.toFloat(), height - labelBand) * 0.44f
+        canvas.drawCircle(cx, cy, r, ringFill)
         canvas.drawCircle(cx, cy, r, ring)
         shownTwinDeg?.let { drawArrow(canvas, cx, cy, r, it, twin) }
+        if (active) fill.alpha = (90 + 165 * confidence).toInt()
         drawArrow(canvas, cx, cy, r, shownDeg, if (active) fill else dim)
-        canvas.drawText(label, cx, height - 12f, text)
+        // One line: shrink a long label to fit the width rather than cut it off.
+        text.textSize = labelSize
+        val maxW = width - 16f * dp
+        val w = text.measureText(label)
+        if (w > maxW) text.textSize = (labelSize * maxW / w).coerceAtLeast(12f * sp)
+        text.color = if (active) Color.rgb(24, 33, 43) else Color.rgb(91, 103, 118)
+        canvas.drawText(label, cx, height - labelSize * 0.45f, text)
     }
 
     /** One arrow from the centre towards [deg] (clockwise from the top). */

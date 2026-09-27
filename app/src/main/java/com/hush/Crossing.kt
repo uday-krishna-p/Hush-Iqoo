@@ -42,19 +42,27 @@ object Crossing {
     const val CLEAR_WIN = 0.5
     private const val MAX_COMBOS = 32
 
-    fun solve(lines: List<Line>, maxRange: Double): Result? {
-        if (lines.size < 2) return null
+    /** Every mirror combination that fits (meets at ≥ MIN_ANGLE_DEG, in front of every phone, within range), best residual first. */
+    fun candidates(lines: List<Line>, maxRange: Double): List<Result> {
+        if (lines.size < 2) return emptyList()
         var total = 1
         for (l in lines) total *= l.bearingsDeg.size.coerceAtLeast(1)
-        if (total > MAX_COMBOS) return null
+        if (total > MAX_COMBOS) return emptyList()
         val valid = ArrayList<Result>()
         for (combo in 0 until total) {
             var idx = combo
             val chosen = lines.map { l -> val n = l.bearingsDeg.size; val i = idx % n; idx /= n; l.bearingsDeg[i] }
             fit(lines, chosen, maxRange)?.let { valid.add(it) }
         }
-        if (valid.isEmpty()) return null
         valid.sortBy { it.residual }
+        return valid
+    }
+
+    fun solve(lines: List<Line>, maxRange: Double): Result? {
+        var total = 1
+        for (l in lines) total *= l.bearingsDeg.size.coerceAtLeast(1)
+        val valid = candidates(lines, maxRange)
+        if (valid.isEmpty()) return null
         val best = valid[0]
         if (valid.size > 1 && total > 1) {
             // Another combination fits about as well and lands somewhere else: ambiguous, wait for a turn or a third phone.
