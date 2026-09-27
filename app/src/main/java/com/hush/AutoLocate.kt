@@ -27,6 +27,26 @@ object AutoLocate {
     const val MOVE_M = 0.08
 
     /**
+     * Each phone's range error measured on the team's phones (27 Sep 06:49–06:52, three rounds on a 1.2 m triangle),
+     * used when there is no tape to measure it in the session (team: "stop caring about where the phones are set ...
+     * the device needs to keep figuring out each others locations"). Unknown phones get [DEFAULT_OTHER_M]. Whether
+     * these hold after an app restart is not known yet: every round logs raw and corrected distances.
+     */
+    val DEFAULT_BIAS_M = mapOf("ef39" to 0.72, "6a46" to 0.13, "991e" to 0.14)
+    const val DEFAULT_OTHER_M = 0.13
+
+    fun defaultBias(name: String): Double = DEFAULT_BIAS_M[name] ?: DEFAULT_OTHER_M
+
+    /** First placement of three phones from their distances: [a] at 0,0, [b] on +x, [c] on the +y side. Null if no triangle. */
+    fun first(a: String, b: String, c: String, dist: Map<Pair<String, String>, Double>): Map<String, Pair<Double, Double>>? {
+        fun d(x: String, y: String) = dist[x to y] ?: dist[y to x]
+        val ab = d(a, b) ?: return null; val ac = d(a, c) ?: return null; val bc = d(b, c) ?: return null
+        if (ab <= 0 || ac <= 0 || bc <= 0 || ab + ac < bc || ab + bc < ac || ac + bc < ab) return null
+        val cx = (ab * ab + ac * ac - bc * bc) / (2 * ab)
+        return mapOf(a to (0.0 to 0.0), b to (ab to 0.0), c to (cx to sqrt((ac * ac - cx * cx).coerceAtLeast(0.0))))
+    }
+
+    /**
      * Every phone's range error (metres) from one round on a known layout: chirp − tape = b_i + b_j for each pair.
      * Least squares (exact for three phones). Null when the pairs do not connect every phone.
      */

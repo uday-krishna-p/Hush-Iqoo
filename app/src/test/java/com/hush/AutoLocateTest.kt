@@ -42,6 +42,18 @@ class AutoLocateTest {
         assertTrue(p.getValue("991e").second < 0)
     }
 
+    /** No tape: the 06:49 round minus the built-in errors gives back the 1.2 m triangle. */
+    @Test fun firstPlacementFromCorrectedChirps() {
+        val raw = mapOf(("ef39" to "6a46") to 2.03, ("ef39" to "991e") to 2.02, ("6a46" to "991e") to 1.46)
+        val corr = raw.mapValues { (p, d) -> d - AutoLocate.defaultBias(p.first) - AutoLocate.defaultBias(p.second) }
+        val p = AutoLocate.first("ef39", "6a46", "991e", corr)!!
+        assertEquals(0.0, p.getValue("ef39").first, 1e-9)
+        assertEquals(1.18, p.getValue("6a46").first, 0.05)
+        val side = { a: String, b: String -> hypot(p.getValue(a).first - p.getValue(b).first, p.getValue(a).second - p.getValue(b).second) }
+        assertEquals(1.2, side("ef39", "991e"), 0.06); assertEquals(1.2, side("6a46", "991e"), 0.06)
+        assertNull(AutoLocate.first("ef39", "6a46", "991e", mapOf(("ef39" to "6a46") to 1.0)))
+    }
+
     @Test fun impossibleTriangleOrMissingPairGivesNothing() {
         assertNull(AutoLocate.place(mapOf(("6a46" to "ef39") to 1.0, ("6a46" to "991e") to 0.2, ("ef39" to "991e") to 0.2), tri))
         assertNull(AutoLocate.place(mapOf(("6a46" to "ef39") to 1.2), tri))

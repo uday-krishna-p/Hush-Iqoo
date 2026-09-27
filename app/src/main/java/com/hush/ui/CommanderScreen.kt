@@ -36,6 +36,7 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity,
     private val briefText: TextView = activity.findViewById(R.id.briefText)
     private val closestText: TextView = activity.findViewById(R.id.closestText)
     private val warmthText: TextView = activity.findViewById(R.id.warmthText)
+    private val btnSensitivity: Button = activity.findViewById(R.id.btnSensitivity)
     private val peersText: TextView = activity.findViewById(R.id.peersText)
     private val commanderStatus: TextView = activity.findViewById(R.id.commanderStatus)
     private val discoveredText: TextView = activity.findViewById(R.id.discoveredText)
@@ -204,6 +205,7 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity,
             android.widget.Toast.makeText(activity, msg, android.widget.Toast.LENGTH_LONG).show()
         }
         modeButtons.forEach { (mode, btn) -> btn.setOnClickListener { Engine.chooseMode(mode); renderMode() } }
+        btnSensitivity.setOnClickListener { Engine.setSensitivity(!Engine.sensitiveHigh); renderClosest() }
         val sync = activity.findViewById<Button>(R.id.btnSyncCompass)
         sync.setOnClickListener { android.widget.Toast.makeText(activity, Engine.syncCompasses(), android.widget.Toast.LENGTH_LONG).show() }
         sync.setOnLongClickListener { android.widget.Toast.makeText(activity, Engine.clearCompassSync(), android.widget.Toast.LENGTH_LONG).show(); true }
@@ -335,6 +337,8 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity,
     /** The big panel: which phone hears the knocking loudest (Closest.kt). The first line is enlarged. */
     private fun renderClosest() {
         renderWarmth()
+        btnSensitivity.text = if (Engine.sensitiveHigh) "Sensitivity: HIGH (quieter knocks count, warmer/colder at 2 dB) · tap for NORMAL"
+                              else "Sensitivity: NORMAL · tap for HIGH (quieter knocks, warmer/colder at 2 dB)"
         val text = Engine.closestText
         if (text.isEmpty()) { closestText.text = activity.getString(R.string.closest_idle); closestText.setTextColor(0xFF1B5E20.toInt()); return }
         val sb = SpannableStringBuilder(text)

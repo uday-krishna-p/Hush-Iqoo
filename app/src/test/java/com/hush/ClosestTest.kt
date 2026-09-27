@@ -39,6 +39,16 @@ class ClosestTest {
         assertNull(c.summary(20_000))
     }
 
+    /** HIGH sensitivity: knocks at ×5 count (NORMAL needs one phone at ×8). */
+    @Test fun highSensitivityCountsQuieterKnocks() {
+        for ((min, counted) in listOf(Closest.MIN_LOUD_RATIO to false, 4f to true)) {
+            val c = Closest().apply { minLoudRatio = min }
+            for (i in 0 until 3) { c.add("A", 1000L + i * 1000, 0.01f, 5f); c.add("B", 1000L + i * 1000, 0.003f, 3f) }
+            c.tick(10_000)
+            assertEquals(counted, c.summary(10_000) != null)
+        }
+    }
+
     @Test fun notJudgedBeforeLateReportsCanArrive() {
         val c = Closest()
         c.add("A", 1000, 0.05f, 20f)

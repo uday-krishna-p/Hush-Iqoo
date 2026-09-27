@@ -265,6 +265,21 @@ moved N m, map updated`, export `autolocate`). Rounds run back to back (2 s gap,
 chirps). Three phones only (A and the first two sensors). A new tape layout recalibrates. `AutoLocateTest` (5) passes.
 Needs on the phones: the tape layout entered once with the phones on it, then two rounds (~20 s) before moving them.
 
+**No tape any more: chirps run continuously and place the phones, 27 Sep ~07:10 (team: "stop caring about where the
+phones are set right now, the chirping needs to keep running and the device needs to keep figuring out each others
+locations"; also "the compass is being horrible, as the devices are not communicating"):** the logs showed the mesh fine
+(991e got a clock round every minute, SYNC agreed 124/128/125 deg) and the arrow test ran on the build BEFORE auto-locate
+(installed 07:03:24-32) with ef39's stale 0.40 m tape layout, so the locator worked on a third-size triangle (radius
+~10 m, "direction only"). Now: a stored tape layout is ignored at commander start (`--es layout` in the session still
+works and still calibrates); chirp rounds run with or without a layout whenever 3 phones are connected, first 15 s
+after the role starts, then back to back (2 s gap); with no positions the first round places A at 0,0 and B on +x from
+distances corrected by built-in per-phone errors (`AutoLocate.DEFAULT_BIAS_M`: ef39 0.72, 6a46 0.13, 991e 0.14, others
+0.13 m, from the 06:49-06:52 rounds; whether they hold after an app restart is unknown: `AUTOLOCATE start from the chirps:
+raw ... -> corrected ...` shows both), clocks use the corrected distances, and every later round follows moved phones
+(`autoLocateStep`). The map's orientation to the room is not known from distances: the arrow still needs SYNC + pointing.
+**Sensitivity toggle** (button under the panel, every phone; a sensor asks the commander, Board field `sh`): HIGH counts
+knocks from x4 over the background (NORMAL x8) and WARMER/COLDER at 2 dB (NORMAL 3); log `SENSITIVITY: ...`.
+
 **Timing locator back, inaudible chirps, every phone locates, 27 Sep 04:40 (team: "we are just pointing a compass
 … not using the power of multiple devices to triangulate"; "if the chirps are made, make them at such high frequencies
 that humans cant hear"):** (1) *Top-band test* (`tools/calibration/ultrasweep.py` makes the file,

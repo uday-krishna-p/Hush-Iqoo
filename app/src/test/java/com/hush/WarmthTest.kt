@@ -39,6 +39,16 @@ class WarmthTest {
         assertNull(w.status("B", 5000))                                             // two knocks: no trend yet
     }
 
+    /** HIGH sensitivity: a 2.5 dB move is WARMER at a 2 dB step and only SAME at the normal 3 dB. */
+    @Test fun highSensitivityReactsToSmallerMoves() {
+        for ((step, expected) in listOf(3f to Warmth.Trend.SAME, 2f to Warmth.Trend.WARMER)) {
+            val w = Warmth().apply { stepDb = step }
+            for (i in 0 until 4) knock(w, 1000L + i * 1000, 1.0, 0.02f)
+            knock(w, 5000, 0.75, 0.02f); knock(w, 6000, 0.75, 0.02f)   // 1.0 → 0.75 m: +2.5 dB
+            assertEquals(expected, w.status("B", 6000)!!.trend)
+        }
+    }
+
     @Test fun oldKnocksAreForgotten() {
         val w = Warmth()
         for (i in 0 until 4) knock(w, 1000L + i * 1000, 1.0, 0.02f)

@@ -319,6 +319,22 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         set(value) { if (value != field) HLog.d("Listen mode: $value"); field = value }
 
     /** A mode button: the commander switches, a sensor asks the commander (the board brings the new mode back). */
+    /** HIGH: a knock counts when one phone hears it ≥ ×4 over its background (NORMAL ×8) and WARMER/COLDER reacts at
+     *  2 dB (NORMAL 3). Team, 27 Sep: "maybe make it a little more sensitive? or give it a toggle to listen to even lower
+     *  decibels". The commander holds it (it judges the knocks); a sensor asks for it; the Board shows it on every phone. */
+    @Volatile var sensitiveHigh = false
+        private set
+
+    fun setSensitivity(high: Boolean) {
+        if (role == ROLE_SENSOR) { requestUp(com.hush.model.Request.SENS, if (high) "HIGH" else "NORMAL"); return }
+        sensitiveHigh = high
+        closest.minLoudRatio = if (high) 4f else Closest.MIN_LOUD_RATIO
+        warmth.stepDb = if (high) 2f else Warmth.STEP_DB
+        HLog.d("SENSITIVITY: ${if (high) "HIGH (knocks from x4, trend at 2 dB)" else "NORMAL (knocks from x8, trend at 3 dB)"}")
+        listener?.onClosest(closestText)
+        sendBoardDown(force = true)
+    }
+
     fun chooseMode(m: Mode) {
         if (role == ROLE_SENSOR) requestUp(com.hush.model.Request.MODE, m.name) else mode = m
     }
@@ -1445,7 +1461,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         // The same chirps measure how each sensor's audio clock differs from ours (needed to time knocks). With tape
         // positions the tape distances are used (chirp ranging read 0.78 m for a 0.40 m pair, 27 Sep 00:30), and the
         // round is logged against the tape, to learn whether the inaudible chirp could replace the tape (step 4).
-        val clockDist = if (handPositions()) tapeDistances(letters) else HashMap(dist)
+        val clockDist = if (handPositions()) tapeDistances(letters) else correctedChirp(letters, dist)
         if (handPositions()) {
             val cmp = clockDist.entries.joinToString("  ") { (k, v) -> "%s tape %.2f chirp %s".format(k, v, dist[k]?.let { "%.2f".format(it) } ?: "-") }
             HLog.d("RANGING vs tape: $cmp")
@@ -1462,6 +1478,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             if (pendingHushSeconds > 0) { val s = pendingHushSeconds; pendingHushSeconds = 0; broadcastHush(s) }
             return
         }
+        // No tape: the chirps place the phones (AutoLocate), and the rounds after that follow them (autoLocateStep).
+        if (chirpFirstPlacement(letters, dist)) return
         // Fuse with the silent radio baseline: a chirp pair that disagrees with Bluetooth by > 30 % is dropped.
         for (key in dist.keys.toList()) {
             val radio = radioDistance[key] ?: radioDistance[key.reversed()] ?: continue
@@ -1909,6 +1927,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         sessionLog = com.hush.log.SessionLog()
         HLog.d("Engine start role=$newRole name=$localName" + if (household) " (household: no radios, classifier on loud seconds only)" else "")
         if (newRole == ROLE_COMMANDER) try { loadPrefs(context) } catch (e: Exception) { HLog.d("ERROR loading prefs: $e") }
+        // Positions come from the chirps now (team, 27 Sep: "stop caring about where the phones are set"): a stored tape
+        // layout is not applied (a stale 0.40 m one on ef39 shrank the 1.2 m triangle to a third). --es layout still works.
+        if (newRole == ROLE_COMMANDER && layoutByName.isNotEmpty()) { HLog.d("LAYOUT: stored tape layout $layoutByName ignored, positions come from the chirps"); layoutByName.clear() }
         loadMicGeometry(context)
 
         try {
@@ -1950,7 +1971,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             if (newRole == ROLE_COMMANDER) it.startCommander() else it.startSensor()
         }
         if (newRole == ROLE_COMMANDER) ble?.scanForTags() else main.postDelayed(tagRefresh, 500)
-        if (newRole == ROLE_COMMANDER) main.postDelayed(clockTimer, CLOCK_ROUND_MS)
+        // First round 15 s after the role starts (sensors join within seconds), then back to back (AutoLocate) or every minute.
+        if (newRole == ROLE_COMMANDER) main.postDelayed(clockTimer, 15_000L)
     }
 
     /** ALERT screen's TEST row and the laptop hook `--es alerttest DOORBELL`: the flash, buzz and notification without a sound. */
@@ -2483,7 +2505,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     /** Commander: an inaudible chirp round for the clocks, when positions are known and nothing else runs. */
     private fun clockRound(why: String) {
-        if (role != ROLE_COMMANDER || !handPositions() || peers.isEmpty() || rangingInProgress || inHush) return
+        // Continuous (team, 27 Sep: "the chirping needs to keep running"): with or without a tape layout; the map needs three phones.
+        if (role != ROLE_COMMANDER || peers.size < 2 || rangingInProgress || inHush) return
         HLog.d("Clock round ($why, inaudible 19–21.5 kHz)")
         autoPlace()
     }
@@ -2545,6 +2568,47 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             }
         }
         main.postDelayed({ clockRound("auto-locate") }, AUTO_GAP_MS)
+    }
+
+    /** Chirp pair distances ("AB" → metres) minus both phones' fixed range errors ([rangeBias], else the built-in ones). */
+    private fun correctedChirp(letters: List<String>, dist: Map<String, Double>): HashMap<String, Double> {
+        val out = HashMap<String, Double>()
+        for ((k, d) in dist) {
+            if (k.length != 2) continue
+            val a = phoneName(k.substring(0, 1))?.takeLast(4)?.lowercase(); val b = phoneName(k.substring(1, 2))?.takeLast(4)?.lowercase()
+            fun bias(n: String?) = n?.let { rangeBias?.get(it) ?: AutoLocate.defaultBias(it) } ?: AutoLocate.DEFAULT_OTHER_M
+            out[k] = (d - bias(a) - bias(b)).coerceAtLeast(0.05)
+        }
+        return out
+    }
+
+    /**
+     * Commander, a chirp round with no positions yet: place A, B, C from the corrected distances (A at 0,0, B along +x)
+     * and hand over to [autoLocateStep] for every round after. Returns true when the round was handled here.
+     */
+    private fun chirpFirstPlacement(letters: List<String>, dist: Map<String, Double>): Boolean {
+        val three = letters.take(3)
+        if (three.size < 3) return false
+        val names = three.map { l -> phoneName(l)?.takeLast(4)?.lowercase() ?: return false }
+        val corr = correctedChirp(three, dist)
+        fun d(x: Int, y: Int) = corr["${three[x]}${three[y]}"] ?: corr["${three[y]}${three[x]}"]
+        val pd = HashMap<Pair<String, String>, Double>()
+        for ((x, y) in listOf(0 to 1, 0 to 2, 1 to 2)) d(x, y)?.let { pd[names[x] to names[y]] = it }
+        val raw = dist.entries.joinToString(" ") { "%s %.2f".format(it.key, it.value) }
+        val pos = AutoLocate.first(names[0], names[1], names[2], pd)
+        if (pos == null) {
+            HLog.d("AUTOLOCATE: first placement failed (raw $raw, corrected ${pd.entries.joinToString(" ") { "%s-%s %.2f".format(it.key.first, it.key.second, it.value) }}): next round in ${AUTO_GAP_MS / 1000} s")
+            main.postDelayed({ clockRound("auto-locate") }, AUTO_GAP_MS)
+            return true
+        }
+        rangeBias = names.associateWith { rangeBias?.get(it) ?: AutoLocate.defaultBias(it) }
+        layoutByName.clear(); layoutByName.putAll(pos)
+        HLog.d("AUTOLOCATE start from the chirps: raw $raw -> corrected " + pd.entries.joinToString(" ") { "%s-%s %.2f".format(it.key.first, it.key.second, it.value) } +
+            " m (range errors " + rangeBias!!.entries.joinToString(" ") { "%s %+.2f".format(it.key, it.value) } + ") -> " +
+            pos.entries.joinToString(" ") { "%s(%.2f,%.2f)".format(it.key, it.value.first, it.value.second) })
+        sessionLog.addRecord("autolocate", pos.mapValues { "%.2f,%.2f".format(it.value.first, it.value.second) })
+        applyLayout()   // positions onto the map and into the locator; the next round starts 2 s later
+        return true
     }
 
     /** Pair distances from the tape positions, keyed like the ranging ("AB"). */
@@ -2807,6 +2871,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             com.hush.model.Request.SWEEP -> activateSensors()
             com.hush.model.Request.MODE -> try { mode = Mode.valueOf(r.arg ?: "") } catch (e: Exception) { HLog.d("REQUEST: bad mode ${r.arg}: $e") }
             com.hush.model.Request.SYNC -> syncCompasses()
+            com.hush.model.Request.SENS -> setSensitivity(r.arg == "HIGH")
         }
         listener?.onLinkStatus(lastStatus)
         sendBoardDown(force = true)
@@ -2826,7 +2891,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val board = com.hush.model.Board(lastBrief, mode.name, lastRanking.map { com.hush.model.Board.Rank(it.letter, it.score, it.evidence, it.source) },
             names, fresh, status, discoveredText(discoveredPhones()),
             LinkedHashMap<String, Pair<Double, Double>>().apply { for (k in mapDots.keys) posMetres(k)?.let { put(k, it) } },
-            mapMetresPerUnit, mapRotationDeg, closestText, wherePoint?.let { Triple(it.x, it.y, it.radiusM) }, warmthByLetter, knockDirResult)
+            mapMetresPerUnit, mapRotationDeg, closestText, wherePoint?.let { Triple(it.x, it.y, it.radiusM) }, warmthByLetter, knockDirResult, sensitiveHigh)
         l.sendDown(board.toJson())
     }
 
@@ -2849,6 +2914,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         lastBrief = b.brief
         boardWhere = b.where
         knockDirResult = b.knockDir; knockDirBoardMs = SystemClock.elapsedRealtime()
+        if (b.sensitiveHigh != sensitiveHigh) { sensitiveHigh = b.sensitiveHigh; HLog.d("SENSITIVITY from the commander: ${if (sensitiveHigh) "HIGH" else "NORMAL"}"); listener?.onClosest(closestText) }
         val warmChanged = b.warmth != warmthByLetter
         warmthByLetter = b.warmth
         if (b.closest != closestText || warmChanged) { closestText = b.closest; HLog.d("BOARD closest: ${b.closest.replace('\n', '|').ifEmpty { "(none)" }}"); listener?.onClosest(b.closest) }

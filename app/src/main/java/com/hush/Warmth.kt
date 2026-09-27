@@ -27,6 +27,8 @@ class Warmth {
     /** [deltaDb]: recent minus before; [relDb]: the latest knock's level against the other phones. */
     data class Status(val trend: Trend, val deltaDb: Float, val relDb: Float, val knocks: Int)
 
+    /** The trend step ([STEP_DB]; HIGH sensitivity lowers it so smaller moves register, with more flicker on still phones). */
+    @Volatile var stepDb = STEP_DB
     private val history = HashMap<String, ArrayDeque<Pair<Long, Float>>>()
     private val lock = Any()
 
@@ -53,7 +55,7 @@ class Warmth {
         val recent = rel.takeLast(RECENT).average()
         val before = rel.dropLast(RECENT).takeLast(BEFORE).average()
         val d = (recent - before).toFloat()
-        Status(if (d >= STEP_DB) Trend.WARMER else if (d <= -STEP_DB) Trend.COLDER else Trend.SAME, d, rel.last(), h.size)
+        Status(if (d >= stepDb) Trend.WARMER else if (d <= -stepDb) Trend.COLDER else Trend.SAME, d, rel.last(), h.size)
     }
 
     fun letters(): Set<String> = synchronized(lock) { history.keys.toSet() }

@@ -55,6 +55,9 @@ class Closest {
         val peaks = LinkedHashMap<String, Float>(); val moving = HashSet<String>(); var maxRatio = 0f
         val dirs = LinkedHashMap<String, Dir>()
     }
+    /** At least one phone must hear a knock this many times over its background ([MIN_LOUD_RATIO]; the HIGH
+     *  sensitivity setting lowers it so quieter knocks count, at the price of more room noises). */
+    @Volatile var minLoudRatio = MIN_LOUD_RATIO
     private val open = ArrayList<Group>()
     private val done = ArrayDeque<Knock>()
     /** Times of knocks already judged (including quiet ones), so a report arriving late cannot start a false one-phone knock. */
@@ -87,7 +90,7 @@ class Closest {
             if (!ready && nowMs - g.tMs < CLOSE_AFTER_MS) continue
             it.remove()
             judgedTimes.addLast(g.tMs)
-            if (g.maxRatio < MIN_LOUD_RATIO) continue
+            if (g.maxRatio < minLoudRatio) continue
             val all = LinkedHashMap(g.peaks)
             val still = g.peaks.filterKeys { it !in g.moving }
             if (still.isEmpty()) { out.add(Knock(g.tMs, emptyMap(), "", null, null, all, LinkedHashMap(g.dirs))); continue }   // only moving phones heard it: no vote
