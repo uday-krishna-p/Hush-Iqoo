@@ -101,7 +101,7 @@
     <string name="alert_categories_hint">Switch a sound off if it keeps firing wrongly. TEST shows its colour and buzzes its pattern so you learn to tell them apart.</string>
     <string name="alert_test">TEST</string>
     <string name="alert_sensitivity_high">High sensitivity (more alerts, more false ones)</string>
-    <string name="alert_hearing">now: %1$s · loudness ×%2$.1f above the room · %3$s</string>
+    <string name="alert_hearing">loudness ×%1$.1f above the room · %2$s</string>
     <string name="alert_hearing_quiet">quiet</string>
     <string name="hear_heading">Hearing now</string>
     <string name="hear_quiet">quiet</string>

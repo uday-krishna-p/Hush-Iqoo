@@ -9,7 +9,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Laptop-only check of the household sound categories (persona C): thresholds, loudness gate, knock rhythm, debounce. */
+/** Laptop-only check of the household sound categories (persona C): thresholds, loudness gate, no knock alerts, debounce. */
 class SoundAlertsTest {
 
     private val floor = 0.001f
@@ -79,38 +79,13 @@ class SoundAlertsTest {
     }
 
     @Test
-    fun threeKnocksReplayTheirRhythm() {
-        val d = SoundAlerts().also { it.enabled.add(Category.KNOCK) }   // KNOCK is off by default in this version
+    fun knocksNeverFireAnAlert() {
+        // No knock classifier in the alerts: loud onsets and knock-like model scores stay silent, even with KNOCK switched on.
+        val d = SoundAlerts().also { it.enabled.add(Category.KNOCK) }
         val t = warm(d)
-        val knocks = listOf(SoundAlerts.Knock(t - 900, 14f), SoundAlerts.Knock(t - 500, 12f), SoundAlerts.Knock(t - 100, 15f))
-        val a = d.onSecond(second(t, mapOf("Knock" to 0.2f, "Wood" to 0.1f), knocks = knocks))
-        assertNotNull(a)
-        assertEquals(Category.KNOCK, a!!.category)
-        assertEquals("KNOCK ×3", a.word)
-        // 0, buzz, gap, buzz, gap, buzz: three buzzes of 120 ms with the knocks' 400 ms spacing between them.
-        assertEquals(listOf(0L, 120L, 280L, 120L, 280L, 120L), a.pattern.toList())
-        // The same onsets are not reported twice.
-        assertNull(d.onSecond(second(t + 1000, mapOf("Knock" to 0.2f), knocks = listOf(SoundAlerts.Knock(t + 900, 12f)))))
-    }
-
-    @Test
-    fun oneOnsetOrSoftOnsetsAreNotAKnock() {
-        val d = SoundAlerts().also { it.enabled.add(Category.KNOCK) }   // KNOCK is off by default in this version
-        val t = warm(d)
-        assertNull(d.onSecond(second(t, mapOf("Knock" to 0.3f), knocks = listOf(SoundAlerts.Knock(t - 100, 14f)))))
-        // Room clatter: several onsets but soft (×3), and the model hears no knock.
-        val soft = listOf(SoundAlerts.Knock(t + 200, 3f), SoundAlerts.Knock(t + 600, 4f), SoundAlerts.Knock(t + 900, 3f))
-        assertNull(d.onSecond(second(t + 1000, mapOf("Speech" to 0.4f), knocks = soft)))
-    }
-
-    @Test
-    fun loudKnocksNeedNoModel() {
-        val d = SoundAlerts().also { it.enabled.add(Category.KNOCK) }   // KNOCK is off by default in this version
-        val t = warm(d)
-        val knocks = listOf(SoundAlerts.Knock(t - 700, 22f), SoundAlerts.Knock(t - 200, 18f))
-        val a = d.onSecond(second(t, mapOf("Dishes, pots, and pans" to 0.3f), knocks = knocks))
-        assertNotNull(a)
-        assertEquals("KNOCK ×2", a!!.word)
+        val knocks = listOf(SoundAlerts.Knock(t - 700, 40f), SoundAlerts.Knock(t - 300, 35f), SoundAlerts.Knock(t - 100, 50f))
+        assertNull(d.onSecond(second(t, mapOf("Knock" to 0.6f, "Wood" to 0.3f, "Door" to 0.2f), loud = 10f, knocks = knocks)))
+        assertFalse(Category.KNOCK.listens)
     }
 
     @Test

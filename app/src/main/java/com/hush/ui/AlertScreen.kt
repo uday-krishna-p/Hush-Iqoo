@@ -264,8 +264,11 @@ class AlertScreen(private val activity: Activity) : Engine.Listener {
         banner.setBackgroundColor(idleColour)
     }
 
+    /** Alerts worth listing: KNOCK entries from older builds (table clatter, the phone's own motor) stay in the file but are not shown. */
+    private fun shownHistory() = Alerting.history().filter { it.category != SoundAlerts.Category.KNOCK.name }
+
     private fun showHistory() {
-        val h = Alerting.history()
+        val h = shownHistory()
         history.text = if (h.isEmpty()) activity.getString(R.string.alert_history_empty)
                        else h.take(30).joinToString("\n") { Alerting.format(it) }
     }
@@ -273,7 +276,7 @@ class AlertScreen(private val activity: Activity) : Engine.Listener {
     private fun alertsToday(): Int {
         val cal = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
         val midnight = cal.timeInMillis
-        return Alerting.history().count { it.atWallMs >= midnight }
+        return shownHistory().count { it.atWallMs >= midnight }
     }
 
     private fun uptime(): String {
@@ -298,8 +301,8 @@ class AlertScreen(private val activity: Activity) : Engine.Listener {
         updateHearing(w)
         val above = if (w.floor > 0f) w.rms / w.floor else 0f
         val top = w.cls?.top5?.take(3)?.joinToString(", ") { (n, s) -> "%s %.2f".format(n, s) } ?: activity.getString(R.string.alert_hearing_quiet)
-        hearing.text = activity.getString(R.string.alert_hearing, w.event.label, above, top) +
-            (if (w.tap.taps > 0) "\nonsets this second: ${w.tap.taps} (peak ×%.0f)".format(w.tap.peakRatio) else "") +
+        // No rescue label (HUMAN TAPPING…) and no knock onsets here: the alerts do not use the knock detector.
+        hearing.text = activity.getString(R.string.alert_hearing, above, top) +
             (if (w.accel.moving) "\nphone being handled: alerts paused (except ALARM)" else "")
     }
 

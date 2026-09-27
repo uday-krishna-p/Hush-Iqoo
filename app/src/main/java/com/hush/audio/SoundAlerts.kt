@@ -3,8 +3,8 @@ package com.hush.audio
 /**
  * Persona C (docs/PLAN-personas-bc.md, step 1): which household sound was that?
  *
- * Fed once a second with what the pipeline already produces (loudness above the room's floor, YAMNet's class
- * scores, the sharp onsets of the tap detector), it folds them into a few categories, each with a colour, a word
+ * Fed once a second with what the pipeline already produces (loudness above the room's floor and YAMNet's class
+ * scores), it folds them into a few categories, each with a colour, a word
  * and a vibration pattern the person learns to tell apart. Pure logic, no Android: the phone-side effects
  * (flash, buzz, notification, history) live in [com.hush.Alerting].
  *
@@ -12,8 +12,8 @@ package com.hush.audio
  *  - a category's score is the SUM of its YAMNet classes for that second, like the rescue VOICE/MACHINE buckets;
  *  - every category also needs loudness ≥ [Category.loudFactor] × the noise floor, so a TV murmuring in the next
  *    room does not fire; ALARM is the exception at 1.5× because a distant smoke alarm matters;
- *  - KNOCK is not rescue tapping (a steady rhythm over 8 s): a door knock is 2–6 sharp onsets inside 3 s and then
- *    silence, so it has its own rule on the tap detector's onsets and replays their rhythm as the vibration;
+ *  - no knock detection here (team, 27 Sep): the rescue tap detector flooded the history with "KNOCK ×2" from table
+ *    clatter and the phone's own motor; the onsets the pipeline hands over are ignored;
  *  - one alert per category per [DEBOUNCE_MS]; while the sound keeps going the alert is extended, not re-posted;
  *  - nothing during the first [WARM_UP_MS] (the noise floor is still empty) and nothing while the phone is handled,
  *    except ALARM.
@@ -28,7 +28,7 @@ class SoundAlerts {
         val secondsOf3: Int,        // …in this many of the last 3 seconds
         val loudFactor: Float,      // loudness ≥ this × the noise floor
         val priority: Int,          // higher wins the screen when two fire together
-        val pattern: LongArray,     // off/on/off/on… ms (see Haptics.vibrate); KNOCK builds its own
+        val pattern: LongArray,     // off/on/off/on… ms (see Haptics.vibrate)
         val repeats: Boolean = false,   // ALARM keeps buzzing until dismissed
         val defaultOn: Boolean = true
     ) {
@@ -44,10 +44,8 @@ class SoundAlerts {
         DOORBELL("DOORBELL", 0xFF1565C0.toInt(),
             setOf("Doorbell", "Ding-dong", "Ding", "Chime", "Bell", "Buzzer"),
             0.3f, 1, 2f, 4, longArrayOf(0, 150, 100, 150, 400, 150, 100, 150)),
-        // Off by default for this version (team, 27 Sep 05:45: no focus on knocks; the motor and table clatter made it noisy). Switch on the ALERT screen.
-        KNOCK("KNOCK", 0xFFF9A825.toInt(),
-            setOf("Knock", "Door", "Wood", "Thump, thud"),
-            0.15f, 1, 2f, 3, longArrayOf(0, 200), defaultOn = false),
+        /** Not a sound category any more (team, 27 Sep: no knock classifier in the alerts): no classes, never fires, no switch. Kept for old history entries. */
+        KNOCK("KNOCK", 0xFFF9A825.toInt(), emptySet(), 9f, 9, 9f, 3, longArrayOf(0, 200), defaultOn = false),
         TIMER("TIMER BEEPING", 0xFF2E7D32.toInt(),
             setOf("Beep, bleep", "Microwave oven", "Alarm clock"),
             0.3f, 2, 2f, 2, longArrayOf(0, 120, 120, 120, 120, 120, 120, 120)),
@@ -72,7 +70,7 @@ class SoundAlerts {
         val listens: Boolean get() = classes.isNotEmpty()
     }
 
-    /** One knock-like onset the tap detector found: when, and how far above the background it stood. */
+    /** One onset the tap detector found. Handed over by the pipeline, ignored by the alerts. */
     data class Knock(val atMs: Long, val ratio: Float)
 
     /** Everything one second offers the detector. */
@@ -84,12 +82,12 @@ class SoundAlerts {
         val selfNoise: Boolean,             // our own beeps / buzz playing
         val scores: Map<String, Float>,     // YAMNet display name → score (classes < 0.01 may be absent)
         val topClass: String,
-        val knocks: List<Knock>
+        val knocks: List<Knock>             // ignored (no knock alerts)
     )
 
     data class Alert(
         val category: Category,
-        val word: String,             // the word on the screen (ALARM says which alarm, KNOCK how many)
+        val word: String,             // the word on the screen (ALARM says which alarm)
         val detail: String,           // what fired it, for the log and the history
         val score: Float,
         val pattern: LongArray,       // vibration
@@ -102,13 +100,6 @@ class SoundAlerts {
     companion object {
         const val DEBOUNCE_MS = 20_000L
         const val WARM_UP_MS = 5_000L
-        /** A door knock: this many onsets inside [KNOCK_WINDOW_MS], each at least [KNOCK_RATIO] × the background. */
-        const val KNOCK_MIN = 2
-        const val KNOCK_MAX = 6
-        const val KNOCK_WINDOW_MS = 3_000L
-        const val KNOCK_RATIO = 6f
-        /** Without YAMNet's agreement every onset must be this loud. */
-        const val KNOCK_RATIO_ALONE = 10f
         /** Words for ALARM by top class. */
         private val ALARM_WORDS = mapOf("Smoke detector, smoke alarm" to "SMOKE ALARM", "Fire alarm" to "FIRE ALARM", "Siren" to "SIREN",
             "Civil defense siren" to "SIREN", "Car alarm" to "CAR ALARM", "Alarm clock" to "ALARM CLOCK")
@@ -126,12 +117,10 @@ class SoundAlerts {
 
     private var startMs = -1L
     private val history = ArrayDeque<Second>()          // the last 3 seconds
-    private val knocks = ArrayDeque<Knock>()             // onsets of the last KNOCK_WINDOW_MS
     private val lastFired = HashMap<Category, Long>()
-    private var knocksReported = 0L                      // last time KNOCK fired: those onsets are spent
 
     fun reset() {
-        startMs = -1L; history.clear(); knocks.clear(); lastFired.clear(); lastTaughtFired.clear(); knocksReported = 0L
+        startMs = -1L; history.clear(); lastFired.clear(); lastTaughtFired.clear()
     }
 
     /** One second in; at most one alert out (the highest-priority category that fired). */
@@ -139,10 +128,8 @@ class SoundAlerts {
         if (startMs < 0) startMs = s.nowMs
         history.addLast(s)
         while (history.size > 3) history.removeFirst()
-        // Our own buzz, beeps or voice: nothing this second is evidence, and its onsets must not linger into the next second.
-        if (s.selfNoise) { knocks.clear(); return null }
-        for (k in s.knocks) knocks.addLast(k)
-        while (knocks.isNotEmpty() && s.nowMs - knocks.first().atMs > KNOCK_WINDOW_MS) knocks.removeFirst()
+        // Our own buzz, beeps or voice: nothing this second is evidence.
+        if (s.selfNoise) return null
         if (s.nowMs - startMs < WARM_UP_MS) return null
 
         var best: Alert? = null
@@ -157,16 +144,15 @@ class SoundAlerts {
             }
         }
         for (c in Category.values()) {
-            if (c !in enabled) continue
+            if (c !in enabled || !c.listens) continue
             val a = evaluate(c, s) ?: continue
             if (best == null || c.priority > best.category.priority) best = a
         }
         if (best != null) {
             val since = s.nowMs - (lastFired[best.category] ?: Long.MIN_VALUE / 2)
-            // A continuing sound extends its alert; every knock burst is its own alert (the rhythm is the message).
-            val extended = since < DEBOUNCE_MS && best.category != Category.KNOCK
+            // A continuing sound extends its alert.
+            val extended = since < DEBOUNCE_MS
             lastFired[best.category] = s.nowMs
-            if (best.category == Category.KNOCK) knocksReported = s.nowMs
             return best.copy(extended = extended)
         }
         return null
@@ -181,7 +167,6 @@ class SoundAlerts {
 
     private fun evaluate(c: Category, s: Second): Alert? {
         if (s.moving && c != Category.ALARM) return null
-        if (c == Category.KNOCK) return evaluateKnock(s)
         val th = c.threshold * sensitivity
         // Count the recent seconds where the bucket score and the loudness both pass.
         var hits = 0
@@ -209,29 +194,5 @@ class SoundAlerts {
         }
         val detail = "top=$bestTop score=%.2f loud=x%.1f".format(bestScore, if (s.floor > 0f) s.rms / s.floor else 0f)
         return Alert(c, word, detail, bestScore, c.pattern, c.repeats, s.nowMs, extended = false)
-    }
-
-    /**
-     * A door knock: 2–6 sharp onsets inside 3 s, each ≥ 6× the background, with YAMNet hearing wood/knock in this
-     * second, or every onset ≥ 10× on its own. The onsets of one reported knock are not reported again.
-     */
-    private fun evaluateKnock(s: Second): Alert? {
-        if (s.knocks.isEmpty()) return null     // a knock is reported in the second its last onset arrives
-        val fresh = knocks.filter { it.atMs > knocksReported && it.ratio >= KNOCK_RATIO }
-        if (fresh.size < KNOCK_MIN || fresh.size > KNOCK_MAX) return null
-        if (!loudEnough(Category.KNOCK, s)) return null
-        val yamnet = sum(Category.KNOCK, s)
-        val corroborated = yamnet >= Category.KNOCK.threshold * sensitivity || fresh.all { it.ratio >= KNOCK_RATIO_ALONE }
-        if (!corroborated) return null
-        // Replay the rhythm: a 120 ms buzz per knock, with the knocks' own gaps between them.
-        val times = fresh.map { it.atMs }.sorted()
-        val pattern = ArrayList<Long>()
-        pattern.add(0L)
-        for (i in times.indices) {
-            pattern.add(120L)
-            if (i < times.size - 1) pattern.add((times[i + 1] - times[i] - 120L).coerceIn(80L, 1500L))
-        }
-        val detail = "onsets=${fresh.size} ratios=" + fresh.joinToString(",") { "x%.0f".format(it.ratio) } + " yamnet=%.2f".format(yamnet)
-        return Alert(Category.KNOCK, "KNOCK ×${fresh.size}", detail, yamnet.coerceAtLeast(0.15f), pattern.toLongArray(), false, s.nowMs, extended = false)
     }
 }
