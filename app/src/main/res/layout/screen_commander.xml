@@ -114,6 +114,17 @@
             android:visibility="gone" />
 
         <TextView
+            android:id="@+id/closestText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:background="#E8F5E9"
+            android:padding="16dp"
+            android:text="@string/closest_idle"
+            android:textColor="#1B5E20"
+            android:textSize="18sp" />
+
+        <TextView
             android:id="@+id/briefText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -124,12 +135,14 @@
 
         <com.hush.ui.ArrowView
             android:id="@+id/arrow"
+            android:visibility="gone"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp" />
 
         <Button
             android:id="@+id/btnSyncCompass"
+            android:visibility="gone"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"

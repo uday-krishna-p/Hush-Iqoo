@@ -192,9 +192,11 @@ data class Onset(
     val ratio: Float,          // peak over the phone's background level: how sharply the knock stood out
     val micDelay: Float?,      // samples, mic 1 minus mic 0; null if the two mics did not agree
     val micQ: Float?,          // 0..1 correlation quality of micDelay
-    val felt: Boolean          // an accelerometer jolt within 100 ms: the knock also reached the phone through the floor
+    val felt: Boolean,         // an accelerometer jolt within 100 ms: the knock also reached the phone through the floor
+    val ageMs: Long? = null    // ms between the knock and the report being built: the commander times it on its own clock (closest phone)
 ) {
     fun toJson(): JSONObject = JSONObject().put("s", sample).put("pk", Math.round(peak * 10000.0) / 10000.0).put("ra", Math.round(ratio * 10.0) / 10.0).apply {
+        ageMs?.let { put("ag", it) }
         micDelay?.let { put("dl", Math.round(it * 100.0) / 100.0) }
         micQ?.let { put("q", Math.round(it * 100.0) / 100.0) }
         if (felt) put("felt", true)
@@ -204,7 +206,8 @@ data class Onset(
         fun fromJson(o: JSONObject) = Onset(
             o.getLong("s"), o.getDouble("pk").toFloat(), o.optDouble("ra", 0.0).toFloat(),
             if (o.has("dl")) o.getDouble("dl").toFloat() else null, if (o.has("q")) o.getDouble("q").toFloat() else null,
-            o.optBoolean("felt", false)
+            o.optBoolean("felt", false),
+            if (o.has("ag")) o.getLong("ag") else null
         )
     }
 }
@@ -300,7 +303,8 @@ data class Board(val brief: String, val mode: String, val ranks: List<Rank>, val
                  val events: List<SensorEvent>, val status: String, val discovered: String,
                  val pos: Map<String, Pair<Double, Double>> = emptyMap(),   // metres, map frame (every phone runs the locator on these)
                  val scale: Float? = null,                                  // metres per map width
-                 val rotation: Float? = null) {                             // map bearing + rotation = heading frame
+                 val rotation: Float? = null,                               // map bearing + rotation = heading frame
+                 val closest: String = "") {                                // the closest-phone panel (Closest.kt), "" while none
 
     data class Rank(val letter: String, val score: Float, val evidence: Float, val source: Int)
 
@@ -312,6 +316,7 @@ data class Board(val brief: String, val mode: String, val ranks: List<Rank>, val
             if (pos.isNotEmpty()) put("pos", JSONObject().apply { pos.forEach { (l, p) -> put(l, JSONArray().put(Math.round(p.first * 1000.0) / 1000.0).put(Math.round(p.second * 1000.0) / 1000.0)) } })
             scale?.let { put("sc", Math.round(it * 1000.0) / 1000.0) }
             rotation?.let { put("rot", Math.round(it * 10.0) / 10.0) }
+            if (closest.isNotEmpty()) put("cl", closest)
         }
         .toString()
 
@@ -327,7 +332,8 @@ data class Board(val brief: String, val mode: String, val ranks: List<Rank>, val
                     o.optJSONObject("pos")?.let { p -> for (k in p.keys()) { val a = p.getJSONArray(k); put(k, a.getDouble(0) to a.getDouble(1)) } }
                 },
                 if (o.has("sc")) o.getDouble("sc").toFloat() else null,
-                if (o.has("rot")) o.getDouble("rot").toFloat() else null)
+                if (o.has("rot")) o.getDouble("rot").toFloat() else null,
+                o.optString("cl", ""))
         } catch (e: Exception) { HLog.d("bad Board json: $e"); null }
     }
 }

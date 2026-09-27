@@ -171,6 +171,21 @@ brief sent down); (6) the 1 s audio window (a knock is reported at the end of it
 ~0.4 s); (7) silent ultrasonic chirps (plan step 4) to bring back ranging, clock sync and the timing locator.
 The paragraphs below are the chronological log, newest first.
 
+**Closest phone replaces the arrow in the demo path, 27 Sep 05:40 (team after 15 h: "none of the features are even
+remotely working"; RCA from the 04:16-05:18 logs of 6a46 and ef39):** (1) phones 0.4-0.5 m apart make every
+multi-phone cue tiny (04:32 burst: A vs ef39 peak levels 1-4 dB apart); (2) the two-mic mirror never resolved because
+the phones lay parallel as SYNC asked (A 106/322, B 123/303, fused confidence 0.44-0.48; median 0.41 over 308
+fusions); (3) compasses jump (B read 122 -> 297 -> 204 deg in 25 s on the table); (4) the live ranking used 1 s RMS minus a
+rolling floor that climbs during knocking (04:32:13: knock x43, rms 0.0011 < floor 0.0017 -> score 0); (5) 0 `LOCATE fix`,
+0 `CROSS: source`, 0 `Clock:` lines on either phone: the timing locator and the crossing never produced a result.
+New: `Closest.kt` (commander) takes every phone's per-knock PEAK (onset reports now carry `ag`, the knock's age in ms,
+so the commander puts it on its own clock), matches detections within 350 ms as one knock (judged 2.2 s later, needs
+one phone >= x8), the loudest phone wins it; the panel counts wins over 20 s: "CLOSEST: Sensor B - loudest on 7 of 9
+knocks - 12 dB louder than A" (LEANING below 60 %). Board field `cl` shows it on every phone. Log `CLOSEST knock: A=0.0780
+B=0.0610 -> A +2.1 dB over B`, `CLOSEST panel: ...`; export record `closest_knock`. Arrow and SYNC COMPASS are hidden
+(layout `gone`, code kept). `ClosestTest` (5) passes. Test: phones in three corners of the 2 m x 1.5 m room on cloth,
+knock 0.3 m from one phone 10x: pass = that phone wins >= 8. Installed on 6a46 05:37; ef39 hung on adb (replug).
+
 **Timing locator back, inaudible chirps, every phone locates, 27 Sep 04:40 (team: "we are just pointing a compass
 … not using the power of multiple devices to triangulate"; "if the chirps are made, make them at such high frequencies
 that humans cant hear"):** (1) *Top-band test* (`tools/calibration/ultrasweep.py` makes the file,
@@ -754,6 +769,7 @@ app/src/main/java/com/hush/
   HLog.kt                  // logcat + private file logger (the phones drop logcat)
   Ranging.kt               // two-way acoustic distance maths, triangle
   Locator.kt               // WHERE the sound is: clock offsets from chirps, mic axes, onset matching, grid fusion
+  Closest.kt               // WHICH phone hears each knock loudest (per-knock peaks matched across phones): the demo headline
   Crossing.kt              // where the phones' own-arrow bearing lines cross (least squares, mirror combinations, in-front rule)
   GpsLayout.kt             // positions from every phone's GPS fix (median, east/north of A, accepted only when far enough apart)
   Alerting.kt              // persona C effects: vibration pattern, notification + full-screen intent, alerts history, taught-sound file
