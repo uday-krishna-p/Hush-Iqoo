@@ -101,8 +101,8 @@ knocks (phones on the same slab) arrive faster than through air: onsets tagged "
   radio event is in there.
 - **The phones are lock-screen protected.** From adb, `am start` of MainActivity lands behind the lock screen (so its dialogs are invisible and screenshots are black); only BeaconActivity shows over the lock screen. Unlock the phone by hand before driving MainActivity from the laptop.
 - **vivo remote-control app** (Office Kit, used to control the laptop) sits on top of Hush on the phones. Force Hush to
-  the front with `adb shell am start -n com.hush/.MainActivity` before tapping by coordinates. Role picker button centres
-  at 1440-wide: COMMANDER ≈ (540, 646), SENSOR ≈ (720, 1241). `uiautomator dump` is flaky on these phones.
+  the front with `adb shell am start -n com.hush/.MainActivity` before tapping by coordinates. Prefer
+  `--es role COMMANDER|SENSOR` to tapping (the role cards moved in the 27 Sep UI clean-up). `uiautomator dump` is flaky on these phones.
 - **Demo radio setup (3 taps per phone):** airplane mode ON, then Bluetooth ON, then Wi-Fi radio ON without joining a
   network. Nearby needs both radios even with no internet.
 
@@ -178,6 +178,16 @@ and corrected); more than three phones in AutoLocate; re-aiming after all phones
 (real-knock fixes were 12 m off); the 1 s audio window; removing the debug WAV before any public build.
 
 The paragraphs below are the chronological log, newest first.
+
+**UI clean-up, 27 Sep ~07:55 (`a67e36e`; team: "minimalistic, professional, easy to navigate … logging collapsible"):**
+light theme with rounded cards and buttons (`values/themes.xml`, `values/colors.xml`, `drawable/`); content padded clear of the
+status and navigation bars (Android 15+ draws edge to edge: `MainActivity.fitInsideSystemBars`). Role picker = two role cards,
+the at-home buttons, a short readiness note. Rescue screen, top to bottom: title + connection line + phone chip (letter ·
+suffix), closest-phone card (green = sure, amber = leaning; parsed from `Engine.closestText`, the per-phone tally stays in the
+log), warmer/colder card, direction card (arrow, hint, Point & tap), map, actions (sensitivity switch, Hush + Stop, wake nearby
+phones), then **Technical details**, folded by default: status lines, compass, phone list with scores, listen mode, map tools,
+export, this phone's microphone readouts. Fixed on the way: a freshly picked commander built its screen before the service had
+set `Engine.role`, so it showed "Sensor A" with the map tools off; the screen now receives the picked role.
 
 **Confirmed working, 27 Sep ~07:30:** after the POINT & TAP build (`22a00ea`) the team reported "perfect ... its
 working": closest phone, warmer/colder, chirp positions and the pointed arrow together. Tagged `v-point-and-tap-working`.
