@@ -1035,6 +1035,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
      * on when every phone has reported or after [CHIRP_TIMEOUT_MS].
      */
     private const val SEARCH_BEFORE_MS = 2500
+    // 2.5 s makes every chirp slot ~3.4 s. Tried 1.5 s on 27 Sep 08:15–08:21 (slots 2.3 s): rounds lost pairs and
+    // disagreed by metres; not separated from the team moving the phones, so back to 2.5 s until a still-phones test.
     private const val SEARCH_AFTER_MS = 2500
     /**
      * Budget per chirp (measured 26–27 Sep with the phones' clock skew removed): command down 0.01–0.25 s
@@ -1217,7 +1219,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val fs = AudioCapture.SAMPLE_RATE.toLong()
         val now = cap.samplesCaptured
         // Search from 2.5 s before the command (but after the previous chirp we heard) to 2.5 s after it.
-        val startSample = maxOf(now - fs * SEARCH_BEFORE_MS / 1000, if (lastChirpDetectedSample > 0) lastChirpDetectedSample + fs * 3 / 10 else 0L)
+        // ...and at least 1 s after the previous chirp this phone heard: its tail and echoes won weak searches 0.34–0.78 s
+        // after it once chirps came every 2.4 s (27 Sep 08:18, 0.3 s here); with 3.4 s slots the window never reached there.
+        val startSample = maxOf(now - fs * SEARCH_BEFORE_MS / 1000, if (lastChirpDetectedSample > 0) lastChirpDetectedSample + fs else 0L)
         val endSample = now + fs * SEARCH_AFTER_MS / 1000
         lastChirpMs = SystemClock.elapsedRealtime()
         if (letter == this.letter) appContext?.let { com.hush.audio.Chirp.play(it) }
@@ -2857,12 +2861,22 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     fun aimFrame(): Aim.Frame? = aim.frame()
 
+    /** The phones this phone has been pointed at (at most two are kept). */
+    fun aimedTargets(): List<String> = aim.targets()
+
+    /** "Clear pointing" on the screen: forget this phone's orientation; the arrow is off until it is pointed again. */
+    fun aimClear(): String {
+        HLog.d("AIM: cleared on this phone ($letter), was pointed at ${aim.targets().ifEmpty { listOf("nothing") }.joinToString(", ")}")
+        aim.reset()
+        return "Pointing cleared. Point this phone at another phone and tap its button."
+    }
+
     /** What the arrow shows: [screenDeg] null = arrow off; [label] short (drawn under the arrow); [hint] one or two lines below. */
     data class AimArrow(val screenDeg: Float?, val label: String, val hint: String)
 
     fun aimArrow(): AimArrow {
         val me = posOf(letter) ?: return AimArrow(null, "Arrow off", "Measuring where the phones are with inaudible chirps: needs three phones connected, then about 20 s")
-        val f = aim.frame() ?: return AimArrow(null, "Arrow off", "One-time setup: aim the top of this phone at another phone and tap the blue button below")
+        val f = aim.frame() ?: return AimArrow(null, "Arrow off", "One-time setup: point the top of this phone at another phone and tap that phone's button below")
         val side = if (f.mirrored == null) " · aim at a 2nd phone to confirm left/right" else ""
         // Target: the loudness spot (between the phones, LoudnessLocator), else the closest phone's position.
         val spot = (if (role == ROLE_COMMANDER) wherePoint?.let { it.x to it.y } else boardWhere?.let { it.first to it.second })

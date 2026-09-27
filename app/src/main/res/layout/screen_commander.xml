@@ -125,12 +125,29 @@
                 android:gravity="center_horizontal"
                 style="@style/Hush.Caption" />
 
-            <Button
-                android:id="@+id/btnAim"
-                style="@style/Widget.Hush.Button.Primary"
+            <!-- Point & tap: one button per other phone (filled in by SensorScreen), then Clear. -->
+            <TextView
+                android:id="@+id/aimInstruction"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp" />
+                android:layout_marginTop="14dp"
+                android:text="@string/aim_instruction"
+                style="@style/Hush.Body" />
+
+            <LinearLayout
+                android:id="@+id/aimRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal" />
+
+            <Button
+                android:id="@+id/btnAimClear"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/aim_clear"
+                android:visibility="gone" />
         </LinearLayout>
 
         <!-- Map of the phones -->

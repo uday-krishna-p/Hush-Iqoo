@@ -196,8 +196,11 @@
     <string name="details_status">Status</string>
     <string name="mode_heading">Silence window listens for</string>
     <string name="map_tools_heading">Map tools</string>
-    <string name="aim_waiting">Point and tap (waiting for phone positions)</string>
-    <string name="aim_target">Point this phone at %1$s, then tap</string>
+    <string name="aim_waiting">Pointing becomes available once the phone positions are measured.</string>
+    <string name="aim_instruction">Hold this phone so its top faces another phone, then tap that phone\'s button. Do two phones to settle left and right.</string>
+    <string name="aim_button">Point at %1$s</string>
+    <string name="aim_button_done">%1$s ✓ redo</string>
+    <string name="aim_clear">Clear pointing</string>
     <string name="conn_commander">%1$d sensor(s) connected</string>
     <string name="conn_commander_none">Waiting for sensors to join</string>
     <string name="conn_sensor_ok">Connected to the commander</string>

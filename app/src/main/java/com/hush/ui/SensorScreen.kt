@@ -38,7 +38,39 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
      */
     private var knockArrowTicks = 0
     private val aimHint: TextView? = activity.findViewById(R.id.aimHint)
-    private val btnAim: android.widget.Button? = activity.findViewById(R.id.btnAim)
+    private val aimRow: android.widget.LinearLayout? = activity.findViewById(R.id.aimRow)
+    private val aimInstruction: TextView? = activity.findViewById(R.id.aimInstruction)
+    private val btnAimClear: android.widget.Button? = activity.findViewById(R.id.btnAimClear)
+    private var aimRowKey: String? = null
+
+    /**
+     * One "Point at X" button per other placed phone (✓ once set; tapping again redoes it), and "Clear pointing".
+     * Rebuilt only when the phones or the set ones change (this runs 20 times a second).
+     */
+    private fun renderAimButtons() {
+        val row = aimRow ?: return
+        val others = Engine.aimCandidates().sorted()
+        val done = Engine.aimedTargets()
+        val key = others.joinToString(",") + "|" + done.joinToString(",")
+        if (key == aimRowKey) return
+        aimRowKey = key
+        row.removeAllViews()
+        aimInstruction?.text = activity.getString(if (others.isEmpty()) R.string.aim_waiting else R.string.aim_instruction)
+        btnAimClear?.visibility = if (done.isEmpty()) View.GONE else View.VISIBLE
+        for ((i, l) in others.withIndex()) {
+            val name = if (l == "A") "Commander" else "Sensor $l"
+            val set = l in done
+            val b = android.widget.Button(activity, null, 0, if (set) R.style.Widget_Hush_Button else R.style.Widget_Hush_Button_Primary)
+            b.text = activity.getString(if (set) R.string.aim_button_done else R.string.aim_button, name)
+            b.layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                .apply { if (i > 0) marginStart = (8 * activity.resources.displayMetrics.density).toInt() }
+            b.setOnClickListener {
+                android.widget.Toast.makeText(activity, Engine.aimTap(l), android.widget.Toast.LENGTH_LONG).show()
+                aimRowKey = null
+            }
+            row.addView(b)
+        }
+    }
 
     protected fun drawKnockArrow(v: ArrowView): Boolean {
         v.twinAngleDeg = null
@@ -48,13 +80,10 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
         v.label = friendlyArrowLabel(aa.label)
         if (aa.screenDeg != null) { v.active = true; v.angleDeg = aa.screenDeg; v.confidence = if (Engine.aimFrame()?.mirrored == null) 0.6f else 0.95f }
         else v.active = false
-        aimHint?.text = aa.hint
-        val next = Engine.aimCandidates().firstOrNull()
-        btnAim?.let { b ->
-            b.isEnabled = next != null
-            b.text = if (next == null) activity.getString(R.string.aim_waiting)
-                     else activity.getString(R.string.aim_target, if (next == "A") "the commander (A)" else "Sensor $next")
-        }
+        // Before the first pointing the instruction above the buttons says it all; the log keeps Engine's hint.
+        aimHint?.text = if (aa.hint.startsWith("One-time setup")) "" else aa.hint
+        aimHint?.visibility = if (aimHint?.text.isNullOrEmpty()) View.GONE else View.VISIBLE
+        renderAimButtons()
         if (++knockArrowTicks % 20 == 0) com.hush.HLog.d("ARROW: %s | %s%s".format(aa.label, aa.hint, aa.screenDeg?.let { " | screen %.0f° heading %.0f°".format(it, Engine.headingDeg) } ?: ""))
         return true
     }
@@ -180,6 +209,10 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
         roleLabel.text = roleName
         sourceLabel.text = activity.getString(R.string.mic_starting)
         sensorArrow?.let { it.label = activity.getString(R.string.sensor_arrow_wait); it.post(sensorArrowTick) }
+        btnAimClear?.setOnClickListener {
+            android.widget.Toast.makeText(activity, Engine.aimClear(), android.widget.Toast.LENGTH_LONG).show()
+            aimRowKey = null
+        }
     }
 
     override fun onOwnWindow(w: Engine.Window) {

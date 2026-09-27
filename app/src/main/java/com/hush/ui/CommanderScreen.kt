@@ -223,12 +223,7 @@ class CommanderScreen(activity: Activity, role: String) : SensorScreen(activity,
         renderDetails()
         val sync = activity.findViewById<Button>(R.id.btnSyncCompass)
         sync.setOnClickListener { android.widget.Toast.makeText(activity, Engine.syncCompasses(), android.widget.Toast.LENGTH_LONG).show() }
-        // POINT & TAP (Aim.kt): the button names the phone to aim at; tapping records this phone's orientation.
-        activity.findViewById<Button>(R.id.btnAim).setOnClickListener {
-            val target = Engine.aimCandidates().firstOrNull()
-            val msg = if (target == null) "No other phone has a position yet: wait for the chirps" else Engine.aimTap(target)
-            android.widget.Toast.makeText(activity, msg, android.widget.Toast.LENGTH_LONG).show()
-        }
+        // POINT & TAP buttons (one per other phone) and Clear are drawn and wired by SensorScreen.
         sync.setOnLongClickListener { android.widget.Toast.makeText(activity, Engine.clearCompassSync(), android.widget.Toast.LENGTH_LONG).show(); true }
         compassText.post(compassTick)
         // Dots live in Engine so they survive the screen being recreated (a sensor gets them from the commander's Fix).
