@@ -2088,7 +2088,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         link?.stop(); link = null
         ble?.stop(); ble = null
         radioDistance.clear(); peerBleAddress.clear(); radioStatus = ""
-        locator.reset(); peerHeading.clear(); doaAll.clear(); closest.reset(); closestText = ""; closestHeardUntil.clear(); closestHeardAt.clear(); wherePoint = null; wherePointKey = ""
+        locator.reset(); peerHeading.clear(); doaAll.clear(); closest.reset(); closestText = ""; closestHeardUntil.clear(); closestHeardAt.clear(); wherePoint = null; wherePointKey = ""; warmth.reset(); warmTrendLogged.clear(); lastWarmKey = ""; warmthByLetter = emptyMap()
         com.hush.audio.KnockBearing.reset(); ownArrowUntilMs = 0L
         soundAlerts.reset(); homeAlerts.reset(); whistles.reset(); classifierRun = 0; classifierSkipped = 0
         walk.reset(); walkState = walk.state; com.hush.audio.KnockBearing.rescueTuning()
@@ -2587,12 +2587,12 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     /** Commander: every knock of a report on the commander's clock. [remote] = arrived over the mesh. */
     private fun feedClosest(r: com.hush.model.OnsetReport, remote: Boolean) {
-        if (r.moving) return   // a phone being handled rattles: its levels mean nothing
+        // A moving phone (handled or carried) still reports: its levels feed WARMER/COLDER, never the closest-phone vote.
         val now = SystemClock.elapsedRealtime()
         for (o in r.onsets) {
             val age = o.ageMs ?: continue   // older build on that phone
             val t = now - age - (if (remote) RELAY_MS else 0L)
-            if (!closest.add(r.letter, t, o.peak, o.ratio)) HLog.d("CLOSEST late: ${r.letter}'s knock (peak %.4f) arrived after that knock was judged: dropped".format(o.peak))
+            if (!closest.add(r.letter, t, o.peak, o.ratio, r.moving)) HLog.d("CLOSEST late: ${r.letter}'s knock (peak %.4f) arrived after that knock was judged: dropped".format(o.peak))
         }
         closestTick()
     }
@@ -2602,11 +2602,22 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         if (role != ROLE_COMMANDER) return
         val now = SystemClock.elapsedRealtime()
         for (k in closest.tick(now, closestReadyUntil(now))) {
-            val levels = k.peaks.entries.sortedByDescending { it.value }.joinToString(" ") { (l, p) -> "%s=%.4f".format(l, p) }
-            HLog.d("CLOSEST knock: %s -> %s%s%s".format(levels, k.winner, k.leadDb?.let { " +%.1f dB over %s".format(it, k.runnerUp) } ?: " (only phone that heard it)",
+            val levels = k.all.entries.sortedByDescending { it.value }.joinToString(" ") { (l, p) -> "%s=%.4f%s".format(l, p, if (l in k.peaks) "" else "(moving)") }
+            HLog.d(if (k.winner.isEmpty()) "CLOSEST knock: $levels -> no vote (only moving phones heard it)" else
+                "CLOSEST knock: %s -> %s%s%s".format(levels, k.winner, k.leadDb?.let { " +%.1f dB over %s".format(it, k.runnerUp) } ?: " (only still phone that heard it)",
                 if (k.decisive) "" else " (tie, not counted)") + " · judged ${now - k.tMs} ms after the knock")
-            sessionLog.addRecord("closest_knock", mapOf("peaks" to k.peaks.toString(), "winner" to k.winner, "lead_db" to k.leadDb, "counted" to k.decisive))
+            sessionLog.addRecord("closest_knock", mapOf("peaks" to k.all.toString(), "moving" to (k.all.keys - k.peaks.keys).toString(), "winner" to k.winner, "lead_db" to k.leadDb, "counted" to k.decisive))
+            warmth.add(k.tMs, k.all, k.peaks.keys)
         }
+        // WARMER / COLDER per phone (Warmth.kt): logged when a phone's trend changes, carried to every phone in the Board.
+        val warm = LinkedHashMap<String, Warmth.Status>()
+        for (l in warmth.letters().sorted()) warmth.status(l, now)?.let { warm[l] = it }
+        for ((l, st) in warm) if (warmTrendLogged[l] != st.trend) {
+            warmTrendLogged[l] = st.trend
+            HLog.d("WARMTH %s: %s %+.1f dB (level vs the still phones %+.1f dB, %d knocks)%s".format(l, st.trend, st.deltaDb, st.relDb, st.knocks,
+                if (boardEvents[l]?.moving == true) " moving" else ""))
+        }
+        warmthByLetter = warm
         val s = closest.summary(now)
         // WHERE between the phones (LoudnessLocator): the same clear knocks, the phones' hand-layout positions.
         val placed = (listOf("A") + peers.values.map { it.letter }).mapNotNull { l -> posMetres(l)?.let { l to it } }.toMap()
@@ -2633,17 +2644,26 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             if (point != null) {
                 val who = if (point.nearest == "A") "Commander A" else "Sensor ${point.nearest}"
                 append("\nSound ≈ %.1f m from %s (±%.1f m) · red circle on the map".format(point.nearestM, who, point.radiusM))
-            } else if (placed.size < LoudnessLocator.MIN_PHONES) {
-                append("\nPlace 3 phones on the map (layout) to see where between them")
             }
+            val carried = warm.filter { (l, st) -> st.trend != Warmth.Trend.SAME && boardEvents[l]?.moving == true }
+            if (carried.isNotEmpty()) append("\nCarried: ").append(carried.entries.joinToString("  ") { (l, st) -> "%s %s %+.0f dB".format(l, st.trend.name.lowercase(), st.deltaDb) })
         }
-        if (text != closestText) {
+        val warmKey = warm.entries.joinToString { (l, st) -> "$l${st.trend}%.0f".format(st.deltaDb) }
+        if (text != closestText || warmKey != lastWarmKey) {
+            lastWarmKey = warmKey
             closestText = text
             HLog.d("CLOSEST panel: ${text.replace('\n', '|').ifEmpty { "(none)" }}")
             listener?.onClosest(text)
             sendBoardDown(force = true)
         }
     }
+
+    private val warmth = Warmth()
+    private val warmTrendLogged = HashMap<String, Warmth.Trend>()
+    private var lastWarmKey = ""
+    /** Every phone's WARMER/COLDER status (commander computes it; sensors get it in the Board). */
+    @Volatile var warmthByLetter: Map<String, Warmth.Status> = emptyMap()
+        private set
 
     /** Where the knocking is between the phones (metres, posMetres frame), or null. Commander computes it; sensors get it in the Board. */
     @Volatile var wherePoint: LoudnessLocator.Point? = null
@@ -2712,7 +2732,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val board = com.hush.model.Board(lastBrief, mode.name, lastRanking.map { com.hush.model.Board.Rank(it.letter, it.score, it.evidence, it.source) },
             names, fresh, status, discoveredText(discoveredPhones()),
             LinkedHashMap<String, Pair<Double, Double>>().apply { for (k in mapDots.keys) posMetres(k)?.let { put(k, it) } },
-            mapMetresPerUnit, mapRotationDeg, closestText, wherePoint?.let { Triple(it.x, it.y, it.radiusM) })
+            mapMetresPerUnit, mapRotationDeg, closestText, wherePoint?.let { Triple(it.x, it.y, it.radiusM) }, warmthByLetter)
         l.sendDown(board.toJson())
     }
 
@@ -2734,7 +2754,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         if (b.brief != lastBrief && b.brief.isNotEmpty()) HLog.d("BOARD brief: ${b.brief}")
         lastBrief = b.brief
         boardWhere = b.where
-        if (b.closest != closestText) { closestText = b.closest; HLog.d("BOARD closest: ${b.closest.replace('\n', '|').ifEmpty { "(none)" }}"); listener?.onClosest(b.closest) }
+        val warmChanged = b.warmth != warmthByLetter
+        warmthByLetter = b.warmth
+        if (b.closest != closestText || warmChanged) { closestText = b.closest; HLog.d("BOARD closest: ${b.closest.replace('\n', '|').ifEmpty { "(none)" }}"); listener?.onClosest(b.closest) }
         val l = listener ?: return
         if (peersChanged) l.onPeers(boardPeers())
         b.events.forEach { l.onEvent(it, b.names[it.sensorId] ?: "") }

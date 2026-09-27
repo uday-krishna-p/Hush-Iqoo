@@ -125,6 +125,15 @@
             android:textSize="18sp" />
 
         <TextView
+            android:id="@+id/warmthText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:padding="16dp"
+            android:textSize="18sp"
+            android:visibility="gone" />
+
+        <TextView
             android:id="@+id/briefText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

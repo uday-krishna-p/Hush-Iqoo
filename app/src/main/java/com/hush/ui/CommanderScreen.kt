@@ -35,6 +35,7 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity,
     private val bigCountdown: TextView = activity.findViewById(R.id.bigCountdown)
     private val briefText: TextView = activity.findViewById(R.id.briefText)
     private val closestText: TextView = activity.findViewById(R.id.closestText)
+    private val warmthText: TextView = activity.findViewById(R.id.warmthText)
     private val peersText: TextView = activity.findViewById(R.id.peersText)
     private val commanderStatus: TextView = activity.findViewById(R.id.commanderStatus)
     private val discoveredText: TextView = activity.findViewById(R.id.discoveredText)
@@ -304,6 +305,25 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity,
         render()
     }
 
+    /** This phone's WARMER / COLDER (Warmth.kt): the metal-detector line for a phone being carried. */
+    private fun renderWarmth() {
+        val st = Engine.warmthByLetter[Engine.letter]
+        if (st == null) { warmthText.visibility = View.GONE; return }
+        warmthText.visibility = View.VISIBLE
+        val (head, hint, bg, fg) = when (st.trend) {
+            com.hush.Warmth.Trend.WARMER -> listOf("▲ WARMER %+.0f dB".format(st.deltaDb), "this phone is getting closer: keep going this way", "#FFE0B2", "#BF360C")
+            com.hush.Warmth.Trend.COLDER -> listOf("▼ COLDER %+.0f dB".format(st.deltaDb), "this phone is moving away: turn back", "#BBDEFB", "#0D47A1")
+            com.hush.Warmth.Trend.SAME -> listOf("= NO CHANGE (%+.0f dB)".format(st.deltaDb), "carry this phone and knock: it says warmer or colder", "#EEEEEE", "#424242")
+        }
+        val text = "$head\n$hint\nhears the knock %+.0f dB vs the phones lying still".format(st.relDb)
+        val sb = SpannableStringBuilder(text)
+        sb.setSpan(StyleSpan(Typeface.BOLD), 0, head.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        sb.setSpan(RelativeSizeSpan(1.8f), 0, head.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        warmthText.text = sb
+        warmthText.setBackgroundColor(android.graphics.Color.parseColor(bg))
+        warmthText.setTextColor(android.graphics.Color.parseColor(fg))
+    }
+
     override fun onClosest(text: String) {
         renderClosest()
         map.dots.clear(); map.dots.putAll(Engine.screenDots())
@@ -313,6 +333,7 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity,
 
     /** The big panel: which phone hears the knocking loudest (Closest.kt). The first line is enlarged. */
     private fun renderClosest() {
+        renderWarmth()
         val text = Engine.closestText
         if (text.isEmpty()) { closestText.text = activity.getString(R.string.closest_idle); closestText.setTextColor(0xFF1B5E20.toInt()); return }
         val sb = SpannableStringBuilder(text)

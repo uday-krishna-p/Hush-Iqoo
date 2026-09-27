@@ -206,6 +206,18 @@ from Sensor B (+-0.2 m)", red cross-hair + shaded region on every phone's map (B
 +-r from N knocks ...`, export record `where`. The layout may now name the commander by its suffix too (any phone can be
 commander): `--es layout "6a46=0,0;ef39=2,0;991e=2,1.5"`. Not yet run on the phones.
 
+**WARMER / COLDER for a carried phone, 27 Sep 06:55 (`Warmth.kt`; team: "since the devices would also move isnt doing
+this useless? we just want something where the devices will point towards the sound"):** positions do not survive
+moving phones, and no phone can know the direction to another (GPS indoors none, BLE RSSI 6-14 m at 0.5 m, Channel
+Sounding refused, no UWB, chirp distance 0.78 for 0.40 m, compass jumped 175 deg in 25 s): no arrow to the closest phone.
+Instead each phone is a metal detector: per judged knock, its peak over the median peak of the other STILL phones (dB;
+knock strength cancels; a carried phone in the reference would make still phones read COLDER), mean of the last 2 knocks
+vs up to 4 before, +-3 dB = WARMER/COLDER. Moving phones now report into `Closest` (flag per detection): they feed the
+trend but never the vote (`CLOSEST knock: ... B=0.0300(moving)`; a knock only moving phones heard = "no vote"). Log
+`WARMTH B: WARMER +4.2 dB (level vs the still phones +8.1 dB, 6 knocks) moving`; Board field `wm`; each phone shows its
+own line under the panel (orange WARMER / blue COLDER / grey no change), the panel adds "Carried: B warmer +4 dB". The
+"Place 3 phones" hint is gone (the loudness point stays dormant without a layout). `WarmthTest` (4) passes.
+
 **Timing locator back, inaudible chirps, every phone locates, 27 Sep 04:40 (team: "we are just pointing a compass
 … not using the power of multiple devices to triangulate"; "if the chirps are made, make them at such high frequencies
 that humans cant hear"):** (1) *Top-band test* (`tools/calibration/ultrasweep.py` makes the file,

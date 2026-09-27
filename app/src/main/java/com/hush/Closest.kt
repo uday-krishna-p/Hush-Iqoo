@@ -32,10 +32,12 @@ class Closest {
         const val MIN_LEAD_DB = 3f
     }
 
-    /** One knock as the commander judged it: every phone's peak (0..1), the winner and its lead over the runner-up. */
-    data class Knock(val tMs: Long, val peaks: Map<String, Float>, val winner: String, val runnerUp: String?, val leadDb: Float?) {
-        /** Clear enough to count: one phone alone heard it, or the loudest led by ≥ [MIN_LEAD_DB]. */
-        val decisive: Boolean get() = leadDb == null || leadDb >= MIN_LEAD_DB
+    /** One knock as the commander judged it: the still phones' peaks (0..1), the winner among them and its lead over the
+     *  runner-up; [all] also has the phones that were being moved (carried: WARMER/COLDER uses them, the vote does not). */
+    data class Knock(val tMs: Long, val peaks: Map<String, Float>, val winner: String, val runnerUp: String?, val leadDb: Float?,
+                     val all: Map<String, Float> = peaks) {
+        /** Clear enough to count: one still phone alone heard it, or the loudest still phone led by ≥ [MIN_LEAD_DB]. */
+        val decisive: Boolean get() = winner.isNotEmpty() && (leadDb == null || leadDb >= MIN_LEAD_DB)
     }
 
     data class Summary(
@@ -46,7 +48,7 @@ class Closest {
         val lastWinner: String
     )
 
-    private class Group(val tMs: Long) { val peaks = LinkedHashMap<String, Float>(); var maxRatio = 0f }
+    private class Group(val tMs: Long) { val peaks = LinkedHashMap<String, Float>(); val moving = HashSet<String>(); var maxRatio = 0f }
     private val open = ArrayList<Group>()
     private val done = ArrayDeque<Knock>()
     /** Times of knocks already judged (including quiet ones), so a report arriving late cannot start a false one-phone knock. */
@@ -54,14 +56,16 @@ class Closest {
     private val lock = Any()
 
     /** One detection: [letter] heard a knock at [tMs] (commander's clock) with [peak] amplitude, [ratio] × its background.
+     *  [moving]: the phone was being handled or carried (its level still feeds WARMER/COLDER, not the vote).
      *  False when that knock was already judged (the report came too late): it is dropped. */
-    fun add(letter: String, tMs: Long, peak: Float, ratio: Float): Boolean = synchronized(lock) {
+    fun add(letter: String, tMs: Long, peak: Float, ratio: Float, moving: Boolean = false): Boolean = synchronized(lock) {
         if (judgedTimes.any { kotlin.math.abs(it - tMs) <= MATCH_MS } && open.none { kotlin.math.abs(it.tMs - tMs) <= MATCH_MS }) return false
         var g = open.minByOrNull { kotlin.math.abs(it.tMs - tMs) }?.takeIf { kotlin.math.abs(it.tMs - tMs) <= MATCH_MS }
         if (g == null) { g = Group(tMs); open.add(g) }
         // The same phone twice in one knock (an echo, a double onset): keep its loudest.
         g.peaks[letter] = maxOf(g.peaks[letter] ?: 0f, peak)
         g.maxRatio = maxOf(g.maxRatio, ratio)
+        if (moving) g.moving.add(letter)
         true
     }
 
@@ -77,10 +81,13 @@ class Closest {
             it.remove()
             judgedTimes.addLast(g.tMs)
             if (g.maxRatio < MIN_LOUD_RATIO) continue
-            val sorted = g.peaks.entries.sortedByDescending { it.value }
+            val all = LinkedHashMap(g.peaks)
+            val still = g.peaks.filterKeys { it !in g.moving }
+            if (still.isEmpty()) { out.add(Knock(g.tMs, emptyMap(), "", null, null, all)); continue }   // only moving phones heard it: no vote
+            val sorted = still.entries.sortedByDescending { it.value }
             val first = sorted[0]; val second = sorted.getOrNull(1)
             val lead = second?.let { if (it.value > 0f) (20 * log10(first.value / it.value)).toFloat() else null }
-            val k = Knock(g.tMs, LinkedHashMap(g.peaks), first.key, second?.key, lead)
+            val k = Knock(g.tMs, LinkedHashMap(still), first.key, second?.key, lead, all)
             done.addLast(k); out.add(k)
         }
         while (done.isNotEmpty() && nowMs - done.first().tMs > HISTORY_MS) done.removeFirst()
