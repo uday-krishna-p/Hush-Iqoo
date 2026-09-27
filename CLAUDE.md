@@ -183,6 +183,17 @@ The paragraphs below are the chronological log, newest first.
 working": closest phone, warmer/colder, chirp positions and the pointed arrow together. Tagged `v-point-and-tap-working`.
 (The entries between here and "Closest phone replaces the arrow" are in the order they happened, oldest first.)
 
+**Voice as well as knocks, 27 Sep (team: "yes build it"; not yet tried on the phones):** every phone's once-a-second
+loudness (200-3000 Hz, the speech band, already in every SensorEvent) goes to a second judge on the commander,
+`closestVoice = Closest(matchMs 600, readyMargin 600, minLoudRatio 3)`: a second counts when some phone's classifier
+says speech (voice bucket >= 0.5) and that phone hears it >= 3x its background; every phone's level takes part (the
+phones' seconds are not aligned, hence the 600 ms match). Seconds within 1.5 s of a chirp trigger are skipped (the
+chirping phone hears its own inaudible chirp ~25x louder and the one-pole band-pass leaks some). Knocks win: voice is
+used only when there were no clear knocks in the last 20 s; then the panel says "CLOSEST (voice): Sensor B · loudest
+on 5 of 6 clear seconds of voice", warmer/colder, the loudness spot and the arrow use the voice seconds. Log `VOICE
+second: A=... B=... -> B +9.1 dB over A`, export `closest_voice`. Note: people talking near the phones during a demo
+steer the panel whenever nobody knocks. `ClosestTest.voiceSecondsFromUnalignedPhonesMatch` passes.
+
 **Closest phone replaces the arrow in the demo path, 27 Sep 05:40 (team after 15 h: "none of the features are even
 remotely working"; RCA from the 04:16-05:18 logs of 6a46 and 991e):** (1) phones 0.4-0.5 m apart make every
 multi-phone cue tiny (04:32 burst: A vs 991e peak levels 1-4 dB apart); (2) the two-mic mirror never resolved because

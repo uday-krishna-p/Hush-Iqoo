@@ -12,7 +12,9 @@ import kotlin.math.log10
  * A knock is judged [CLOSE_AFTER_MS] after it happened (reports arrive once a second plus the relay delay):
  * the loudest phone wins it. [summary] counts the wins among the last [WINDOW_KNOCKS] clear knocks of the last [HISTORY_MS].
  */
-class Closest {
+/** [matchMs] / [readyMarginMs]: knocks use the defaults; voice seconds (whole 1 s windows from phones whose seconds are
+ *  not aligned) use a wider match and margin (27 Sep, voice support). */
+class Closest(private val matchMs: Long = MATCH_MS, private val readyMarginMs: Long = READY_MARGIN_MS) {
     companion object {
         const val MATCH_MS = 350L          // relay delay measured 0.04–0.15 s, outliers 0.5 s; people knock ≥ 0.3 s apart
         /** Longest wait before a knock is judged (a phone that went quiet); normally it is judged as soon as every
@@ -68,8 +70,8 @@ class Closest {
      *  [moving]: the phone was being handled or carried (its level still feeds WARMER/COLDER, not the vote).
      *  False when that knock was already judged (the report came too late): it is dropped. */
     fun add(letter: String, tMs: Long, peak: Float, ratio: Float, moving: Boolean = false, dir: Dir? = null): Boolean = synchronized(lock) {
-        if (judgedTimes.any { kotlin.math.abs(it - tMs) <= MATCH_MS } && open.none { kotlin.math.abs(it.tMs - tMs) <= MATCH_MS }) return false
-        var g = open.minByOrNull { kotlin.math.abs(it.tMs - tMs) }?.takeIf { kotlin.math.abs(it.tMs - tMs) <= MATCH_MS }
+        if (judgedTimes.any { kotlin.math.abs(it - tMs) <= matchMs } && open.none { kotlin.math.abs(it.tMs - tMs) <= matchMs }) return false
+        var g = open.minByOrNull { kotlin.math.abs(it.tMs - tMs) }?.takeIf { kotlin.math.abs(it.tMs - tMs) <= matchMs }
         if (g == null) { g = Group(tMs); open.add(g) }
         // The same phone twice in one knock (an echo, a double onset): keep its loudest, and that detection's two-mic reading.
         if (peak > (g.peaks[letter] ?: -1f)) dir?.let { g.dirs[letter] = it } else if (letter !in g.dirs) dir?.let { g.dirs[letter] = it }
@@ -86,7 +88,7 @@ class Closest {
         val it = open.iterator()
         while (it.hasNext()) {
             val g = it.next()
-            val ready = readyUntilMs != null && g.tMs + READY_MARGIN_MS <= readyUntilMs
+            val ready = readyUntilMs != null && g.tMs + readyMarginMs <= readyUntilMs
             if (!ready && nowMs - g.tMs < CLOSE_AFTER_MS) continue
             it.remove()
             judgedTimes.addLast(g.tMs)

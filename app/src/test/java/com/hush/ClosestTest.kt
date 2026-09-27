@@ -49,6 +49,26 @@ class ClosestTest {
         }
     }
 
+    /** Voice (Engine.closestVoice): phones' 1 s windows are not aligned (here 400 ms apart), so the match is 600 ms.
+     *  Only a phone that hears speech gives a ratio; the others' levels still take part. */
+    @Test fun voiceSecondsFromUnalignedPhonesMatch() {
+        val c = Closest(matchMs = 600L, readyMarginMs = 600L).apply { minLoudRatio = 3f }
+        for (i in 0 until 4) {
+            val t = 1000L + i * 1000
+            c.add("A", t, 0.0020f, 0f)          // A's classifier did not call it speech: level only
+            c.add("B", t + 400, 0.0080f, 6f)    // B hears the shout, 12 dB louder
+            c.add("C", t - 300, 0.0015f, 0f)
+        }
+        val judged = c.tick(10_000, readyUntilMs = 10_000)
+        assertEquals(4, judged.size)
+        assertEquals("B", c.summary(10_000)!!.leader)
+        // A second where no phone heard speech (all ratios 0) never counts.
+        val quiet = Closest(matchMs = 600L, readyMarginMs = 600L).apply { minLoudRatio = 3f }
+        for (i in 0 until 4) { quiet.add("A", 1000L + i * 1000, 0.01f, 0f); quiet.add("B", 1200L + i * 1000, 0.002f, 0f) }
+        quiet.tick(10_000, readyUntilMs = 10_000)
+        assertNull(quiet.summary(10_000))
+    }
+
     @Test fun notJudgedBeforeLateReportsCanArrive() {
         val c = Closest()
         c.add("A", 1000, 0.05f, 20f)

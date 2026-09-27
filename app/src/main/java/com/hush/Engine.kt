@@ -1206,6 +1206,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private fun triggerChirp(letter: String) {
         chirpTriggerMs[letter] = SystemClock.elapsedRealtime()
         HLog.d("Ranging: trigger CHIRP $letter")
+        synchronized(chirpTimesMs) { chirpTimesMs.addLast(chirpTriggerMs[letter]!!); while (chirpTimesMs.size > 20) chirpTimesMs.removeFirst() }
         link?.sendDown(Command(Command.CHIRP, letter = letter).toJson())
         onChirpCommand(letter)
     }
@@ -2113,7 +2114,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         link?.stop(); link = null
         ble?.stop(); ble = null
         radioDistance.clear(); peerBleAddress.clear(); radioStatus = ""
-        locator.reset(); peerHeading.clear(); doaAll.clear(); closest.reset(); closestText = ""; closestHeardUntil.clear(); closestHeardAt.clear(); wherePoint = null; wherePointKey = ""; warmth.reset(); aim.reset(); knockDir.reset(); knockDirKey = ""; knockDirResult = null; warmTrendLogged.clear(); lastWarmKey = ""; warmthByLetter = emptyMap()
+        locator.reset(); peerHeading.clear(); doaAll.clear(); closest.reset(); closestText = ""; closestHeardUntil.clear(); closestHeardAt.clear(); wherePoint = null; wherePointKey = ""; warmth.reset(); aim.reset(); closestVoice.reset(); warmthVoice.reset(); synchronized(chirpTimesMs) { chirpTimesMs.clear() }; knockDir.reset(); knockDirKey = ""; knockDirResult = null; warmTrendLogged.clear(); lastWarmKey = ""; warmthByLetter = emptyMap()
         com.hush.audio.KnockBearing.reset(); ownArrowUntilMs = 0L
         soundAlerts.reset(); homeAlerts.reset(); whistles.reset(); classifierRun = 0; classifierSkipped = 0
         walk.reset(); walkState = walk.state; com.hush.audio.KnockBearing.rescueTuning()
@@ -2398,6 +2399,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 }
                 ROLE_COMMANDER -> {
                     closestHeardUntil["A"] = now; closestHeardAt["A"] = now
+                    feedVoice(event, now)
                     onsetReport?.let { locator.addReport(it); feedClosest(it, remote = false); if (peers.isNotEmpty() && it.onsets.isNotEmpty()) link?.sendDown(it.toJson()) }; recordEvent(event); boardEvents["A"] = event; boardEventMs["A"] = now
                     closestTick()
                     listener?.onEvent(event, localName); sendBoardDown()
@@ -2753,19 +2755,32 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             kd?.let { sessionLog.addRecord("knockdir", mapOf("bearing" to it.bearingDeg, "twin" to it.twinDeg, "resolved" to it.resolved, "conf" to it.confidence, "phones" to it.phones.joinToString(","))) }
         }
         knockDirResult = kd
+        // Voice seconds (shouting, talking): judged like knocks by their own judge; used when there are no recent knocks.
+        for (k in closestVoice.tick(now, closestReadyUntil(now))) {
+            val levels = k.all.entries.sortedByDescending { it.value }.joinToString(" ") { (l, p) -> "%s=%.4f%s".format(l, p, if (l in k.peaks) "" else "(moving)") }
+            HLog.d(if (k.winner.isEmpty()) "VOICE second: $levels -> no vote (only moving phones)" else
+                "VOICE second: %s -> %s%s%s".format(levels, k.winner, k.leadDb?.let { " +%.1f dB over %s".format(it, k.runnerUp) } ?: " (only still phone)",
+                if (k.decisive) "" else " (tie, not counted)"))
+            sessionLog.addRecord("closest_voice", mapOf("levels" to k.all.toString(), "winner" to k.winner, "lead_db" to k.leadDb, "counted" to k.decisive))
+            warmthVoice.add(k.tMs, k.all, k.peaks.keys)
+        }
+        val sKnock = closest.summary(now); val sVoice = closestVoice.summary(now)
+        val useVoice = sKnock == null && sVoice != null
+        val warmSrc = if (useVoice) warmthVoice else warmth
         // WARMER / COLDER per phone (Warmth.kt): logged when a phone's trend changes, carried to every phone in the Board.
         val warm = LinkedHashMap<String, Warmth.Status>()
-        for (l in warmth.letters().sorted()) warmth.status(l, now)?.let { warm[l] = it }
+        for (l in warmSrc.letters().sorted()) warmSrc.status(l, now)?.let { warm[l] = it }
         for ((l, st) in warm) if (warmTrendLogged[l] != st.trend) {
             warmTrendLogged[l] = st.trend
             HLog.d("WARMTH %s: %s %+.1f dB (level vs the still phones %+.1f dB, %d knocks)%s".format(l, st.trend, st.deltaDb, st.relDb, st.knocks,
                 if (boardEvents[l]?.moving == true) " moving" else ""))
         }
         warmthByLetter = warm
-        val s = closest.summary(now)
-        // WHERE between the phones (LoudnessLocator): the same clear knocks, the phones' hand-layout positions.
+        val s = sKnock ?: sVoice
+        // WHERE between the phones (LoudnessLocator): the same clear knocks (or voice seconds), the phones' positions.
+        val srcClosest = if (useVoice) closestVoice else closest
         val placed = (listOf("A") + peers.values.map { it.letter }).mapNotNull { l -> posMetres(l)?.let { l to it } }.toMap()
-        val point = if (s == null) null else try { LoudnessLocator.locate(closest.recent(now).map { it.peaks }, placed) } catch (e: Exception) { HLog.d("ERROR in loudness locator: $e"); null }
+        val point = if (s == null) null else try { LoudnessLocator.locate(srcClosest.recent(now).map { it.peaks }, placed) } catch (e: Exception) { HLog.d("ERROR in loudness locator: $e"); null }
         if (point != null) {
             val key = "%.1f,%.1f,%.1f".format(point.x, point.y, point.radiusM)
             if (key != wherePointKey) {
@@ -2779,9 +2794,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         wherePoint = point
         val text = if (s == null) "" else buildString {
             val sure = s.wins * 10 >= s.knocks * 6
-            append(if (sure) "CLOSEST: " else "LEANING: ").append(if (s.leader == "A") "Commander A" else "Sensor ${s.leader}")
+            append(if (sure) "CLOSEST" else "LEANING").append(if (useVoice) " (voice): " else ": ").append(if (s.leader == "A") "Commander A" else "Sensor ${s.leader}")
             phoneName(s.leader)?.let { append(" · ").append(it.takeLast(4)) }
-            append("\nloudest on ${s.wins} of ${s.knocks} clear knocks")
+            append("\nloudest on ${s.wins} of ${s.knocks} clear ${if (useVoice) "seconds of voice" else "knocks"}")
             if (s.leadDb != null && s.runnerUp != null) append(" · %.0f dB louder than %s".format(s.leadDb, s.runnerUp))
             append("\n").append(s.winsBy.entries.joinToString("  ") { "${it.key} ${it.value}" })
             if (s.lastWinner != s.leader) append("  · last knock: ${s.lastWinner}")
@@ -2866,6 +2881,28 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     }
 
     private val warmth = Warmth()
+
+    // ---- Voice (27 Sep, team: "yes build it" for shouting as well as knocking) ----
+    // Every phone's once-a-second loudness (200–3000 Hz, the speech band) is compared across phones like a knock's peak,
+    // in seconds where some phone's classifier hears speech. Seconds of different phones are not aligned, hence the wider
+    // match (600 ms). The phone that chirps hears its own inaudible chirp ~25x louder than the others and the one-pole
+    // band-pass lets some of it through, so seconds within [CHIRP_GUARD_MS] of a chirp are skipped.
+    private val closestVoice = Closest(matchMs = 600L, readyMarginMs = 600L).apply { minLoudRatio = VOICE_MIN_RATIO }
+    private val warmthVoice = Warmth()
+    private val chirpTimesMs = ArrayDeque<Long>()
+    private const val VOICE_MIN_CLASS = 0.5f     // YAMNet voice bucket
+    private const val VOICE_MIN_RATIO = 3f       // that phone's second at least 3x its background (1 s loudness, not a knock peak)
+    private const val CHIRP_GUARD_MS = 1500L
+
+    /** Commander: one phone's second ([windowEndMs] on the commander's clock) as a voice detection. */
+    private fun feedVoice(e: SensorEvent, windowEndMs: Long) {
+        val centre = windowEndMs - 500L
+        if (synchronized(chirpTimesMs) { chirpTimesMs.any { kotlin.math.abs(it - centre) <= CHIRP_GUARD_MS } }) return
+        if (e.rms <= 0f) return
+        // Only a phone that hears speech can make the second count; every phone's level takes part in the comparison.
+        val ratio = if (e.human >= VOICE_MIN_CLASS && e.floor > 0f) e.rms / e.floor else 0f
+        closestVoice.add(e.sensorId, centre, e.rms, ratio, e.moving)
+    }
     private val warmTrendLogged = HashMap<String, Warmth.Trend>()
     private var lastWarmKey = ""
     /** Every phone's WARMER/COLDER status (commander computes it; sensors get it in the Board). */
@@ -3201,6 +3238,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 msg.windowAgeMs?.let { wa ->
                     val arrived = SystemClock.elapsedRealtime()
                     closestHeardUntil[msg.sensorId] = arrived - wa - RELAY_MS; closestHeardAt[msg.sensorId] = arrived
+                    feedVoice(msg, arrived - wa - RELAY_MS)
                     closestTick()
                 }
                 listener?.onEvent(msg, peer.name)
