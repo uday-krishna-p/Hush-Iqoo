@@ -218,6 +218,22 @@ trend but never the vote (`CLOSEST knock: ... B=0.0300(moving)`; a knock only mo
 own line under the panel (orange WARMER / blue COLDER / grey no change), the panel adds "Carried: B warmer +4 dB". The
 "Place 3 phones" hint is gone (the loudness point stays dormant without a layout). `WarmthTest` (4) passes.
 
+**The arrow is back, fused from confirmed knocks only, 27 Sep 07:10 (`KnockDirection.kt`; team: "now that the knock
+recognition is so good, try bringing back the compass ... enough phones would form a complete 360 view"):** checked first
+on the 06:05 run (knocks at each phone in turn): a phone >= 1 m from the knock repeats its two-mic delay within +-1 sample
+(ef39 -23.4..-25.3 for C's knocks, 6a46 17.6..18.1 for A's, 991e ~25.7 for A's, ~5 for B's); the phone next to the knock
+(~0.3 m) scatters (ef39 -26..+26 for its own). So every knock `Closest` judges carries each phone's delay, quality,
+heading and felt flag (its loudest detection); still phones vote heading +- angle (both mirrors) weighted by quality,
+felt x0.3, the knock's clear winner (>= 6 dB) x0.3; the last 6 judged knocks (20 s) make a 5 deg histogram; resolved when
+the peak >= 1.5x the runner-up; confidence = share within +-24 deg. Room noises never vote. Board field `kd`; every phone
+draws that one bearing minus its own gyro heading (after SYNC); all older arrow sources are bypassed
+(`SensorScreen.drawKnockArrow`). Arrow and SYNC COMPASS are visible again. Needs: SYNC with the phones parallel, then
+the phones at clearly different angles (parallel phones share the mirror), within ~0.5 m of each other with the knock
+farther away (parallax). Log: `KNOCKDIR knock: A dl=.. q=.. hd=.. -> th.. votes ../.. w..`, `KNOCKDIR fused: 70 deg
+resolved conf 0.8 from A,B,C over 6 knocks`, per phone `ARROW drawn: screen .. = bearing .. - heading ..`; export
+`knockdir`. `KnockDirectionTest` (5) passes. The delay-to-angle curve is still the cosine law (rotation test never
+done): expect +-30 deg until measured.
+
 **Timing locator back, inaudible chirps, every phone locates, 27 Sep 04:40 (team: "we are just pointing a compass
 … not using the power of multiple devices to triangulate"; "if the chirps are made, make them at such high frequencies
 that humans cant hear"):** (1) *Top-band test* (`tools/calibration/ultrasweep.py` makes the file,

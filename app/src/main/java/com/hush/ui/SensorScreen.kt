@@ -31,9 +31,36 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
     private val sensorArrow: ArrowView? = activity.findViewById(R.id.sensorArrow)
         ?: if (Engine.role != Engine.ROLE_COMMANDER) activity.findViewById(R.id.arrow) else null
     private var arrowTicks = 0
+    /**
+     * The one arrow (27 Sep 07:05, KnockDirection.kt): the direction fused from confirmed knocks, through this phone's
+     * synced heading, the same on every phone. It replaces the older sources (own arrow, shared bearing, crossing,
+     * locator), which pointed at room noises and parallel-phone mirrors. Always returns true: nothing else draws.
+     */
+    private var knockArrowTicks = 0
+    protected fun drawKnockArrow(v: ArrowView): Boolean {
+        v.twinAngleDeg = null
+        val ka = Engine.knockArrow()
+        val sync = if (Engine.compassSynced) "" else " · NOT SYNCED: lay the phones parallel, tap SYNC, then turn them"
+        if (ka == null) {
+            v.active = false
+            v.label = "Arrow: appears after 2–3 knocks heard by 2+ phones lying still$sync"
+            return true
+        }
+        val (r, screen) = ka
+        if (++knockArrowTicks % 20 == 0) com.hush.HLog.d("ARROW drawn: screen %.0f° = bearing %.0f° − heading %.0f°%s, conf %.2f from %s%s".format(
+            screen, r.bearingDeg, Engine.headingDeg, if (r.resolved) "" else " (unresolved)", r.confidence, r.phones.joinToString(","), if (Engine.compassSynced) "" else " NOT SYNCED"))
+        v.active = true
+        v.angleDeg = screen
+        v.confidence = r.confidence
+        v.label = (if (r.resolved) "→ KNOCKING · from %s · confidence %d%%".format(r.phones.joinToString(","), (r.confidence * 100).toInt())
+                   else "→ KNOCKING? left/right unsure (%d%%) · lay the phones at clearly different angles".format((r.confidence * 100).toInt())) + sync
+        return true
+    }
+
     private val sensorArrowTick = object : Runnable {
         override fun run() {
             val v = sensorArrow ?: return
+            if (drawKnockArrow(v)) { v.postDelayed(this, 50); return }
             val own = Engine.ownArrow()
             val sharedRaw = Engine.sharedArrow()
             val shared = if (Engine.preferShared(sharedRaw, own)) sharedRaw else null

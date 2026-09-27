@@ -35,7 +35,7 @@ class Closest {
     /** One knock as the commander judged it: the still phones' peaks (0..1), the winner among them and its lead over the
      *  runner-up; [all] also has the phones that were being moved (carried: WARMER/COLDER uses them, the vote does not). */
     data class Knock(val tMs: Long, val peaks: Map<String, Float>, val winner: String, val runnerUp: String?, val leadDb: Float?,
-                     val all: Map<String, Float> = peaks) {
+                     val all: Map<String, Float> = peaks, val dirs: Map<String, Dir> = emptyMap()) {
         /** Clear enough to count: one still phone alone heard it, or the loudest still phone led by ≥ [MIN_LEAD_DB]. */
         val decisive: Boolean get() = winner.isNotEmpty() && (leadDb == null || leadDb >= MIN_LEAD_DB)
     }
@@ -48,7 +48,13 @@ class Closest {
         val lastWinner: String
     )
 
-    private class Group(val tMs: Long) { val peaks = LinkedHashMap<String, Float>(); val moving = HashSet<String>(); var maxRatio = 0f }
+    /** A phone's two-mic reading of the knock (its loudest detection of it): delay (samples, mic 1 − mic 0), quality, heading, felt. */
+    data class Dir(val delay: Float?, val q: Float?, val heading: Float?, val felt: Boolean)
+
+    private class Group(val tMs: Long) {
+        val peaks = LinkedHashMap<String, Float>(); val moving = HashSet<String>(); var maxRatio = 0f
+        val dirs = LinkedHashMap<String, Dir>()
+    }
     private val open = ArrayList<Group>()
     private val done = ArrayDeque<Knock>()
     /** Times of knocks already judged (including quiet ones), so a report arriving late cannot start a false one-phone knock. */
@@ -58,11 +64,12 @@ class Closest {
     /** One detection: [letter] heard a knock at [tMs] (commander's clock) with [peak] amplitude, [ratio] × its background.
      *  [moving]: the phone was being handled or carried (its level still feeds WARMER/COLDER, not the vote).
      *  False when that knock was already judged (the report came too late): it is dropped. */
-    fun add(letter: String, tMs: Long, peak: Float, ratio: Float, moving: Boolean = false): Boolean = synchronized(lock) {
+    fun add(letter: String, tMs: Long, peak: Float, ratio: Float, moving: Boolean = false, dir: Dir? = null): Boolean = synchronized(lock) {
         if (judgedTimes.any { kotlin.math.abs(it - tMs) <= MATCH_MS } && open.none { kotlin.math.abs(it.tMs - tMs) <= MATCH_MS }) return false
         var g = open.minByOrNull { kotlin.math.abs(it.tMs - tMs) }?.takeIf { kotlin.math.abs(it.tMs - tMs) <= MATCH_MS }
         if (g == null) { g = Group(tMs); open.add(g) }
-        // The same phone twice in one knock (an echo, a double onset): keep its loudest.
+        // The same phone twice in one knock (an echo, a double onset): keep its loudest, and that detection's two-mic reading.
+        if (peak > (g.peaks[letter] ?: -1f)) dir?.let { g.dirs[letter] = it } else if (letter !in g.dirs) dir?.let { g.dirs[letter] = it }
         g.peaks[letter] = maxOf(g.peaks[letter] ?: 0f, peak)
         g.maxRatio = maxOf(g.maxRatio, ratio)
         if (moving) g.moving.add(letter)
@@ -83,11 +90,11 @@ class Closest {
             if (g.maxRatio < MIN_LOUD_RATIO) continue
             val all = LinkedHashMap(g.peaks)
             val still = g.peaks.filterKeys { it !in g.moving }
-            if (still.isEmpty()) { out.add(Knock(g.tMs, emptyMap(), "", null, null, all)); continue }   // only moving phones heard it: no vote
+            if (still.isEmpty()) { out.add(Knock(g.tMs, emptyMap(), "", null, null, all, LinkedHashMap(g.dirs))); continue }   // only moving phones heard it: no vote
             val sorted = still.entries.sortedByDescending { it.value }
             val first = sorted[0]; val second = sorted.getOrNull(1)
             val lead = second?.let { if (it.value > 0f) (20 * log10(first.value / it.value)).toFloat() else null }
-            val k = Knock(g.tMs, LinkedHashMap(still), first.key, second?.key, lead, all)
+            val k = Knock(g.tMs, LinkedHashMap(still), first.key, second?.key, lead, all, LinkedHashMap(g.dirs))
             done.addLast(k); out.add(k)
         }
         while (done.isNotEmpty() && nowMs - done.first().tMs > HISTORY_MS) done.removeFirst()

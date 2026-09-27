@@ -309,7 +309,8 @@ data class Board(val brief: String, val mode: String, val ranks: List<Rank>, val
                  val rotation: Float? = null,                               // map bearing + rotation = heading frame
                  val closest: String = "",
                  val where: Triple<Double, Double, Double>? = null,       // the loudness point: x, y, radius (metres, pos frame)
-                 val warmth: Map<String, com.hush.Warmth.Status> = emptyMap()) {   // WARMER/COLDER per phone (Warmth.kt)                                // the closest-phone panel (Closest.kt), "" while none
+                 val warmth: Map<String, com.hush.Warmth.Status> = emptyMap(),   // WARMER/COLDER per phone (Warmth.kt)
+                 val knockDir: com.hush.KnockDirection.Result? = null) {          // the fused knock direction (KnockDirection.kt)                                // the closest-phone panel (Closest.kt), "" while none
 
     data class Rank(val letter: String, val score: Float, val evidence: Float, val source: Int)
 
@@ -323,6 +324,8 @@ data class Board(val brief: String, val mode: String, val ranks: List<Rank>, val
             rotation?.let { put("rot", Math.round(it * 10.0) / 10.0) }
             if (closest.isNotEmpty()) put("cl", closest)
             if (warmth.isNotEmpty()) put("wm", JSONObject().apply { warmth.forEach { (l, st) -> put(l, JSONArray().put(st.trend.name).put(Math.round(st.deltaDb * 10.0) / 10.0).put(Math.round(st.relDb * 10.0) / 10.0).put(st.knocks)) } })
+            knockDir?.let { put("kd", JSONArray().put(Math.round(it.bearingDeg * 10.0) / 10.0).put(it.twinDeg?.let { t -> Math.round(t * 10.0) / 10.0 } ?: -1.0)
+                .put(it.resolved).put(Math.round(it.confidence * 100.0) / 100.0).put(it.phones.joinToString(",")).put(it.knocks)) }
             where?.let { put("wp", JSONArray().put(Math.round(it.first * 100.0) / 100.0).put(Math.round(it.second * 100.0) / 100.0).put(Math.round(it.third * 100.0) / 100.0)) }
         }
         .toString()
@@ -344,7 +347,9 @@ data class Board(val brief: String, val mode: String, val ranks: List<Rank>, val
                 o.optJSONArray("wp")?.let { Triple(it.getDouble(0), it.getDouble(1), it.getDouble(2)) },
                 LinkedHashMap<String, com.hush.Warmth.Status>().apply {
                     o.optJSONObject("wm")?.let { w -> for (k in w.keys()) { val a = w.getJSONArray(k); put(k, com.hush.Warmth.Status(com.hush.Warmth.Trend.valueOf(a.getString(0)), a.getDouble(1).toFloat(), a.getDouble(2).toFloat(), a.getInt(3))) } }
-                })
+                },
+                o.optJSONArray("kd")?.let { a -> com.hush.KnockDirection.Result(a.getDouble(0).toFloat(), a.getDouble(1).takeIf { it >= 0 }?.toFloat(), a.getBoolean(2),
+                    a.getDouble(3).toFloat(), a.getString(4).split(',').filter { it.isNotEmpty() }, a.getInt(5)) })
         } catch (e: Exception) { HLog.d("bad Board json: $e"); null }
     }
 }

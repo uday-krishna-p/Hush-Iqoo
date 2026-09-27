@@ -53,6 +53,7 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity,
     private val arrowTick = object : Runnable {
         override fun run() {
             val fix = Engine.sourceFix
+            if (drawKnockArrow(arrow)) { arrow.postDelayed(this, 50); return }
             val target = Engine.arrowTarget   // loudest phone, with hysteresis
             val angle = target?.takeIf { it != "A" }?.let { Engine.arrowAngleTo(it) }
             val srcAngle = if (fix != null) Engine.arrowAngleToSource() else null
