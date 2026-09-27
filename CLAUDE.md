@@ -179,6 +179,23 @@ and corrected); more than three phones in AutoLocate; re-aiming after all phones
 
 The paragraphs below are the chronological log, newest first.
 
+**Confirmed working, 27 Sep ~09:40 (tag `v-map-2knocks-working`, `4617848`), on top of the UI clean-up below:**
+(1) *Knocks beside a phone count:* "moving" is the MEDIAN high-passed shake of the second > 0.15 m/s² (`AccelChannel`),
+not the RMS; knocks on the table a phone lies on pushed its RMS to 0.65–2.2 and 30–40 % of all knocks (always the ones
+beside a phone) were dropped as "moving". Window lines log `accMed=` and `MOVING`. (2) *Map follows the card:* its green
+dot and arrow use the per-knock closest phone, not the 15 s live ranking; `Closest` decides from the last 4 clear knocks,
+2 name a phone (was 3 of 6). (3) *First map in ~14 s after the third phone joins* (was 32 s to minutes): a round starts
+4 s after the third phone joins; stored per-phone range errors are backed off (100/75/50/25/0 %) when they would make the
+triangle impossible (ef39's 0.72 m refused every round at 0.6–1.3 m); the chirp checks use the reference that agrees with
+most readings; mic 1 also times each chirp and takes over when mic 0 missed it or was 30–1440 samples later (an echo;
+ef39's bottom mic ran ~4 ms late). Chirps at 100 % alarm volume. 09:31: 6 of 6 rounds placed, steady within 1–4 cm.
+Absolute distances NOT verified (raw 1.05/1.36/0.61 m vs corrected 0.63/0.95/0.48 m; team says ~1 m): tape the three
+distances and recalibrate. (4) *Mic-off banner:* Android silenced ef39's recording 09:09–09:22 and every round failed
+unseen; now a red banner on that phone ("tap here") and on the others ("Sensor C hears nothing"). (5) Wake nearby: a
+phone with Hush closed also sounds a ~5 s alarm at 70 % alarm volume. (6) Map: pinch-zoom, drag, double-tap reset.
+(7) "Direction to the sound" card (arrow + point & tap) hidden, code kept. Knock sensitivity: keep NORMAL (HIGH made it
+worse in the hall).
+
 **UI clean-up, 27 Sep ~07:55 (`a67e36e`; team: "minimalistic, professional, easy to navigate … logging collapsible"):**
 light theme with rounded cards and buttons (`values/themes.xml`, `values/colors.xml`, `drawable/`); content padded clear of the
 status and navigation bars (Android 15+ draws edge to edge: `MainActivity.fitInsideSystemBars`). Role picker = two role cards,
