@@ -280,6 +280,19 @@ raw ... -> corrected ...` shows both), clocks use the corrected distances, and e
 **Sensitivity toggle** (button under the panel, every phone; a sensor asks the commander, Board field `sh`): HIGH counts
 knocks from x4 over the background (NORMAL x8) and WARMER/COLDER at 2 dB (NORMAL 3); log `SENSITIVITY: ...`.
 
+**POINT & TAP arrow, 27 Sep ~07:25 (`Aim.kt`; team: "the arrow is no longer turning"):** checked first on the phones
+(07:08-07:12): chirp auto-locate worked (corrected sides 1.24 / 1.30 / 1.20 m for the 1.2 m triangle, rounds every
+~12 s, so the built-in per-phone errors survived the restart), but the arrow was grey everywhere: nobody had pressed
+SYNC/Align in that session, so the map's orientation was unknown and the arrow code switched itself off behind a
+one-line, cut-off label; and the timing locator's real-knock fixes were nonsense (12 m away, +-7-12 m) with nearly right
+positions. Now each phone orients ITSELF: POINT & TAP (blue button under the arrow, names the phone to aim at) stores
+the map bearing to that phone and the phone's gyro heading; one tap gives the rotation, a tap at a second phone decides
+whether the map is mirrored (log `AIM: ...`). No SYNC needed (button hidden). Arrow target: the loudness spot
+(LoudnessLocator, now fed by the chirp positions) else the closest phone's position; "THIS phone is closest" / "HERE"
+(< 25 cm) otherwise. Short label on the arrow, the explanation in a text line under it (`aimHint`); log
+`ARROW: label | hint | screen .. heading ..` once a second on every phone. `AimTest` (4) passes. The older arrow logic
+is kept, unused (`SensorScreen.drawOlderArrow`).
+
 **Timing locator back, inaudible chirps, every phone locates, 27 Sep 04:40 (team: "we are just pointing a compass
 … not using the power of multiple devices to triangulate"; "if the chirps are made, make them at such high frequencies
 that humans cant hear"):** (1) *Top-band test* (`tools/calibration/ultrasweep.py` makes the file,

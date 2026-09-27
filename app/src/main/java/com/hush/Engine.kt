@@ -2113,7 +2113,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         link?.stop(); link = null
         ble?.stop(); ble = null
         radioDistance.clear(); peerBleAddress.clear(); radioStatus = ""
-        locator.reset(); peerHeading.clear(); doaAll.clear(); closest.reset(); closestText = ""; closestHeardUntil.clear(); closestHeardAt.clear(); wherePoint = null; wherePointKey = ""; warmth.reset(); knockDir.reset(); knockDirKey = ""; knockDirResult = null; warmTrendLogged.clear(); lastWarmKey = ""; warmthByLetter = emptyMap()
+        locator.reset(); peerHeading.clear(); doaAll.clear(); closest.reset(); closestText = ""; closestHeardUntil.clear(); closestHeardAt.clear(); wherePoint = null; wherePointKey = ""; warmth.reset(); aim.reset(); knockDir.reset(); knockDirKey = ""; knockDirResult = null; warmTrendLogged.clear(); lastWarmKey = ""; warmthByLetter = emptyMap()
         com.hush.audio.KnockBearing.reset(); ownArrowUntilMs = 0L
         soundAlerts.reset(); homeAlerts.reset(); whistles.reset(); classifierRun = 0; classifierSkipped = 0
         walk.reset(); walkState = walk.state; com.hush.audio.KnockBearing.rescueTuning()
@@ -2814,6 +2814,55 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val r = knockDirResult ?: return null
         if (role != ROLE_COMMANDER && SystemClock.elapsedRealtime() - knockDirBoardMs > 5000L) return null
         return r to ((r.bearingDeg - headingDeg + 720f) % 360f)
+    }
+
+    // ---- POINT & TAP arrow (Aim.kt): each phone's own orientation from pointing at other phones ----
+
+    private val aim = Aim()
+
+    /** A phone's position in metres (the map frame every phone shares), from this phone's point of view. */
+    fun posOf(l: String): Pair<Double, Double>? = if (role == ROLE_COMMANDER) posMetres(l) else boardPos[l]
+
+    /** The other placed phones this phone can point at, the ones not yet pointed at first. */
+    fun aimCandidates(): List<String> {
+        val placed = (if (role == ROLE_COMMANDER) mapDots.keys else boardPos.keys).filter { it != letter }.sorted()
+        return placed.filter { it !in aim.targets() } + placed.filter { it in aim.targets() }
+    }
+
+    fun aimTap(target: String): String {
+        val me = posOf(letter) ?: return "This phone has no position yet: wait for the chirps to place the phones"
+        val t = posOf(target) ?: return "$target has no position yet"
+        val b = Aim.bearing(me, t)
+        aim.tap(target, b, headingDeg.toDouble())
+        val f = aim.frame()
+        HLog.d("AIM: this phone ($letter) pointed at $target: map bearing %.0f°, heading %.0f° -> rotation %.0f°%s".format(b, headingDeg, f?.rotationDeg ?: 0.0,
+            when (f?.mirrored) { null -> ", left/right not checked yet"; true -> ", map is MIRRORED (taps agree ±%.0f°)".format(f.spreadDeg ?: 0.0); false -> ", not mirrored (taps agree ±%.0f°)".format(f.spreadDeg ?: 0.0) }))
+        return if (f?.refs == 1) "Aimed at $target. Aim at a second phone too to confirm left/right." else "Aimed at ${aim.targets().joinToString(" and ")}: taps agree within %.0f°".format(f?.spreadDeg ?: 0.0)
+    }
+
+    fun aimFrame(): Aim.Frame? = aim.frame()
+
+    /** What the arrow shows: [screenDeg] null = arrow off; [label] short (drawn under the arrow); [hint] one or two lines below. */
+    data class AimArrow(val screenDeg: Float?, val label: String, val hint: String)
+
+    fun aimArrow(): AimArrow {
+        val me = posOf(letter) ?: return AimArrow(null, "Arrow off", "Waiting for the chirps to place the phones (about 30 s after the roles start)")
+        val f = aim.frame() ?: return AimArrow(null, "Arrow off", "One-time setup: aim this phone's top at another phone and tap POINT & TAP below")
+        val side = if (f.mirrored == null) " · aim at a 2nd phone to confirm left/right" else ""
+        // Target: the loudness spot (between the phones, LoudnessLocator), else the closest phone's position.
+        val spot = (if (role == ROLE_COMMANDER) wherePoint?.let { it.x to it.y } else boardWhere?.let { it.first to it.second })
+        val leader = Regex("(?:Sensor|Commander) ([A-Z])").find(closestText)?.groupValues?.get(1)
+        val (target, what) = when {
+            spot != null -> spot to "knock"
+            leader != null && leader != letter -> (posOf(leader) ?: return AimArrow(null, "Arrow off", "Closest is $leader, position unknown yet")) to "Sensor $leader (closest)".replace("Sensor A", "Commander A")
+            leader == letter -> return AimArrow(null, "THIS phone is closest", "The knocking is nearest to this phone$side")
+            else -> return AimArrow(null, "Arrow off", "Knock: the arrow points once the phones hear it$side")
+        }
+        val d = kotlin.math.hypot(target.first - me.first, target.second - me.second)
+        if (d < 0.25) return AimArrow(null, "HERE", "The knock is at this phone (within 25 cm)$side")
+        val screen = aim.screenDeg(Aim.bearing(me, target), headingDeg.toDouble())?.toFloat()
+        return AimArrow(screen, "→ %s · %.1f m".format(if (what == "knock") "KNOCK" else what, d),
+            "Aimed at ${aim.targets().joinToString(", ")}" + (f.spreadDeg?.let { " (agree ±%.0f°)".format(it) } ?: "") + side)
     }
 
     private val warmth = Warmth()

@@ -37,7 +37,30 @@ open class SensorScreen(protected val activity: Activity, private val roleName: 
      * locator), which pointed at room noises and parallel-phone mirrors. Always returns true: nothing else draws.
      */
     private var knockArrowTicks = 0
+    private val aimHint: TextView? = activity.findViewById(R.id.aimHint)
+    private val btnAim: android.widget.Button? = activity.findViewById(R.id.btnAim)
+
     protected fun drawKnockArrow(v: ArrowView): Boolean {
+        v.twinAngleDeg = null
+        // POINT & TAP (Aim.kt, 27 Sep): this phone's own orientation from pointing at other phones, positions from the
+        // chirps, target = the loudness spot or the closest phone. Everything below this block is the older logic, not used.
+        val aa = Engine.aimArrow()
+        v.label = aa.label
+        if (aa.screenDeg != null) { v.active = true; v.angleDeg = aa.screenDeg; v.confidence = if (Engine.aimFrame()?.mirrored == null) 0.6f else 0.95f }
+        else v.active = false
+        aimHint?.text = aa.hint
+        val next = Engine.aimCandidates().firstOrNull()
+        btnAim?.let { b ->
+            b.isEnabled = next != null
+            b.text = if (next == null) "POINT & TAP: waiting for the chirps to place the phones"
+                     else "POINT & TAP: aim this phone's top at ${if (next == "A") "Commander A" else "Sensor $next"}, then tap"
+        }
+        if (++knockArrowTicks % 20 == 0) com.hush.HLog.d("ARROW: %s | %s%s".format(aa.label, aa.hint, aa.screenDeg?.let { " | screen %.0f° heading %.0f°".format(it, Engine.headingDeg) } ?: ""))
+        return true
+    }
+
+    @Suppress("unused")
+    private fun drawOlderArrow(v: ArrowView): Boolean {
         v.twinAngleDeg = null
         // First: the spot the timing locator found (arrival-time differences between phones; clocks from the inaudible
         // chirps, positions from the TAPE layout: chirp ranging read AB 2.03 / AC 2.02 / BC 1.46 m for a 1.2 m triangle,
