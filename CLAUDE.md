@@ -184,7 +184,7 @@ one phone >= x8), the loudest phone wins it; the panel counts wins over 20 s: "C
 knocks - 12 dB louder than A" (LEANING below 60 %). Board field `cl` shows it on every phone. Log `CLOSEST knock: A=0.0780
 B=0.0610 -> A +2.1 dB over B`, `CLOSEST panel: ...`; export record `closest_knock`. Arrow and SYNC COMPASS are hidden
 (layout `gone`, code kept). `ClosestTest` (5) passes. Test: phones in three corners of the 2 m x 1.5 m room on cloth,
-knock 0.3 m from one phone 10x: pass = that phone wins >= 8. Installed on all three 05:52. **First run 05:53-05:56 (team knocking, positions not logged): clear runs A 17 knocks in a row (+12..+22 dB), C 27 of 28 (+8..+20 dB), B 15 in a row (+17..+23 dB); the panel switched C -> B within 2 s (LEANING) and 3 s (CLOSEST). Knocks between runs won by < 3 dB were coin flips.**
+knock 0.3 m from one phone 10x: pass = that phone wins >= 8. Installed on all three 05:52. **First run 05:53-05:56 (team knocking, positions not logged): clear runs A 17 knocks in a row (+12..+22 dB), C 27 of 28 (+8..+20 dB), B 15 in a row (+17..+23 dB); the panel switched C -> B within 2 s (LEANING) and 3 s (CLOSEST). Knocks between runs won by < 3 dB were coin flips.** Since 06:05 such knocks are logged `(tie, not counted)` and left out of the count (`Closest.MIN_LEAD_DB = 3`); the panel says "of N clear knocks".
 
 **Timing locator back, inaudible chirps, every phone locates, 27 Sep 04:40 (team: "we are just pointing a compass
 … not using the power of multiple devices to triangulate"; "if the chirps are made, make them at such high frequencies

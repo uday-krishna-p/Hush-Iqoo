@@ -19,10 +19,16 @@ class Closest {
         const val HISTORY_MS = 20_000L     // follows a knocker who moves within ~20 s
         const val MIN_LOUD_RATIO = 8f      // at least one phone heard it ≥ ×8 over its background (room noises ×2–6)
         const val MIN_KNOCKS = 3
+        /** A knock counts only when its loudest phone leads the next by this much (first run, 27 Sep 05:55: knocks
+         *  between clear runs were won by 0–2 dB and hopped between phones; clear knocks led by 8–23 dB). */
+        const val MIN_LEAD_DB = 3f
     }
 
     /** One knock as the commander judged it: every phone's peak (0..1), the winner and its lead over the runner-up. */
-    data class Knock(val tMs: Long, val peaks: Map<String, Float>, val winner: String, val runnerUp: String?, val leadDb: Float?)
+    data class Knock(val tMs: Long, val peaks: Map<String, Float>, val winner: String, val runnerUp: String?, val leadDb: Float?) {
+        /** Clear enough to count: one phone alone heard it, or the loudest led by ≥ [MIN_LEAD_DB]. */
+        val decisive: Boolean get() = leadDb == null || leadDb >= MIN_LEAD_DB
+    }
 
     data class Summary(
         val leader: String, val wins: Int, val knocks: Int,
@@ -66,9 +72,10 @@ class Closest {
         out
     }
 
-    /** The phone that won most of the recent knocks, or null while fewer than [MIN_KNOCKS] were judged. */
+    /** The phone that won most of the recent clear knocks, or null while fewer than [MIN_KNOCKS] clear ones were judged. */
     fun summary(nowMs: Long): Summary? = synchronized(lock) {
         while (done.isNotEmpty() && nowMs - done.first().tMs > HISTORY_MS) done.removeFirst()
+        val done = done.filter { it.decisive }
         if (done.size < MIN_KNOCKS) return null
         val wins = HashMap<String, Int>()
         for (k in done) wins[k.winner] = (wins[k.winner] ?: 0) + 1

@@ -2587,15 +2587,16 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val now = SystemClock.elapsedRealtime()
         for (k in closest.tick(now)) {
             val levels = k.peaks.entries.sortedByDescending { it.value }.joinToString(" ") { (l, p) -> "%s=%.4f".format(l, p) }
-            HLog.d("CLOSEST knock: %s -> %s%s".format(levels, k.winner, k.leadDb?.let { " +%.1f dB over %s".format(it, k.runnerUp) } ?: " (only phone that heard it)"))
-            sessionLog.addRecord("closest_knock", mapOf("peaks" to k.peaks.toString(), "winner" to k.winner, "lead_db" to k.leadDb))
+            HLog.d("CLOSEST knock: %s -> %s%s%s".format(levels, k.winner, k.leadDb?.let { " +%.1f dB over %s".format(it, k.runnerUp) } ?: " (only phone that heard it)",
+                if (k.decisive) "" else " (tie, not counted)"))
+            sessionLog.addRecord("closest_knock", mapOf("peaks" to k.peaks.toString(), "winner" to k.winner, "lead_db" to k.leadDb, "counted" to k.decisive))
         }
         val s = closest.summary(now)
         val text = if (s == null) "" else buildString {
             val sure = s.wins * 10 >= s.knocks * 6
             append(if (sure) "CLOSEST: " else "LEANING: ").append(if (s.leader == "A") "Commander A" else "Sensor ${s.leader}")
             phoneName(s.leader)?.let { append(" · ").append(it.takeLast(4)) }
-            append("\nloudest on ${s.wins} of ${s.knocks} knocks")
+            append("\nloudest on ${s.wins} of ${s.knocks} clear knocks")
             if (s.leadDb != null && s.runnerUp != null) append(" · %.0f dB louder than %s".format(s.leadDb, s.runnerUp))
             append("\n").append(s.winsBy.entries.joinToString("  ") { "${it.key} ${it.value}" })
             if (s.lastWinner != s.leader) append("  · last knock: ${s.lastWinner}")
