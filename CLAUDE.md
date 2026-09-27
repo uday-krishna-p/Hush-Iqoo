@@ -172,8 +172,8 @@ brief sent down); (6) the 1 s audio window (a knock is reported at the end of it
 The paragraphs below are the chronological log, newest first.
 
 **Closest phone replaces the arrow in the demo path, 27 Sep 05:40 (team after 15 h: "none of the features are even
-remotely working"; RCA from the 04:16-05:18 logs of 6a46 and ef39):** (1) phones 0.4-0.5 m apart make every
-multi-phone cue tiny (04:32 burst: A vs ef39 peak levels 1-4 dB apart); (2) the two-mic mirror never resolved because
+remotely working"; RCA from the 04:16-05:18 logs of 6a46 and 991e):** (1) phones 0.4-0.5 m apart make every
+multi-phone cue tiny (04:32 burst: A vs 991e peak levels 1-4 dB apart); (2) the two-mic mirror never resolved because
 the phones lay parallel as SYNC asked (A 106/322, B 123/303, fused confidence 0.44-0.48; median 0.41 over 308
 fusions); (3) compasses jump (B read 122 -> 297 -> 204 deg in 25 s on the table); (4) the live ranking used 1 s RMS minus a
 rolling floor that climbs during knocking (04:32:13: knock x43, rms 0.0011 < floor 0.0017 -> score 0); (5) 0 `LOCATE fix`,
@@ -184,7 +184,7 @@ one phone >= x8), the loudest phone wins it; the panel counts wins over 20 s: "C
 knocks - 12 dB louder than A" (LEANING below 60 %). Board field `cl` shows it on every phone. Log `CLOSEST knock: A=0.0780
 B=0.0610 -> A +2.1 dB over B`, `CLOSEST panel: ...`; export record `closest_knock`. Arrow and SYNC COMPASS are hidden
 (layout `gone`, code kept). `ClosestTest` (5) passes. Test: phones in three corners of the 2 m x 1.5 m room on cloth,
-knock 0.3 m from one phone 10x: pass = that phone wins >= 8. Installed on 6a46 05:37; ef39 hung on adb (replug).
+knock 0.3 m from one phone 10x: pass = that phone wins >= 8. Installed on all three 05:52. **First run 05:53-05:56 (team knocking, positions not logged): clear runs A 17 knocks in a row (+12..+22 dB), C 27 of 28 (+8..+20 dB), B 15 in a row (+17..+23 dB); the panel switched C -> B within 2 s (LEANING) and 3 s (CLOSEST). Knocks between runs won by < 3 dB were coin flips.**
 
 **Timing locator back, inaudible chirps, every phone locates, 27 Sep 04:40 (team: "we are just pointing a compass
 … not using the power of multiple devices to triangulate"; "if the chirps are made, make them at such high frequencies
