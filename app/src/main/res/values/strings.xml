@@ -32,10 +32,12 @@
     <string name="report_confirm_text">Hush will text the ambulance number (108) that there is an emergency here, with this phone\'s GPS location as a Google Maps link.</string>
     <string name="report_send">SEND</string>
     <string name="cancel">Cancel</string>
-    <string name="sos_contact_none">Emergency contact: not set · tap to add</string>
-    <string name="sos_contact_set">Emergency contact: %1$s · tap to change</string>
+    <string name="sos_contact_none">👤 Set emergency contact</string>
+    <string name="sos_contact_set">👤 Emergency contact: %1$s · change</string>
     <string name="sos_contact_title">Emergency contact</string>
-    <string name="sos_contact_hint">Phone number (texted when you do not answer a rescue alert)</string>
+    <string name="sos_contact_message">Texted with your location when you do not answer a rescue alert within 30 s.</string>
+    <string name="sos_contact_hint">Phone number</string>
+    <string name="sos_contact_pick">From contacts</string>
     <string name="save">Save</string>
     <string name="beacon_safe">I AM SAFE · STOP</string>
     <string name="perms_denied">Hush needs the microphone and nearby-devices permissions. Tap a role again to allow them.</string>

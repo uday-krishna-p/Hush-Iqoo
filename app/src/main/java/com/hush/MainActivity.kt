@@ -172,18 +172,38 @@ class MainActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.sosContact)?.text = if (c == null) getString(R.string.sos_contact_none) else getString(R.string.sos_contact_set, c)
     }
 
+    /** Type a number (empty = no contact) or pick one from the phone's contacts; the picker needs no contacts permission. */
     private fun editContact() {
         val input = android.widget.EditText(this).apply {
             inputType = android.text.InputType.TYPE_CLASS_PHONE
             hint = getString(R.string.sos_contact_hint)
             setText(Sos.contact(this@MainActivity) ?: "")
         }
+        val box = android.widget.FrameLayout(this).apply {
+            val pad = (20 * resources.displayMetrics.density).toInt()
+            setPadding(pad, 0, pad, 0)
+            addView(input)
+        }
         android.app.AlertDialog.Builder(this)
             .setTitle(R.string.sos_contact_title)
-            .setView(input)
+            .setMessage(R.string.sos_contact_message)
+            .setView(box)
             .setPositiveButton(R.string.save) { _, _ -> Sos.setContact(this, input.text.toString()); showContact() }
+            .setNeutralButton(R.string.sos_contact_pick) { _, _ ->
+                try { pickContact.launch(Intent(Intent.ACTION_PICK, android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI)) }
+                catch (e: Exception) { HLog.d("SOS: no contacts app to pick from: $e") }
+            }
             .setNegativeButton(R.string.cancel, null)
             .show()
+    }
+
+    private val pickContact = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { r ->
+        val uri = r.data?.data ?: run { HLog.d("SOS: contact pick cancelled"); return@registerForActivityResult }
+        try {
+            contentResolver.query(uri, arrayOf(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER), null, null, null)?.use { c ->
+                if (c.moveToFirst()) { Sos.setContact(this, c.getString(0)); showContact() } else HLog.d("SOS: picked contact has no number")
+            }
+        } catch (e: Exception) { HLog.d("SOS: reading the picked contact failed: $e") }
     }
 
     /** A confirmation first: with a SIM in, this texts the real 108. */

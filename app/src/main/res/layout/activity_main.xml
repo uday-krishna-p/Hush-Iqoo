@@ -134,17 +134,13 @@
             android:textSize="18sp"
             android:textStyle="bold" />
 
-        <TextView
+        <Button
             android:id="@+id/sosContact"
+            style="@style/Widget.Hush.Button"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:padding="8dp"
-            android:background="?android:attr/selectableItemBackground"
-            android:clickable="true"
-            android:focusable="true"
-            android:text="@string/sos_contact_none"
-            style="@style/Hush.Caption" />
+            android:layout_marginTop="8dp"
+            android:text="@string/sos_contact_none" />
 
         <TextView
             android:id="@+id/sosResult"
