@@ -15,7 +15,12 @@ import kotlin.math.log10
 class Closest {
     companion object {
         const val MATCH_MS = 350L          // relay delay measured 0.04–0.15 s, outliers 0.5 s; people knock ≥ 0.3 s apart
+        /** Longest wait before a knock is judged (a phone that went quiet); normally it is judged as soon as every
+         *  talking phone has reported past it plus [READY_MARGIN_MS] (27 Sep 06:05: the fixed 2.2 s wait was most of the
+         *  panel's lag). */
         const val CLOSE_AFTER_MS = 2200L
+        /** Relay delays differ between phones by up to a few hundred ms (median 0.04–0.15 s): wait this far past the knock. */
+        const val READY_MARGIN_MS = 250L
         const val HISTORY_MS = 20_000L     // knocks older than this are forgotten: the panel clears when the knocking stops
         /** The panel decides from this many most recent clear knocks (27 Sep 06:00: counting 20 s of wins took 7–10 s to follow
          *  the knocker to the next phone; with 6 the new phone leads after 3 knocks and is CLOSEST after 4). */
@@ -44,25 +49,33 @@ class Closest {
     private class Group(val tMs: Long) { val peaks = LinkedHashMap<String, Float>(); var maxRatio = 0f }
     private val open = ArrayList<Group>()
     private val done = ArrayDeque<Knock>()
+    /** Times of knocks already judged (including quiet ones), so a report arriving late cannot start a false one-phone knock. */
+    private val judgedTimes = ArrayDeque<Long>()
     private val lock = Any()
 
-    /** One detection: [letter] heard a knock at [tMs] (commander's clock) with [peak] amplitude, [ratio] × its background. */
-    fun add(letter: String, tMs: Long, peak: Float, ratio: Float) = synchronized(lock) {
+    /** One detection: [letter] heard a knock at [tMs] (commander's clock) with [peak] amplitude, [ratio] × its background.
+     *  False when that knock was already judged (the report came too late): it is dropped. */
+    fun add(letter: String, tMs: Long, peak: Float, ratio: Float): Boolean = synchronized(lock) {
+        if (judgedTimes.any { kotlin.math.abs(it - tMs) <= MATCH_MS } && open.none { kotlin.math.abs(it.tMs - tMs) <= MATCH_MS }) return false
         var g = open.minByOrNull { kotlin.math.abs(it.tMs - tMs) }?.takeIf { kotlin.math.abs(it.tMs - tMs) <= MATCH_MS }
         if (g == null) { g = Group(tMs); open.add(g) }
         // The same phone twice in one knock (an echo, a double onset): keep its loudest.
         g.peaks[letter] = maxOf(g.peaks[letter] ?: 0f, peak)
         g.maxRatio = maxOf(g.maxRatio, ratio)
+        true
     }
 
-    /** Judges the knocks old enough to have every phone's report. Returns the newly judged ones (for the log). */
-    fun tick(nowMs: Long): List<Knock> = synchronized(lock) {
+    /** Judges the knocks every phone has reported: those before [readyUntilMs] − [READY_MARGIN_MS] (every talking phone
+     *  has reported up to [readyUntilMs]; null = unknown), or older than [CLOSE_AFTER_MS]. Returns the newly judged ones. */
+    fun tick(nowMs: Long, readyUntilMs: Long? = null): List<Knock> = synchronized(lock) {
         val out = ArrayList<Knock>()
         val it = open.iterator()
         while (it.hasNext()) {
             val g = it.next()
-            if (nowMs - g.tMs < CLOSE_AFTER_MS) continue
+            val ready = readyUntilMs != null && g.tMs + READY_MARGIN_MS <= readyUntilMs
+            if (!ready && nowMs - g.tMs < CLOSE_AFTER_MS) continue
             it.remove()
+            judgedTimes.addLast(g.tMs)
             if (g.maxRatio < MIN_LOUD_RATIO) continue
             val sorted = g.peaks.entries.sortedByDescending { it.value }
             val first = sorted[0]; val second = sorted.getOrNull(1)
@@ -71,6 +84,7 @@ class Closest {
             done.addLast(k); out.add(k)
         }
         while (done.isNotEmpty() && nowMs - done.first().tMs > HISTORY_MS) done.removeFirst()
+        while (judgedTimes.isNotEmpty() && nowMs - judgedTimes.first() > 10_000L) judgedTimes.removeFirst()
         out.sortBy { it.tMs }
         out
     }
@@ -93,5 +107,5 @@ class Closest {
             wins.entries.sortedByDescending { it.value }.associate { it.key to it.value }, lastWinner)
     }
 
-    fun reset() = synchronized(lock) { open.clear(); done.clear() }
+    fun reset() = synchronized(lock) { open.clear(); done.clear(); judgedTimes.clear() }
 }

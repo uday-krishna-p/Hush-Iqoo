@@ -187,7 +187,13 @@ B=0.0610 -> A +2.1 dB over B`, `CLOSEST panel: ...`; export record `closest_knoc
 knock 0.3 m from one phone 10x: pass = that phone wins >= 8. Installed on all three 05:52. **First run 05:53-05:56 (team knocking, positions not logged): clear runs A 17 knocks in a row (+12..+22 dB), C 27 of 28 (+8..+20 dB), B 15 in a row (+17..+23 dB); the panel switched C -> B within 2 s (LEANING) and 3 s (CLOSEST). Knocks between runs won by < 3 dB were coin flips.** Since 06:05 such knocks are logged `(tie, not counted)` and left out of the count (`Closest.MIN_LEAD_DB = 3`); the panel says "of N clear knocks". **Second run 06:00-06:01 (ef39 commander, 6a46 B, 991e C; team knocked A, B, C):** B 9 of 10 clear knocks
 (+5..+28 dB), C 20 of 20 (+8..+30), then A 32 of 34 (+6..+23; not in the team's list, ask); ~95 % of knocks to the right
 phone. But the panel needed 7 s (B -> C) and 10 s (C -> A) to switch, because it counted 20 s of wins. Since 06:15 it
-decides from the last 6 clear knocks (`Closest.WINDOW_KNOCKS`): the new phone leads after 3 knocks, CLOSEST after 4.
+decides from the last 6 clear knocks (`Closest.WINDOW_KNOCKS`): the new phone leads after 3 knocks, CLOSEST after 4. **Third run 06:05 (same roles, A then B then C):** every clear knock right (A 11/11 +7..+17 dB, B 12/12
++10..+25, C 9/9 +28..+33), but the panel still showed the new phone ~4.5 s after the first knock there: the commander
+waited a fixed 2.2 s before judging each knock. Since 06:25 every SensorEvent carries `wa` (ms since that second's audio
+ended), the commander tracks per phone up to when everything is reported, and judges a knock once every talking phone is
+past it + 250 ms (`Closest.READY_MARGIN_MS`; 2.2 s stays as the fallback). A report arriving after its knock was judged is
+dropped (`CLOSEST late:` in the log) so it cannot make a false one-phone win. Each `CLOSEST knock` line ends with
+`judged N ms after the knock`. Next lag cut if needed: the 1 s audio chunk (open item: 250 ms hop).
 
 **Timing locator back, inaudible chirps, every phone locates, 27 Sep 04:40 (team: "we are just pointing a compass
 … not using the power of multiple devices to triangulate"; "if the chirps are made, make them at such high frequencies

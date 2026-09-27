@@ -92,6 +92,24 @@ class ClosestTest {
         assertEquals(6, fourth.knocks)
     }
 
+    /** 27 Sep 06:05: the fixed 2.2 s wait was most of the lag. A knock is judged once every phone has reported past it. */
+    @Test fun judgedAsSoonAsEveryPhoneHasReported() {
+        val c = Closest()
+        c.add("A", 1000, 0.01f, 9f); c.add("C", 1030, 0.08f, 30f)
+        assertTrue(c.tick(1400, readyUntilMs = 1200).isEmpty())      // B has not covered 1000 + margin yet
+        val k = c.tick(1600, readyUntilMs = 1300).single()             // everyone past 1250: judged 0.6 s after the knock
+        assertEquals("C", k.winner)
+    }
+
+    @Test fun lateReportIsDroppedNotAFalseWin() {
+        val c = Closest()
+        c.add("A", 1000, 0.01f, 9f); c.add("C", 1000, 0.08f, 30f)
+        c.tick(1400, readyUntilMs = 1300)
+        assertTrue(!c.add("B", 1100, 0.2f, 40f))                        // B's report for the same knock, too late
+        assertTrue(c.tick(5000, readyUntilMs = 5000).isEmpty())         // no second, one-phone "B" knock was made from it
+        assertTrue(c.add("B", 2500, 0.2f, 40f))                       // the next knock is accepted as usual
+    }
+
     @Test fun oneOddKnockDoesNotFlipIt() {
         val c = Closest()
         for (i in 0 until 6) { c.add("B", 1000L + i * 1000, 0.08f, 30f); c.add("A", 1000L + i * 1000, 0.01f, 9f) }

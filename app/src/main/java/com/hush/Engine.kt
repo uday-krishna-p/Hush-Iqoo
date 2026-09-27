@@ -2087,7 +2087,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         link?.stop(); link = null
         ble?.stop(); ble = null
         radioDistance.clear(); peerBleAddress.clear(); radioStatus = ""
-        locator.reset(); peerHeading.clear(); doaAll.clear(); closest.reset(); closestText = ""
+        locator.reset(); peerHeading.clear(); doaAll.clear(); closest.reset(); closestText = ""; closestHeardUntil.clear(); closestHeardAt.clear()
         com.hush.audio.KnockBearing.reset(); ownArrowUntilMs = 0L
         soundAlerts.reset(); homeAlerts.reset(); whistles.reset(); classifierRun = 0; classifierSkipped = 0
         walk.reset(); walkState = walk.state; com.hush.audio.KnockBearing.rescueTuning()
@@ -2351,7 +2351,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             bearing = own?.bearingDeg,
             bearingQ = own?.confidence,
             bearingTwin = own?.twinBearingDeg,
-            heading = compass?.takeIf { it.available }?.headingDeg
+            heading = compass?.takeIf { it.available }?.headingDeg,
+            windowAgeMs = SystemClock.elapsedRealtime() - now
         )
         val w = Window(rms, event.floor, classifier?.lastGain ?: 1f, tap, rhythm, acc, structure, cls, event)
         HLog.d("window id=$letter hush=$inHush label=$label rms=%.4f floor=%.4f taps=%d phantoms=%d rej=%d peak=x%.0f acc=%d accMax=%.3f accRms=%.3f struct=%b rhythm=%.1f/%s(%d) voice=%.2f impact=%.2f machine=%.2f | %s".format(
@@ -2369,6 +2370,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                     runLocatorHere()
                 }
                 ROLE_COMMANDER -> {
+                    closestHeardUntil["A"] = now; closestHeardAt["A"] = now
                     onsetReport?.let { locator.addReport(it); feedClosest(it, remote = false); if (peers.isNotEmpty() && it.onsets.isNotEmpty()) link?.sendDown(it.toJson()) }; recordEvent(event); boardEvents["A"] = event; boardEventMs["A"] = now
                     closestTick()
                     listener?.onEvent(event, localName); sendBoardDown()
@@ -2576,7 +2578,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val now = SystemClock.elapsedRealtime()
         for (o in r.onsets) {
             val age = o.ageMs ?: continue   // older build on that phone
-            closest.add(r.letter, now - age - (if (remote) RELAY_MS else 0L), o.peak, o.ratio)
+            val t = now - age - (if (remote) RELAY_MS else 0L)
+            if (!closest.add(r.letter, t, o.peak, o.ratio)) HLog.d("CLOSEST late: ${r.letter}'s knock (peak %.4f) arrived after that knock was judged: dropped".format(o.peak))
         }
         closestTick()
     }
@@ -2585,10 +2588,10 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private fun closestTick() {
         if (role != ROLE_COMMANDER) return
         val now = SystemClock.elapsedRealtime()
-        for (k in closest.tick(now)) {
+        for (k in closest.tick(now, closestReadyUntil(now))) {
             val levels = k.peaks.entries.sortedByDescending { it.value }.joinToString(" ") { (l, p) -> "%s=%.4f".format(l, p) }
             HLog.d("CLOSEST knock: %s -> %s%s%s".format(levels, k.winner, k.leadDb?.let { " +%.1f dB over %s".format(it, k.runnerUp) } ?: " (only phone that heard it)",
-                if (k.decisive) "" else " (tie, not counted)"))
+                if (k.decisive) "" else " (tie, not counted)") + " · judged ${now - k.tMs} ms after the knock")
             sessionLog.addRecord("closest_knock", mapOf("peaks" to k.peaks.toString(), "winner" to k.winner, "lead_db" to k.leadDb, "counted" to k.decisive))
         }
         val s = closest.summary(now)
@@ -2607,6 +2610,18 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             listener?.onClosest(text)
             sendBoardDown(force = true)
         }
+    }
+
+    /** Per phone, on the commander's clock: every knock up to this time has been reported (its second's audio has ended and arrived). */
+    private val closestHeardUntil = HashMap<String, Long>()
+    private val closestHeardAt = HashMap<String, Long>()
+
+    /** Every knock up to the returned time has been reported by every phone that is talking (heard from within 3 s);
+     *  null when some talking phone cannot say (an older build): then the fixed wait applies. */
+    private fun closestReadyUntil(now: Long): Long? {
+        val talking = (listOf("A") + peers.values.map { it.letter }).filter { now - (closestHeardAt[it] ?: boardEventMs[it] ?: 0L) <= 3000L }
+        if (talking.isEmpty()) return null
+        return talking.minOf { closestHeardUntil[it] ?: return null }
     }
 
     private fun phoneName(l: String): String? = if (l == "A") localName else peers.values.firstOrNull { it.letter == l }?.name
@@ -2912,6 +2927,11 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 if (peer == null) { HLog.d("Event from unassigned sensor '${msg.sensorId}' ignored"); return }
                 recordEvent(msg)
                 boardEvents[msg.sensorId] = msg; boardEventMs[msg.sensorId] = SystemClock.elapsedRealtime()
+                msg.windowAgeMs?.let { wa ->
+                    val arrived = SystemClock.elapsedRealtime()
+                    closestHeardUntil[msg.sensorId] = arrived - wa - RELAY_MS; closestHeardAt[msg.sensorId] = arrived
+                    closestTick()
+                }
                 listener?.onEvent(msg, peer.name)
             }
         }

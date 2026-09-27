@@ -33,7 +33,8 @@ data class SensorEvent(
     val bearing: Float? = null,  // compass degrees: where this phone's own two-mic arrow points (only while it shows)
     val bearingQ: Float? = null, // 0..1 confidence of that bearing (about 0.35 while left/right is still open)
     val bearingTwin: Float? = null, // the mirror candidate, present until the phone was turned to resolve it
-    val heading: Float? = null   // compass heading of the phone's top edge (after SYNC COMPASS), for the commander's sync
+    val heading: Float? = null,  // compass heading of the phone's top edge (after SYNC COMPASS), for the commander's sync
+    val windowAgeMs: Long? = null // ms since this second's audio ended: the commander knows every knock up to then is reported (closest phone)
 ) {
     fun toJson(): String = JSONObject().apply {
         put("id", sensorId)
@@ -62,6 +63,7 @@ data class SensorEvent(
         bearingQ?.let { put("bq", r(it)) }
         bearingTwin?.let { put("br2", Math.round(it * 10.0) / 10.0) }
         heading?.let { put("hd", Math.round(it * 10.0) / 10.0) }
+        windowAgeMs?.let { put("wa", it) }
     }.toString()
 
     companion object {
@@ -96,7 +98,8 @@ data class SensorEvent(
                 bearing = if (o.has("br")) o.getDouble("br").toFloat() else null,
                 bearingQ = if (o.has("bq")) o.getDouble("bq").toFloat() else null,
                 bearingTwin = if (o.has("br2")) o.getDouble("br2").toFloat() else null,
-                heading = if (o.has("hd")) o.getDouble("hd").toFloat() else null
+                heading = if (o.has("hd")) o.getDouble("hd").toFloat() else null,
+                windowAgeMs = if (o.has("wa")) o.getLong("wa") else null
             )
         } catch (e: Exception) {
             HLog.d("bad SensorEvent json: $e")
