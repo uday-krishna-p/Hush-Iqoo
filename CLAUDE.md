@@ -153,23 +153,35 @@ knocks (phones on the same slab) arrive faster than through air: onsets tagged "
 | Export | `SessionLog`: header (commander, sensors, dots, mode, last brief) + every event line + `hush`/`ranging_start`/`ranging`/`ranking`/`stop` records → `Downloads/hush-<date>-<time>.jsonl` via MediaStore. |
 | Permissions (declared, requested at role pick) | RECORD_AUDIO, BLUETOOTH_SCAN/ADVERTISE/CONNECT, NEARBY_WIFI_DEVICES, ACCESS_FINE/COARSE_LOCATION, ACTIVITY_RECOGNITION, RANGING (API 36), VIBRATE, FOREGROUND_SERVICE(+MICROPHONE), ACCESS/CHANGE_WIFI_STATE, legacy BLUETOOTH/ADMIN. |
 
-## Status (27 Sep 03:45)
+## Status (27 Sep ~07:30, confirmed working on the three phones by the team)
 
-**Where things stand.** The demo path has no chirps. Every phone listens, times each knock at its two mics, drops
-phantom clicks, and turns real knocks into a bearing (its own arrow; left/right open until it is turned or the other
-phones settle it). The commander accumulates every phone's bearing votes into one fused bearing with a confidence
-and forwards it at once; every phone draws that single arrow through its own compass, gliding, with the confidence
-in the label. Calibrated for this phone model in the team's half-metre space (spacing 0.17 m, channel 1 = top mic,
-stored on all phones). Positions by hand layout or GPS outdoors; with positions the bearing lines cross into a
-point. Mesh on Bluetooth only. **Installed on all three phones 27 Sep 03:18** (6a46 commander, ef39 B, 991e C).
-Open, in order: (1) compass agreement between phones (a ~50° disagreement seen once half a metre apart: lay the
-phones parallel, compare `heading=` in the logs); (2) the rotation test for the real delay-to-angle curve (raw
-stereo audio is kept for 300 s from a role start: restart the roles, then six 45° steps, 5 knocks each, 6 s apart,
-then `knockdir.py` and the WAV); (3) the crossing with a hand layout of the fixed cluster; (4) the sweep demo with
-one phone armed and the app closed; (5) "every phone both roles" (auto-role, HUSH/SWEEP buttons on every phone,
-brief sent down); (6) the 1 s audio window (a knock is reported at the end of its second; a 250 ms hop would cut
-~0.4 s); (7) silent ultrasonic chirps (plan step 4) to bring back ranging, clock sync and the timing locator.
+**Where things stand: the working demo path** (tag `v-point-and-tap-working`; earlier known-good: `v-closest-working`).
+Everything below is loudness, chirps and one human pointing step; the two-mic direction, the magnetic compass and the
+timing locator are NOT in it (they failed on these phones, see the log).
+1. **Closest phone** (`Closest.kt`): every phone reports each knock's peak and age; the commander matches detections
+   within 350 ms as one knock, judges it as soon as every phone has reported past it (+250 ms), the loudest still phone
+   wins if it leads by >= 3 dB; the green panel decides from the last 6 clear knocks ("CLOSEST: Sensor B · loudest on 5
+   of 6 clear knocks · 17 dB louder than C"; LEANING below 60 %). Team: "working perfectly".
+2. **Warmer / colder** (`Warmth.kt`): a carried phone's level against the phones lying still, last 2 knocks vs the 4
+   before, +-3 dB (HIGH sensitivity: 2 dB, and knocks from x4 instead of x8). Team: working.
+3. **Positions from inaudible chirps** (`AutoLocate.kt`): 19-21.5 kHz rounds back to back (~every 9-12 s) whenever
+   three phones are connected; each phone's fixed range error (ef39 0.72, 6a46 0.13, 991e 0.14 m) is subtracted; the
+   first round places the triangle, later rounds follow moved phones (turned onto the previous map). Measured: 1.24 /
+   1.30 / 1.20 m for the 1.2 m triangle. No tape; stored tape layouts are ignored.
+4. **Where between the phones** (`LoudnessLocator.kt`): the 1/r fit of the same knocks to the chirp positions; panel
+   line "Sound ~ 0.3 m from Sensor B (+-0.2 m)" and a red circle on the map (needs three phones hearing the knock).
+5. **POINT & TAP arrow** (`Aim.kt`): each phone aims its top at another phone and taps (twice, two different phones,
+   for left/right); from then the gyroscope follows its turning and the arrow points from its chirp position to the
+   loudness spot, else to the closest phone. Team, 27 Sep: "perfect ... its working".
+Open next: a hall test at larger spacings; whether the per-phone range errors hold on other days (every round logs raw
+and corrected); more than three phones in AutoLocate; re-aiming after all phones move at once; the timing locator
+(real-knock fixes were 12 m off); the 1 s audio window; removing the debug WAV before any public build.
+
 The paragraphs below are the chronological log, newest first.
+
+**Confirmed working, 27 Sep ~07:30:** after the POINT & TAP build (`22a00ea`) the team reported "perfect ... its
+working": closest phone, warmer/colder, chirp positions and the pointed arrow together. Tagged `v-point-and-tap-working`.
+(The entries between here and "Closest phone replaces the arrow" are in the order they happened, oldest first.)
 
 **Closest phone replaces the arrow in the demo path, 27 Sep 05:40 (team after 15 h: "none of the features are even
 remotely working"; RCA from the 04:16-05:18 logs of 6a46 and 991e):** (1) phones 0.4-0.5 m apart make every
@@ -950,18 +962,17 @@ adb -s <serial> exec-out run-as com.hush cat files/debug.wav > debug.wav   # fir
 
 ## Demo flow the code supports
 
-1. Three phones on cloth, within a metre of each other. Airplane mode + Bluetooth + Wi-Fi radio on. Pick COMMANDER
-   on one, SENSOR on the others; letters and name suffixes appear. Lay them parallel (tops the same way) and tap
-   SYNC COMPASS on any phone; then turn them to clearly different angles (so their left/right mirrors differ).
-   No chirps, no placing needed.
-2. Someone knocks on the table 0.5–2 m away, one per second. Within 3–4 knocks every phone shows one arrow on the
-   knock, "fused from A,B,C · confidence N%"; confidence climbs as the phones agree. Turn a phone: its arrow stays
-   on the knock. The knocker walks: the arrows follow within a few knocks.
-3. Optional distance: Place the phones on the commander's map (or `--es layout`), Align by pointing; knocks within
-   ~1 m of the cluster get a red cross-hair and "~N m where the arrows cross".
-4. Sweep: one extra phone with Hush opened once and closed (armed). ACTIVATE SENSORS on the commander: it buzzes,
-   shows the red rescue screen and joins as a sensor; phones already in a role buzz twice and say "Rescuer probe heard".
-5. HUSH for the 20 s silence window and the "Window ·" brief; EXPORT LOG → `Downloads/hush-….jsonl`.
+1. Three phones on the floor or cloth, 1-2 m apart (a triangle around the area to search), not on the surface being
+   knocked. Airplane mode + Bluetooth + Wi-Fi radio on. COMMANDER on one, SENSOR on the others; letters appear.
+2. Wait ~30 s: the chirp rounds place the phones (status "positions from the chirps", three dots on the map ~ the real
+   spacing). Nothing to measure or type.
+3. On each phone: pick it up, point its top at the phone the blue POINT & TAP button names, tap; then at the next named
+   phone, tap. Put it down any way round.
+4. Someone knocks steadily from one spot. Within ~3 s of the 3rd-4th knock: the green panel names the CLOSEST phone,
+   the panel's last line gives the spot ("Sound ~ ... m from ..."), every arrow points at it; turn a phone and its arrow
+   stays on the knock. The knocker moves: the panel switches within ~4 knocks.
+5. Pick one phone up and walk: its line says WARMER / COLDER within a knock or two (Sensitivity HIGH for quiet knocks).
+6. Optional: ACTIVATE SENSORS (sweep of an armed phone), HUSH window, EXPORT LOG as before.
 
 ## What we will not claim
 
