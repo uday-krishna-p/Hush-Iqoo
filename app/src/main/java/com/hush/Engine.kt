@@ -1972,7 +1972,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val household = isHousehold(newRole)
         letter = if (newRole == ROLE_COMMANDER) "A" else if (household) "H" else "?"
         sessionLog = com.hush.log.SessionLog()
-        HLog.d("Engine start role=$newRole name=$localName" + if (household) " (household: no radios, classifier on loud seconds only)" else "")
+        HLog.d("Engine start role=$newRole name=$localName" + if (household) (if (newRole == ROLE_ALERT) " (household: no radios, classifier every half second)" else " (household: no radios, classifier on loud seconds only)") else "")
         if (newRole == ROLE_COMMANDER) try { loadPrefs(context) } catch (e: Exception) { HLog.d("ERROR loading prefs: $e") }
         // Positions come from the chirps now (team, 27 Sep: "stop caring about where the phones are set"): a stored tape
         // layout is not applied (a stale 0.40 m one on ef39 shrank the 1.2 m triangle to a third). --es layout still works.
@@ -2078,7 +2078,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     }
 
     /** Main thread, ALERT role: one second → maybe one household alert. */
-    private fun alertSecond(w: Window, selfNoiseIn: Boolean, now: Long) {
+    private fun alertSecond(w: Window, tonal: com.hush.audio.Tonality.Result?, selfNoiseIn: Boolean, now: Long) {
         // The phone reading out a typed message is not a visitor, and its own vibration motor is heard as knocks.
         val selfNoise = selfNoiseIn || Speak.speaking || now - 1000 < com.hush.audio.Haptics.busyUntilMs
         val tap = w.tap
@@ -2089,7 +2089,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         }
         val second = com.hush.audio.SoundAlerts.Second(
             nowMs = now, rms = w.rms, floor = w.floor, moving = w.accel.moving, selfNoise = selfNoise,
-            scores = w.cls?.scores ?: emptyMap(), topClass = w.cls?.topClass ?: "-", knocks = knocks)
+            scores = w.cls?.scores ?: emptyMap(), topClass = w.cls?.topClass ?: "-", knocks = knocks,
+            tonal = tonal?.peakToMedian ?: 0f, tonalHz = tonal?.peakHz ?: 0f)
         // Teaching a sound: the loud seconds go into the fingerprint instead of being judged.
         if (library.session != null) {
             val loud = if (w.floor > 0f) w.rms / w.floor else 0f
@@ -2162,7 +2163,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         radioDistance.clear(); peerBleAddress.clear(); radioStatus = ""
         locator.reset(); peerHeading.clear(); doaAll.clear(); closest.reset(); closestText = ""; closestHeardUntil.clear(); closestHeardAt.clear(); wherePoint = null; wherePointKey = ""; warmth.reset(); aim.reset(); closestVoice.reset(); warmthVoice.reset(); synchronized(chirpTimesMs) { chirpTimesMs.clear() }; knockDir.reset(); knockDirKey = ""; knockDirResult = null; warmTrendLogged.clear(); lastWarmKey = ""; warmthByLetter = emptyMap()
         com.hush.audio.KnockBearing.reset(); ownArrowUntilMs = 0L
-        soundAlerts.reset(); homeAlerts.reset(); whistles.reset(); classifierRun = 0; classifierSkipped = 0
+        soundAlerts.reset(); homeAlerts.reset(); whistles.reset(); classifierRun = 0; classifierSkipped = 0; alertPrevN = 0
         walk.reset(); walkState = walk.state; com.hush.audio.KnockBearing.rescueTuning()
         peerBearing.clear(); crossFix = null; crossFixMs = 0L; crossNoneLoggedMs = 0L
         sharedBearing = null; sharedBearingMs = 0L; sharedLogged = ""; sharedHist.fill(0.0); sharedHistMs = 0L; synchronized(loudOnsetMs) { loudOnsetMs.clear() }
@@ -2356,15 +2357,28 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         // At home the model runs only on seconds worth it (loud against the floor, or a sharp onset, or no floor
         // yet): most of a day is quiet and the rescue roles' every-second voice score is not needed there.
         val household = isHousehold(role)
-        val worthClassifying = !household || floor <= 0f || recentRms.size < 10 || rms >= floor * 1.5f || tap.taps > 0
-        val cls = if (worthClassifying) classifier?.classify(pcm16k, n16) else null
+        // ALERT listens to every second (crowded, noisy places: a doorbell is rarely 1.5x louder than the chatter) and
+        // twice per second: a second window straddles the half second, so a short ding cut by the 1 s boundary is heard whole.
+        val worthClassifying = !household || role == ROLE_ALERT || floor <= 0f || recentRms.size < 10 || rms >= floor * 1.5f || tap.taps > 0
+        var cls = if (worthClassifying) classifier?.classify(pcm16k, n16) else null
+        if (role == ROLE_ALERT) {
+            val c = classifier
+            if (c != null && cls != null && alertPrevN > 0 && n16 <= alertJoin.size / 2) {
+                System.arraycopy(pcm16k, 0, alertJoin, alertPrevN, n16)
+                try { cls = cls.maxWith(c.classify(alertJoin, alertPrevN + n16 / 2)) } catch (e: Exception) { HLog.d("ERROR in half-second classify: $e") }
+            }
+            if (n16 <= alertJoin.size / 2) { System.arraycopy(pcm16k, 0, alertJoin, 0, n16); alertPrevN = n16 }
+        }
         if (household) {
             if (worthClassifying) classifierRun++ else classifierSkipped++
             if ((classifierRun + classifierSkipped) % 600 == 0L) HLog.d("Household classifier: ran $classifierRun s, skipped $classifierSkipped s (quiet)")
         }
         val label = fuseLabel(rhythm, cls)
         // HOME: how tonal is this second (a whistle is one strong line; frying is not)? Only for loud seconds.
-        val tonal = if (role == ROLE_HOME && (floor <= 0f || rms >= floor * 2f)) try { com.hush.audio.Tonality.measure(pcm16k, n16) } catch (e: Exception) { HLog.d("ERROR in tonality: $e"); null } else null
+        val tonal = if (role == ROLE_HOME && (floor <= 0f || rms >= floor * 2f)) try { com.hush.audio.Tonality.measure(pcm16k, n16) } catch (e: Exception) { HLog.d("ERROR in tonality: $e"); null }
+            // ALERT: the clearest tone anywhere in the second, every second (chimes and buzzers are one strong line over the crowd).
+            else if (role == ROLE_ALERT) try { com.hush.audio.Tonality.measureBest(pcm16k, n16) } catch (e: Exception) { HLog.d("ERROR in tonality: $e"); null }
+            else null
         main.post { trackWalking(acc); trackPlacement(acc) }
         // Source location, part 1 (every phone): each knock timed to the sample, its loudness, and the
         // two-mic delay that says which side of this phone it came from. Sent to the commander.
@@ -2466,12 +2480,15 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                     closestTick()
                     listener?.onEvent(event, localName); sendBoardDown()
                 }
-                ROLE_ALERT -> try { alertSecond(w, selfNoise, now) } catch (e: Exception) { HLog.d("ERROR in household alerts: $e") }
+                ROLE_ALERT -> try { alertSecond(w, tonal, selfNoise, now) } catch (e: Exception) { HLog.d("ERROR in household alerts: $e") }
                 ROLE_HOME -> try { homeSecond(w, tonal, selfNoise, now) } catch (e: Exception) { HLog.d("ERROR in whistle counter: $e") }
             }
         }
     }
     private var warnedUnassigned = false
+    /** ALERT role: the previous second's 16 kHz audio followed by this one's, for the half-second classifier window. */
+    private val alertJoin = FloatArray(2 * AudioCapture.SAMPLE_RATE / 3 + 64)
+    private var alertPrevN = 0
 
     /**
      * Audio thread. For each knock this second: absolute sample of its first arrival, peak, and the delay

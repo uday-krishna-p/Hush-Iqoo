@@ -10,8 +10,13 @@ package com.hush.audio
  *
  * Rules (start values, to be corrected from the `window` log lines of real doorbells, cookers and alarms):
  *  - a category's score is the SUM of its YAMNet classes for that second, like the rescue VOICE/MACHINE buckets;
- *  - every category also needs loudness ≥ [Category.loudFactor] × the noise floor, so a TV murmuring in the next
- *    room does not fire; ALARM is the exception at 1.5× because a distant smoke alarm matters;
+ *  - every category also needs loudness ≥ [Category.loudFactor] × the noise floor (the median of the last 30 s, so in a
+ *    crowd the floor IS the crowd), so a TV murmuring in the next room does not fire. Crowded places (team, 27 Sep):
+ *    most categories 1.5× (was 2×); DOORBELL only 1.15×, it may barely rise above the chatter;
+ *  - DOORBELL is the most sensitive category (team: "tell any and all kinds of doorbells"): every bell, chime, buzzer
+ *    and electronic-tone class counts, a class only when ≥ [MIN_CLASS] (a crowd spreads 0.01s over dozens of classes),
+ *    one second is enough, a handled phone still hears it, and a clearly tonal second (one strong line ≥ [TONAL_BELL]
+ *    × the band's median: chimes, buzzers, melody doorbells) halves the score it needs;
  *  - no knock detection here (team, 27 Sep): the rescue tap detector flooded the history with "KNOCK ×2" from table
  *    clatter and the phone's own motor; the onsets the pipeline hands over are ignored;
  *  - one alert per category per [DEBOUNCE_MS]; while the sound keeps going the alert is extended, not re-posted;
@@ -37,27 +42,29 @@ class SoundAlerts {
             0.35f, 2, 1.5f, 7, longArrayOf(0, 1000, 300), repeats = true),
         DISTRESS("SHOUTING", 0xFF7B1FA2.toInt(),
             setOf("Screaming", "Shout", "Yell", "Bellow", "Children shouting", "Crying, sobbing", "Baby cry, infant cry", "Whimper"),
-            0.3f, 2, 2f, 6, longArrayOf(0, 600, 200, 600, 200, 600, 200)),
+            0.3f, 2, 1.5f, 6, longArrayOf(0, 600, 200, 600, 200, 600, 200)),
         CRASH("CRASH", 0xFFEF6C00.toInt(),
             setOf("Shatter", "Smash, crash", "Glass", "Explosion", "Breaking"),
-            0.3f, 1, 2f, 5, longArrayOf(0, 800)),
+            0.3f, 1, 1.5f, 5, longArrayOf(0, 800)),
         DOORBELL("DOORBELL", 0xFF1565C0.toInt(),
-            setOf("Doorbell", "Ding-dong", "Ding", "Chime", "Bell", "Buzzer"),
-            0.3f, 1, 2f, 4, longArrayOf(0, 150, 100, 150, 400, 150, 100, 150)),
+            setOf("Doorbell", "Ding-dong", "Ding", "Chime", "Bell", "Buzzer", "Wind chime", "Tubular bells", "Glockenspiel",
+                "Vibraphone", "Marimba, xylophone", "Jingle bell", "Bicycle bell", "Jingle, tinkle", "Tuning fork", "Cowbell", "Gong",
+                "Church bell", "Sine wave", "Chirp tone", "Electronic tuner"),
+            0.15f, 1, 1.15f, 4, longArrayOf(0, 150, 100, 150, 400, 150, 100, 150)),
         /** Not a sound category any more (team, 27 Sep: no knock classifier in the alerts): no classes, never fires, no switch. Kept for old history entries. */
         KNOCK("KNOCK", 0xFFF9A825.toInt(), emptySet(), 9f, 9, 9f, 3, longArrayOf(0, 200), defaultOn = false),
         TIMER("TIMER BEEPING", 0xFF2E7D32.toInt(),
             setOf("Beep, bleep", "Microwave oven", "Alarm clock"),
-            0.3f, 2, 2f, 2, longArrayOf(0, 120, 120, 120, 120, 120, 120, 120)),
+            0.3f, 2, 1.5f, 2, longArrayOf(0, 120, 120, 120, 120, 120, 120, 120)),
         PHONE("PHONE RINGING", 0xFF00838F.toInt(),
             setOf("Telephone bell ringing", "Ringtone", "Telephone"),
-            0.3f, 2, 2f, 1, longArrayOf(0, 150, 150, 600)),
+            0.3f, 2, 1.5f, 1, longArrayOf(0, 150, 150, 600)),
         DOG("DOG BARKING", 0xFF6D4C41.toInt(),
             setOf("Bark", "Dog", "Howl", "Growling"),
-            0.3f, 2, 2f, 0, longArrayOf(0, 200), defaultOn = false),
+            0.3f, 2, 1.5f, 0, longArrayOf(0, 200), defaultOn = false),
         WATER("WATER RUNNING", 0xFF0277BD.toInt(),
             setOf("Drip", "Water tap, faucet", "Sink (filling or washing)", "Boiling", "Water"),
-            0.3f, 3, 2f, 0, longArrayOf(0, 200), defaultOn = false),
+            0.3f, 3, 1.5f, 0, longArrayOf(0, 200), defaultOn = false),
         SPEECH("SOMEONE CALLING", 0xFF546E7A.toInt(),
             setOf("Speech", "Child speech, kid speaking", "Conversation", "Narration, monologue"),
             0.5f, 3, 3f, 0, longArrayOf(0, 300, 200, 300), defaultOn = false),   // loud ×3 (was ×8: normal talking measured ×2–3, 27 Sep)
@@ -82,7 +89,9 @@ class SoundAlerts {
         val selfNoise: Boolean,             // our own beeps / buzz playing
         val scores: Map<String, Float>,     // YAMNet display name → score (classes < 0.01 may be absent)
         val topClass: String,
-        val knocks: List<Knock>             // ignored (no knock alerts)
+        val knocks: List<Knock>,            // ignored (no knock alerts)
+        val tonal: Float = 0f,              // clearest tone in the second: strongest line / band median (Tonality.measureBest), 0 = not measured
+        val tonalHz: Float = 0f
     )
 
     data class Alert(
@@ -100,6 +109,12 @@ class SoundAlerts {
     companion object {
         const val DEBOUNCE_MS = 20_000L
         const val WARM_UP_MS = 5_000L
+        /** A class adds to its category only from this score up: a noisy crowd gives dozens of classes 0.01 each. */
+        const val MIN_CLASS = 0.02f
+        /** A second this tonal (one line ≥ this × the band's median) needs only half the DOORBELL score. */
+        const val TONAL_BELL = 10f
+        /** Categories that still listen while the phone is carried or handled (in a crowd it always is). */
+        private val WHILE_MOVING = setOf(Category.ALARM, Category.DOORBELL)
         /** Words for ALARM by top class. */
         private val ALARM_WORDS = mapOf("Smoke detector, smoke alarm" to "SMOKE ALARM", "Fire alarm" to "FIRE ALARM", "Siren" to "SIREN",
             "Civil defense siren" to "SIREN", "Car alarm" to "CAR ALARM", "Alarm clock" to "ALARM CLOCK")
@@ -163,18 +178,27 @@ class SoundAlerts {
         return s.rms >= s.floor * c.loudFactor
     }
 
-    private fun sum(c: Category, s: Second): Float { var t = 0f; for (n in c.classes) t += s.scores[n] ?: 0f; return t }
+    private fun sum(c: Category, s: Second): Float {
+        var t = 0f
+        for (n in c.classes) { val v = s.scores[n] ?: 0f; if (v >= MIN_CLASS) t += v }
+        return t
+    }
+
+    /** The score [c] needs in second [s]: the category's threshold × sensitivity, halved for a clearly tonal DOORBELL second. */
+    private fun needed(c: Category, s: Second): Float {
+        val th = c.threshold * sensitivity
+        return if (c == Category.DOORBELL && s.tonal >= TONAL_BELL) th * 0.5f else th
+    }
 
     private fun evaluate(c: Category, s: Second): Alert? {
-        if (s.moving && c != Category.ALARM) return null
-        val th = c.threshold * sensitivity
+        if (s.moving && c !in WHILE_MOVING) return null
         // Count the recent seconds where the bucket score and the loudness both pass.
         var hits = 0
         var bestScore = 0f
         var bestTop = c.word
         for (h in history) {
             val v = sum(c, h)
-            if (v >= th && loudEnough(c, h)) {
+            if (v >= needed(c, h) && loudEnough(c, h)) {
                 hits++
                 if (v > bestScore) {
                     bestScore = v
@@ -185,14 +209,14 @@ class SoundAlerts {
         }
         // The current second must be one of them, otherwise a fading sound would re-fire every second.
         val nowV = sum(c, s)
-        if (nowV < th || !loudEnough(c, s)) return null
+        if (nowV < needed(c, s) || !loudEnough(c, s)) return null
         if (hits < c.secondsOf3) return null
         val word = when (c) {
             Category.ALARM -> ALARM_WORDS[bestTop] ?: c.word
             Category.DISTRESS -> DISTRESS_WORDS[bestTop] ?: c.word
             else -> c.word
         }
-        val detail = "top=$bestTop score=%.2f loud=x%.1f".format(bestScore, if (s.floor > 0f) s.rms / s.floor else 0f)
+        val detail = "top=$bestTop score=%.2f loud=x%.1f tonal=%.1f@%.0fHz".format(bestScore, if (s.floor > 0f) s.rms / s.floor else 0f, s.tonal, s.tonalHz)
         return Alert(c, word, detail, bestScore, c.pattern, c.repeats, s.nowMs, extended = false)
     }
 }

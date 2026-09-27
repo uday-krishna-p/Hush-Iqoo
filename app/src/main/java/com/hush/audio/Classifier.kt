@@ -24,6 +24,15 @@ class Classifier(context: Context) {
     ) {
         /** Sum of the named classes' scores, 0 for names the model did not raise. */
         fun sum(names: Collection<String>): Float { var s = 0f; for (n in names) s += scores[n] ?: 0f; return s.coerceIn(0f, 1f) }
+
+        /** Two overlapping windows of the same second: every class keeps its best score, so a short ding cut in half by one window still counts. */
+        fun maxWith(o: Result): Result {
+            val all = HashMap(scores)
+            for ((k, v) in o.scores) if (v > (all[k] ?: 0f)) all[k] = v
+            val top5 = all.entries.sortedByDescending { it.value }.take(5).map { it.key to it.value }
+            return Result(maxOf(human, o.human), maxOf(impact, o.impact), maxOf(machine, o.machine),
+                top5.firstOrNull()?.first ?: topClass, top5, all)
+        }
     }
 
     companion object {

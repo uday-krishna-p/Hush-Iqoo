@@ -15,8 +15,8 @@ class SoundAlertsTest {
     private val floor = 0.001f
 
     private fun second(t: Long, scores: Map<String, Float> = emptyMap(), loud: Float = 4f, knocks: List<SoundAlerts.Knock> = emptyList(),
-                       moving: Boolean = false, top: String = scores.maxByOrNull { it.value }?.key ?: "Silence") =
-        SoundAlerts.Second(t, floor * loud, floor, moving, false, scores, top, knocks)
+                       moving: Boolean = false, top: String = scores.maxByOrNull { it.value }?.key ?: "Silence", tonal: Float = 0f) =
+        SoundAlerts.Second(t, floor * loud, floor, moving, false, scores, top, knocks, tonal, if (tonal > 0f) 1200f else 0f)
 
     /** Runs quiet seconds through the warm-up so the detector is live at the returned time. */
     private fun warm(d: SoundAlerts): Long {
@@ -40,8 +40,8 @@ class SoundAlertsTest {
     fun quietTvDoesNotFire() {
         val d = SoundAlerts()
         val t = warm(d)
-        // A doorbell on the TV in the next room: the model hears it, but it is not loud against the room.
-        assertNull(d.onSecond(second(t, mapOf("Doorbell" to 0.6f), loud = 1.2f)))
+        // A doorbell on the TV in the next room: the model hears it, but it does not rise above the room at all.
+        assertNull(d.onSecond(second(t, mapOf("Doorbell" to 0.6f), loud = 1.05f)))
     }
 
     @Test
@@ -103,10 +103,14 @@ class SoundAlertsTest {
     }
 
     @Test
-    fun handledPhonePausesAllButAlarm() {
+    fun handledPhonePausesAllButAlarmAndDoorbell() {
         val d = SoundAlerts()
         var t = warm(d)
-        assertNull(d.onSecond(second(t, mapOf("Doorbell" to 0.6f), moving = true)))
+        assertNull(d.onSecond(second(t, mapOf("Telephone bell ringing" to 0.6f), moving = true))); t += 1000
+        assertNull(d.onSecond(second(t, mapOf("Telephone bell ringing" to 0.6f), moving = true))); t += 1000
+        // In a crowd the phone is always being carried: the doorbell still rings through.
+        val bell = d.onSecond(second(t, mapOf("Doorbell" to 0.6f), moving = true))
+        assertNotNull(bell); assertEquals(Category.DOORBELL, bell!!.category)
         t += 1000
         assertNull(d.onSecond(second(t, mapOf("Fire alarm" to 0.6f), moving = true))); t += 1000
         val a = d.onSecond(second(t, mapOf("Fire alarm" to 0.6f), moving = true))
@@ -132,9 +136,49 @@ class SoundAlertsTest {
     fun highSensitivityLowersTheBar() {
         val d = SoundAlerts()
         val t = warm(d)
-        assertNull(d.onSecond(second(t, mapOf("Doorbell" to 0.25f))))
+        assertNull(d.onSecond(second(t, mapOf("Doorbell" to 0.12f))))
         d.sensitivity = 0.7f
-        val a = d.onSecond(second(t + 1000, mapOf("Doorbell" to 0.25f)))
+        val a = d.onSecond(second(t + 1000, mapOf("Doorbell" to 0.12f)))
         assertNotNull(a); assertEquals(Category.DOORBELL, a!!.category)
+    }
+
+    @Test
+    fun faintDoorbellOverACrowdFires() {
+        val d = SoundAlerts()
+        val t = warm(d)
+        // Chatter everywhere, the chime barely raises the level (x1.3) and the model gives it only 0.1 + 0.07.
+        val a = d.onSecond(second(t, mapOf("Speech" to 0.7f, "Crowd" to 0.3f, "Ding-dong" to 0.1f, "Chime" to 0.07f), loud = 1.3f))
+        assertNotNull(a); assertEquals(Category.DOORBELL, a!!.category)
+    }
+
+    @Test
+    fun anyKindOfBellCounts() {
+        // Melody, glockenspiel-like and plain electronic-tone doorbells: the model names the instrument, not "Doorbell".
+        for (cls in listOf("Glockenspiel", "Tubular bells", "Vibraphone", "Jingle bell", "Chirp tone", "Buzzer")) {
+            val d = SoundAlerts()
+            val t = warm(d)
+            val a = d.onSecond(second(t, mapOf(cls to 0.2f)))
+            assertNotNull(cls, a); assertEquals(cls, Category.DOORBELL, a!!.category)
+        }
+    }
+
+    @Test
+    fun crowdSmearDoesNotRingTheBell() {
+        val d = SoundAlerts()
+        val t = warm(d)
+        // A noisy room spreads 0.01-0.019 over many classes: summed they would pass 0.15, one by one none counts.
+        val smear = listOf("Bell", "Chime", "Ding", "Glockenspiel", "Vibraphone", "Tubular bells", "Jingle bell", "Gong",
+            "Sine wave", "Buzzer", "Cowbell", "Tuning fork").associateWith { 0.019f } + ("Speech" to 0.6f)
+        assertNull(d.onSecond(second(t, smear, loud = 1.5f)))
+    }
+
+    @Test
+    fun clearToneHalvesWhatTheBellNeeds() {
+        val d = SoundAlerts()
+        val t = warm(d)
+        assertNull(d.onSecond(second(t, mapOf("Bell" to 0.09f), tonal = 3f)))
+        val a = d.onSecond(second(t + 1000, mapOf("Bell" to 0.09f), tonal = 14f))
+        assertNotNull(a); assertEquals(Category.DOORBELL, a!!.category)
+        assertTrue(a.detail.contains("tonal=14.0"))
     }
 }

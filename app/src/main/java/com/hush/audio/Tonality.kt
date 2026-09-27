@@ -53,6 +53,22 @@ object Tonality {
         return Result(peakK.toFloat() * SAMPLE_RATE / N, ratio, mag[peakK] / frames)
     }
 
+    /**
+     * The most tonal quarter-second anywhere in the second (not just the last one, as [measure]): a doorbell's ding may
+     * be over by the end of the second, and in a crowd one clear line in one frame is what stands out. [LOW_HZ]..[HIGH_HZ]
+     * covers chimes, buzzers and electronic melodies.
+     */
+    @Synchronized fun measureBest(pcm16k: FloatArray, n: Int): Result? {
+        var best: Result? = null
+        var end = n
+        while (end >= N * FRAMES) {
+            val r = measure(pcm16k, end) ?: break
+            if (best == null || r.peakToMedian > best.peakToMedian) best = r
+            end -= N * FRAMES
+        }
+        return best
+    }
+
     /** In-place iterative radix-2 FFT, N a power of two. */
     private fun fft(re: DoubleArray, im: DoubleArray) {
         val n = re.size
