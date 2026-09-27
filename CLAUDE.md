@@ -184,7 +184,10 @@ one phone >= x8), the loudest phone wins it; the panel counts wins over 20 s: "C
 knocks - 12 dB louder than A" (LEANING below 60 %). Board field `cl` shows it on every phone. Log `CLOSEST knock: A=0.0780
 B=0.0610 -> A +2.1 dB over B`, `CLOSEST panel: ...`; export record `closest_knock`. Arrow and SYNC COMPASS are hidden
 (layout `gone`, code kept). `ClosestTest` (5) passes. Test: phones in three corners of the 2 m x 1.5 m room on cloth,
-knock 0.3 m from one phone 10x: pass = that phone wins >= 8. Installed on all three 05:52. **First run 05:53-05:56 (team knocking, positions not logged): clear runs A 17 knocks in a row (+12..+22 dB), C 27 of 28 (+8..+20 dB), B 15 in a row (+17..+23 dB); the panel switched C -> B within 2 s (LEANING) and 3 s (CLOSEST). Knocks between runs won by < 3 dB were coin flips.** Since 06:05 such knocks are logged `(tie, not counted)` and left out of the count (`Closest.MIN_LEAD_DB = 3`); the panel says "of N clear knocks".
+knock 0.3 m from one phone 10x: pass = that phone wins >= 8. Installed on all three 05:52. **First run 05:53-05:56 (team knocking, positions not logged): clear runs A 17 knocks in a row (+12..+22 dB), C 27 of 28 (+8..+20 dB), B 15 in a row (+17..+23 dB); the panel switched C -> B within 2 s (LEANING) and 3 s (CLOSEST). Knocks between runs won by < 3 dB were coin flips.** Since 06:05 such knocks are logged `(tie, not counted)` and left out of the count (`Closest.MIN_LEAD_DB = 3`); the panel says "of N clear knocks". **Second run 06:00-06:01 (ef39 commander, 6a46 B, 991e C; team knocked A, B, C):** B 9 of 10 clear knocks
+(+5..+28 dB), C 20 of 20 (+8..+30), then A 32 of 34 (+6..+23; not in the team's list, ask); ~95 % of knocks to the right
+phone. But the panel needed 7 s (B -> C) and 10 s (C -> A) to switch, because it counted 20 s of wins. Since 06:15 it
+decides from the last 6 clear knocks (`Closest.WINDOW_KNOCKS`): the new phone leads after 3 knocks, CLOSEST after 4.
 
 **Timing locator back, inaudible chirps, every phone locates, 27 Sep 04:40 (team: "we are just pointing a compass
 … not using the power of multiple devices to triangulate"; "if the chirps are made, make them at such high frequencies

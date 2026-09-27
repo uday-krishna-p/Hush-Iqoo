@@ -10,13 +10,16 @@ import kotlin.math.log10
  * Every phone reports each knock's peak level and how long ago it happened ([add] gets the time on the
  * commander's own clock). Detections from different phones within [MATCH_MS] of each other are the same knock.
  * A knock is judged [CLOSE_AFTER_MS] after it happened (reports arrive once a second plus the relay delay):
- * the loudest phone wins it. [summary] counts the wins over the last [HISTORY_MS].
+ * the loudest phone wins it. [summary] counts the wins among the last [WINDOW_KNOCKS] clear knocks of the last [HISTORY_MS].
  */
 class Closest {
     companion object {
         const val MATCH_MS = 350L          // relay delay measured 0.04–0.15 s, outliers 0.5 s; people knock ≥ 0.3 s apart
         const val CLOSE_AFTER_MS = 2200L
-        const val HISTORY_MS = 20_000L     // follows a knocker who moves within ~20 s
+        const val HISTORY_MS = 20_000L     // knocks older than this are forgotten: the panel clears when the knocking stops
+        /** The panel decides from this many most recent clear knocks (27 Sep 06:00: counting 20 s of wins took 7–10 s to follow
+         *  the knocker to the next phone; with 6 the new phone leads after 3 knocks and is CLOSEST after 4). */
+        const val WINDOW_KNOCKS = 6
         const val MIN_LOUD_RATIO = 8f      // at least one phone heard it ≥ ×8 over its background (room noises ×2–6)
         const val MIN_KNOCKS = 3
         /** A knock counts only when its loudest phone leads the next by this much (first run, 27 Sep 05:55: knocks
@@ -75,7 +78,7 @@ class Closest {
     /** The phone that won most of the recent clear knocks, or null while fewer than [MIN_KNOCKS] clear ones were judged. */
     fun summary(nowMs: Long): Summary? = synchronized(lock) {
         while (done.isNotEmpty() && nowMs - done.first().tMs > HISTORY_MS) done.removeFirst()
-        val done = done.filter { it.decisive }
+        val done = done.filter { it.decisive }.takeLast(WINDOW_KNOCKS)
         if (done.size < MIN_KNOCKS) return null
         val wins = HashMap<String, Int>()
         for (k in done) wins[k.winner] = (wins[k.winner] ?: 0) + 1

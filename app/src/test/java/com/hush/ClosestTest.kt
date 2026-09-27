@@ -70,6 +70,38 @@ class ClosestTest {
         assertNull(c.summary(20_000))
     }
 
+    /** 27 Sep 06:00:38–06:01:01 on the phones: 12 clear knocks at C, then the knocker moved to A. With 20 s of wins
+     *  the panel took 10 s to say A; with the last 6 clear knocks A leads after 3 knocks and is CLOSEST after 4. */
+    @Test fun switchesWithinFourKnocksAfterALongRun() {
+        val c = Closest()
+        for (i in 0 until 12) { c.add("C", 1000L + i * 1000, 0.08f, 30f); c.add("A", 1000L + i * 1000, 0.01f, 9f) }
+        fun knockAtA(i: Int): Closest.Summary {
+            val t = 13_000L + i * 1000
+            c.add("A", t, 0.08f, 30f); c.add("C", t, 0.01f, 9f)
+            c.tick(t + Closest.CLOSE_AFTER_MS)
+            return c.summary(t + Closest.CLOSE_AFTER_MS)!!
+        }
+        assertEquals("C", knockAtA(0).leader)
+        assertEquals("C", knockAtA(1).leader)
+        val third = knockAtA(2)
+        assertEquals("A", third.leader)          // 3–3: the tie goes to the most recent winner (LEANING on the screen)
+        assertEquals(3, third.wins)
+        val fourth = knockAtA(3)
+        assertEquals("A", fourth.leader)
+        assertEquals(4, fourth.wins)             // 4 of 6: CLOSEST on the screen
+        assertEquals(6, fourth.knocks)
+    }
+
+    @Test fun oneOddKnockDoesNotFlipIt() {
+        val c = Closest()
+        for (i in 0 until 6) { c.add("B", 1000L + i * 1000, 0.08f, 30f); c.add("A", 1000L + i * 1000, 0.01f, 9f) }
+        c.add("A", 7000, 0.08f, 30f); c.add("B", 7000, 0.01f, 9f)
+        c.tick(10_000)
+        val s = c.summary(10_000)!!
+        assertEquals("B", s.leader)
+        assertEquals(5, s.wins)
+    }
+
     @Test fun followsTheKnockerWhenOldKnocksExpire() {
         val c = Closest()
         for (i in 0 until 5) { c.add("A", 1000L + i * 1000, 0.08f, 30f); c.add("B", 1000L + i * 1000, 0.01f, 9f) }
