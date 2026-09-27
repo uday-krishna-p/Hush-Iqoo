@@ -1419,26 +1419,49 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         // (commands have been seen to reach a sensor seconds late, so this only catches gross errors).
         for ((hearer, byFrom) in heard) {
             val trig = heardTrig[hearer] ?: HashMap()
-            val ref = letters.firstOrNull { byFrom.containsKey(it) && trig.containsKey(it) } ?: continue
-            val tRef = byFrom[ref]!!; val trigRef = trig[ref]!!
-            val bad = byFrom.filter { (from, t) ->
-                val tr = trig[from] ?: return@filter true
-                from != ref && kotlin.math.abs((t - tRef) - (tr - trigRef) * fs / 1000.0) > 1.5 * fs
-            }.keys
+            // Reference = the detection that agrees with most of this hearer's others (27 Sep 08:48: with the FIRST
+            // letter as reference, one wrong pick of it threw away all of that phone's good ones).
+            fun badFor(ref: String): Set<String> {
+                val tRef = byFrom[ref]!!; val trigRef = trig[ref]!!
+                return byFrom.filter { (from, t) ->
+                    val tr = trig[from] ?: return@filter true
+                    from != ref && kotlin.math.abs((t - tRef) - (tr - trigRef) * fs / 1000.0) > 1.5 * fs
+                }.keys
+            }
+            val ref = letters.filter { byFrom.containsKey(it) && trig.containsKey(it) }.minByOrNull { badFor(it).size } ?: continue
+            val bad = badFor(ref)
             if (bad.isNotEmpty()) { HLog.d("Ranging: $hearer had grossly wrong peaks for $bad, dropped"); bad.forEach { byFrom.remove(it); trig.remove(it) } }
         }
         // Step 2, tight and clock-free: the gap between two chirps is the same on every hearer's clock to
         // within the flight-time difference (< 0.1 s for phones < 30 m apart). A hearer whose gap disagrees
         // with the majority picked a wrong peak (echo, the neighbouring chirp); drop that hearer's value.
-        val ref = letters.firstOrNull { l -> heard.values.count { it.containsKey(l) } >= 2 }
-        if (ref != null) for (j in letters) {
-            if (j == ref) continue
-            val gaps = heard.mapNotNull { (h, byFrom) -> val a = byFrom[ref]; val b = byFrom[j]; if (a != null && b != null) h to (b - a) else null }
-            if (gaps.size < 3) continue
-            val median = gaps.map { it.second }.sorted()[gaps.size / 2]
-            for ((h, g) in gaps) if (kotlin.math.abs(g - median) > 0.1 * fs) {
-                HLog.d("Ranging: $h heard $j %.0f ms off the other phones (gap to $ref), dropped".format((g - median) * 1000.0 / fs))
-                heard[h]?.remove(j)
+        // The reference letter is the one whose gaps drop the fewest detections: a hearer whose reference pick was wrong
+        // then loses that one pick, not all of its others (27 Sep 08:48: "C heard B/C 1378 ms off" from one bad pick of A).
+        fun outliers(ref: String): List<Triple<String, String, Double>> {
+            val out = ArrayList<Triple<String, String, Double>>()
+            for (j in letters) {
+                if (j == ref) continue
+                val gaps = heard.mapNotNull { (h, byFrom) -> val a = byFrom[ref]; val b = byFrom[j]; if (a != null && b != null) h to (b - a) else null }
+                if (gaps.size < 3) continue
+                val median = gaps.map { it.second }.sorted()[gaps.size / 2]
+                for ((h, g) in gaps) if (kotlin.math.abs(g - median) > 0.1 * fs) out.add(Triple(h, j, (g - median) * 1000.0 / fs))
+            }
+            return out
+        }
+        val ref = letters.filter { l -> heard.values.count { it.containsKey(l) } >= 2 }.minByOrNull { outliers(it).size }
+        if (ref != null) {
+            val drops = outliers(ref)
+            // Every gap to [ref] off on one hearer means its pick of [ref] itself is the wrong one: drop that instead.
+            val byHearer = drops.groupBy { it.first }
+            for ((h, list) in byHearer) {
+                val others = heard[h]?.keys?.count { it != ref } ?: 0
+                if (others >= 2 && list.size == others) {
+                    HLog.d("Ranging: $h heard $ref off the other phones (every gap to it disagrees), dropped")
+                    heard[h]?.remove(ref)
+                } else for ((_, j, ms) in list) {
+                    HLog.d("Ranging: $h heard $j %.0f ms off the other phones (gap to $ref), dropped".format(ms))
+                    heard[h]?.remove(j)
+                }
             }
         }
         val dist = HashMap<String, Double>()
@@ -2387,8 +2410,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             windowAgeMs = SystemClock.elapsedRealtime() - now
         )
         val w = Window(rms, event.floor, classifier?.lastGain ?: 1f, tap, rhythm, acc, structure, cls, event)
-        HLog.d("window id=$letter hush=$inHush label=$label rms=%.4f floor=%.4f taps=%d phantoms=%d rej=%d peak=x%.0f acc=%d accMax=%.3f accRms=%.3f struct=%b rhythm=%.1f/%s(%d) voice=%.2f impact=%.2f machine=%.2f | %s".format(
-            rms, event.floor, tap.taps, phantoms, tap.rejectedSustained, tap.peakRatio, acc.spikes, acc.maxHp, acc.rmsHp, structure,
+        HLog.d("window id=$letter hush=$inHush label=$label rms=%.4f floor=%.4f taps=%d phantoms=%d rej=%d peak=x%.0f acc=%d accMax=%.3f accRms=%.3f accMed=%.3f%s struct=%b rhythm=%.1f/%s(%d) voice=%.2f impact=%.2f machine=%.2f | %s".format(
+            rms, event.floor, tap.taps, phantoms, tap.rejectedSustained, tap.peakRatio, acc.spikes, acc.maxHp, acc.rmsHp, acc.medianHp, if (acc.moving) " MOVING" else "", structure,
             rhythm.score, rhythm.rhythm, rhythm.count, event.human, event.impact, event.machine,
             cls?.top5?.joinToString(", ") { (name, s) -> "%s %.2f".format(name, s) } ?: "-"))
         main.post {
@@ -2555,11 +2578,18 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
                 sessionLog.addRecord("autolocate_on", rangeBias!!.mapValues { it.value })
             }
         } else {
-            val corrected = chirp.mapValues { (p, d) -> d - (bias[p.first] ?: 0.0) - (bias[p.second] ?: 0.0) }
             val aName = names.getValue("A")
             val prev = names.values.associateWith { n -> layoutByName[n] ?: if (n == aName) (0.0 to 0.0) else null }
             if (prev.values.any { it == null }) { HLog.d("AUTOLOCATE: a phone has no previous position ($prev)"); return }
-            @Suppress("UNCHECKED_CAST") val now = AutoLocate.place(corrected, prev as Map<String, Pair<Double, Double>>)
+            @Suppress("UNCHECKED_CAST") val prevPos = prev as Map<String, Pair<Double, Double>>
+            // Phones moved closer than the stored errors allow: back the errors off rather than refuse every round.
+            val fit = if (chirp.size == 3) AutoLocate.fitBias(chirp, bias) { c -> AutoLocate.place(c, prevPos) != null } else null
+            if (fit != null && fit.first < 1.0) {
+                rangeBias = bias.mapValues { it.value * fit.first }
+                HLog.d("AUTOLOCATE: range errors backed off to %.0f %% (phones closer than they allow)".format(fit.first * 100))
+            }
+            val corrected = fit?.second ?: chirp.mapValues { (p, d) -> d - (bias[p.first] ?: 0.0) - (bias[p.second] ?: 0.0) }
+            val now = AutoLocate.place(corrected, prevPos)
             val dText = corrected.entries.joinToString(" ") { "%s-%s %.2f".format(it.key.first, it.key.second, it.value) }
             if (now == null) { HLog.d("AUTOLOCATE round: corrected $dText m do not form a triangle, positions kept") }
             else {
@@ -2596,18 +2626,22 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val three = letters.take(3)
         if (three.size < 3) return false
         val names = three.map { l -> phoneName(l)?.takeLast(4)?.lowercase() ?: return false }
-        val corr = correctedChirp(three, dist)
-        fun d(x: Int, y: Int) = corr["${three[x]}${three[y]}"] ?: corr["${three[y]}${three[x]}"]
-        val pd = HashMap<Pair<String, String>, Double>()
-        for ((x, y) in listOf(0 to 1, 0 to 2, 1 to 2)) d(x, y)?.let { pd[names[x] to names[y]] = it }
+        fun d(x: Int, y: Int) = dist["${three[x]}${three[y]}"] ?: dist["${three[y]}${three[x]}"]
+        val rawPd = HashMap<Pair<String, String>, Double>()
+        for ((x, y) in listOf(0 to 1, 0 to 2, 1 to 2)) d(x, y)?.let { rawPd[names[x] to names[y]] = it }
         val raw = dist.entries.joinToString(" ") { "%s %.2f".format(it.key, it.value) }
-        val pos = AutoLocate.first(names[0], names[1], names[2], pd)
-        if (pos == null) {
-            HLog.d("AUTOLOCATE: first placement failed (raw $raw, corrected ${pd.entries.joinToString(" ") { "%s-%s %.2f".format(it.key.first, it.key.second, it.value) }}): next round in ${AUTO_GAP_MS / 1000} s")
+        val stored = names.associateWith { rangeBias?.get(it) ?: AutoLocate.defaultBias(it) }
+        // The stored per-phone errors, backed off when they would make the triangle impossible (AutoLocate.fitBias).
+        val fit = if (rawPd.size == 3) AutoLocate.fitBias(rawPd, stored) { c -> AutoLocate.first(names[0], names[1], names[2], c) != null } else null
+        val pd = fit?.second ?: emptyMap()
+        val pos = fit?.let { AutoLocate.first(names[0], names[1], names[2], it.second) }
+        if (fit == null || pos == null) {
+            HLog.d("AUTOLOCATE: first placement failed (raw $raw: ${if (rawPd.size < 3) "a pair is missing" else "no triangle even without the range corrections"}): next round in ${AUTO_GAP_MS / 1000} s")
             main.postDelayed({ clockRound("auto-locate") }, AUTO_GAP_MS)
             return true
         }
-        rangeBias = names.associateWith { rangeBias?.get(it) ?: AutoLocate.defaultBias(it) }
+        rangeBias = stored.mapValues { it.value * fit.first }
+        if (fit.first < 1.0) HLog.d("AUTOLOCATE: stored range errors did not fit this layout, using %.0f %% of them".format(fit.first * 100))
         layoutByName.clear(); layoutByName.putAll(pos)
         HLog.d("AUTOLOCATE start from the chirps: raw $raw -> corrected " + pd.entries.joinToString(" ") { "%s-%s %.2f".format(it.key.first, it.key.second, it.value) } +
             " m (range errors " + rangeBias!!.entries.joinToString(" ") { "%s %+.2f".format(it.key, it.value) } + ") -> " +

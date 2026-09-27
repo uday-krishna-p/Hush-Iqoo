@@ -58,4 +58,30 @@ class AutoLocateTest {
         assertNull(AutoLocate.place(mapOf(("6a46" to "ef39") to 1.0, ("6a46" to "991e") to 0.2, ("ef39" to "991e") to 0.2), tri))
         assertNull(AutoLocate.place(mapOf(("6a46" to "ef39") to 1.2), tri))
     }
+
+    private fun triangle(c: Map<Pair<String, String>, Double>) = AutoLocate.first("6a46", "991e", "ef39", c) != null
+
+    /** 06:49 round on the 1.2 m triangle: the stored errors fit, all of them are used and the sides come out ~1.2 m. */
+    @Test fun storedErrorsKeptWhenTheyFit() {
+        val raw = mapOf(("6a46" to "ef39") to 2.03, ("ef39" to "991e") to 2.02, ("6a46" to "991e") to 1.46)
+        val (k, c) = AutoLocate.fitBias(raw, AutoLocate.DEFAULT_BIAS_M, ::triangle)!!
+        assertEquals(1.0, k, 1e-9)
+        assertEquals(1.18, c.getValue("6a46" to "ef39"), 0.05)
+    }
+
+    /** 08:48 round, phones close together: full errors (ef39 0.72) make the triangle impossible; the fit backs off to a real one. */
+    @Test fun storedErrorsBackedOffWhenPhonesAreClose() {
+        val raw = mapOf(("6a46" to "991e") to 1.31, ("991e" to "ef39") to 0.61, ("6a46" to "ef39") to 0.78)
+        val full = raw.mapValues { (p, d) -> d - AutoLocate.defaultBias(p.first) - AutoLocate.defaultBias(p.second) }
+        assertTrue(!triangle(full) || full.values.any { it < AutoLocate.MIN_SIDE_M })
+        val (k, c) = AutoLocate.fitBias(raw, AutoLocate.DEFAULT_BIAS_M, ::triangle)!!
+        assertTrue(k < 1.0)
+        assertTrue(triangle(c) && c.values.all { it >= AutoLocate.MIN_SIDE_M })
+    }
+
+    /** Raw distances that are no triangle at all stay refused. */
+    @Test fun noFitWhenEvenRawFails() {
+        val raw = mapOf(("6a46" to "991e") to 2.0, ("991e" to "ef39") to 0.3, ("6a46" to "ef39") to 0.4)
+        assertNull(AutoLocate.fitBias(raw, AutoLocate.DEFAULT_BIAS_M, ::triangle))
+    }
 }

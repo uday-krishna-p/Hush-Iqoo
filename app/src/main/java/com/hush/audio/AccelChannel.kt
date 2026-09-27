@@ -21,9 +21,10 @@ class AccelChannel(context: Context) : SensorEventListener {
     data class Result(
         val spikes: Int,
         val maxHp: Float,            // m/s², largest high-passed jolt this second
-        val rmsHp: Float,            // m/s², continuous shaking level
+        val rmsHp: Float,            // m/s², shaking level over the second (knock jolts included)
         val spikeTimesMs: List<Long>,
-        val moving: Boolean          // phone handled or ground shaking: its audio is not trustworthy right now
+        val moving: Boolean,         // phone handled or carried: its audio is not trustworthy right now
+        val medianHp: Float = 0f     // m/s², the TYPICAL shake of the second: what [moving] is judged on
     )
 
     companion object {
@@ -31,7 +32,23 @@ class AccelChannel(context: Context) : SensorEventListener {
         // a handled phone shows 2–28 m/s² spikes and 0.4–3 rms.
         const val SPIKE_THRESHOLD = 0.5f    // m/s²
         const val REFRACTORY_MS = 120L
-        const val MOVING_RMS = 0.25f        // above this the phone is being handled or shaken
+        const val MOVING_RMS = 0.25f        // the old rule on the RMS, kept for the log: knocks on the table crossed it
+        /**
+         * Moving = the MEDIAN high-passed shake of the second above this. A knock on the surface the phone lies on
+         * gives a few jolts of ~4 m/s² lasting tens of ms: the RMS went to 0.65–1.44 (27 Sep 08:32, Sensor B, three
+         * knocks a second) and every such knock was thrown out of the closest-phone vote as "moving" (149 of 488
+         * knocks in that session, always the ones beside a phone). Handling and carrying shake the phone the whole
+         * second, so the median rises; a few short jolts leave it at rest (~0.005). 0.15 ≈ the old 0.25 RMS for
+         * steady shaking (median of |Gaussian| = 0.67 σ).
+         */
+        const val MOVING_MEDIAN = 0.15f
+
+        /** Median of the first [n] values (copies; [n] ≤ ~250 a second). */
+        fun medianOf(a: FloatArray, n: Int): Float {
+            if (n <= 0) return 0f
+            val c = a.copyOf(n); c.sort()
+            return if (n % 2 == 1) c[n / 2] else (c[n / 2 - 1] + c[n / 2]) / 2f
+        }
         private const val LOWPASS_ALPHA = 0.02f
     }
 
@@ -47,6 +64,7 @@ class AccelChannel(context: Context) : SensorEventListener {
     private var maxHp = 0f
     private var sumSq = 0.0
     private var count = 0
+    private var hps = FloatArray(512)   // this second's |high-passed| samples, for the median (200 Hz)
     private var samplesSeen = 0L
 
     val available: Boolean get() = sensor != null
@@ -84,6 +102,7 @@ class AccelChannel(context: Context) : SensorEventListener {
             samplesSeen++
             if (hp > maxHp) maxHp = hp
             sumSq += hp * hp
+            if (count < hps.size) hps[count] = hp
             count++
             if (hp > SPIKE_THRESHOLD && tMs - lastSpikeMs > REFRACTORY_MS) {
                 spikeTimes.add(tMs)
@@ -98,7 +117,8 @@ class AccelChannel(context: Context) : SensorEventListener {
     fun drain(): Result {
         synchronized(lock) {
             val rms = if (count == 0) 0f else sqrt(sumSq / count).toFloat()
-            val r = Result(spikeTimes.size, maxHp, rms, spikeTimes.toList(), rms > MOVING_RMS)
+            val median = medianOf(hps, minOf(count, hps.size))
+            val r = Result(spikeTimes.size, maxHp, rms, spikeTimes.toList(), median > MOVING_MEDIAN, median)
             spikeTimes = ArrayList()
             maxHp = 0f
             sumSq = 0.0

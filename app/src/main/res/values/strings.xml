@@ -185,7 +185,7 @@
     <string name="closest_idle_title">Waiting for sound</string>
     <string name="direction_heading">Direction to the sound</string>
     <string name="map_heading">Phones on site</string>
-    <string name="map_legend">Dots are phones, placed by inaudible chirps. Green is the closest phone; the red circle is where the sound is.</string>
+    <string name="map_legend">Dots are phones, placed by inaudible chirps. Green is the closest phone; the red circle is where the sound is. Pinch to zoom, double-tap to reset.</string>
     <string name="actions_heading">Actions</string>
     <string name="sensitivity_switch">High sensitivity</string>
     <string name="sensitivity_hint">Counts quieter knocks and reports warmer or colder sooner.</string>

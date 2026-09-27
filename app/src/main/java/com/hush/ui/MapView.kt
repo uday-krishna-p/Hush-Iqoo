@@ -70,15 +70,63 @@ class MapView(context: Context, attrs: AttributeSet? = null) : View(context, att
         setMeasuredDimension(w, w)   // always square
     }
 
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        val letter = placing ?: return false
-        if (event.action == MotionEvent.ACTION_DOWN) {
-            dots[letter] = (event.x / width).coerceIn(0f, 1f) to (event.y / height).coerceIn(0f, 1f)
+    // ---- Zoom (27 Sep, team: "make the phones on site minimap zoom in zoom out able") ----
+    // Pinch zooms about the fingers (1x-6x), one finger drags while zoomed in, double-tap goes back to 1x.
+    // At 1x a one-finger swipe still scrolls the page (the map only keeps the touch once zoomed or pinched).
+    private var zoom = 1f
+    private var panX = 0f
+    private var panY = 0f
+    private fun px(f: Float) = (f * width - width / 2f) * zoom + width / 2f + panX
+    private fun py(f: Float) = (f * width - width / 2f) * zoom + width / 2f + panY
+    /** Screen position back to map fractions (for placing a phone by tapping). */
+    private fun fx(x: Float) = ((x - panX - width / 2f) / zoom + width / 2f) / width
+    private fun fy(y: Float) = ((y - panY - width / 2f) / zoom + width / 2f) / width
+
+    private fun clampPan() {
+        val m = width * (zoom - 1f) / 2f   // the zoomed map never leaves the frame
+        panX = panX.coerceIn(-m, m); panY = panY.coerceIn(-m, m)
+    }
+
+    private val scaleDetector = android.view.ScaleGestureDetector(context, object : android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        override fun onScale(d: android.view.ScaleGestureDetector): Boolean {
+            val newZoom = (zoom * d.scaleFactor).coerceIn(1f, 6f)
+            val k = newZoom / zoom
+            // Keep the point under the fingers where it is.
+            panX = (d.focusX - width / 2f) * (1 - k) + panX * k
+            panY = (d.focusY - width / 2f) * (1 - k) + panY * k
+            zoom = newZoom
+            clampPan(); invalidate()
+            return true
+        }
+    })
+
+    private val gestureDetector = android.view.GestureDetector(context, object : android.view.GestureDetector.SimpleOnGestureListener() {
+        override fun onDown(e: MotionEvent) = true
+        override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dx: Float, dy: Float): Boolean {
+            if (zoom <= 1f) return false
+            panX -= dx; panY -= dy
+            clampPan(); invalidate()
+            return true
+        }
+        override fun onDoubleTap(e: MotionEvent): Boolean {
+            zoom = 1f; panX = 0f; panY = 0f; invalidate()
+            return true
+        }
+        override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+            val letter = placing ?: return false
+            dots[letter] = fx(e.x).coerceIn(0f, 1f) to fy(e.y).coerceIn(0f, 1f)
             placing = null
             onPlaced?.invoke(letter)
             invalidate()
             return true
         }
+    })
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        // Keep the page from scrolling while pinching or dragging a zoomed map.
+        if (event.pointerCount > 1 || zoom > 1f) parent?.requestDisallowInterceptTouchEvent(true)
+        scaleDetector.onTouchEvent(event)
+        gestureDetector.onTouchEvent(event)
         return true
     }
 
@@ -89,13 +137,14 @@ class MapView(context: Context, attrs: AttributeSet? = null) : View(context, att
 
         placing?.let { canvas.drawText("Tap where Sensor $it sits", w / 2, w * 0.08f, hintPaint) }
         if (dots.isEmpty() && placing == null) canvas.drawText("Phones appear here once their positions are measured", w / 2, w / 2, hintPaint)
+        if (zoom > 1.01f) canvas.drawText("%.1fx · double-tap to reset".format(zoom), w / 2, w - hintPaint.textSize * 0.8f, hintPaint)
 
         // Arrow from A: toward the located SOURCE when there is one (red), else toward the strongest sensor (green).
         val from = dots["A"]
-        val src = source?.let { (it.first.coerceIn(0.03f, 0.97f) * w) to (it.second.coerceIn(0.03f, 0.97f) * w) }
-        val to = if (src == null) strongest?.let { dots[it] }?.let { (it.first * w) to (it.second * w) } else src
+        val src = source?.let { px(it.first.coerceIn(0.03f, 0.97f)) to py(it.second.coerceIn(0.03f, 0.97f)) }
+        val to = if (src == null) strongest?.let { dots[it] }?.let { px(it.first) to py(it.second) } else src
         if (from != null && to != null && (src != null || strongest != "A")) {
-            val x1 = from.first * w; val y1 = from.second * w
+            val x1 = px(from.first); val y1 = py(from.second)
             val x2 = to.first; val y2 = to.second
             val len = hypot(x2 - x1, y2 - y1)
             if (len > r * 2) {
@@ -114,7 +163,7 @@ class MapView(context: Context, attrs: AttributeSet? = null) : View(context, att
         // The source itself: a translucent disc of its uncertainty and a red cross-hair.
         if (src != null) {
             val sx = src.first; val sy = src.second
-            if (!sourceFar) canvas.drawCircle(sx, sy, (sourceRadius * w).coerceIn(r * 0.8f, w * 0.45f), sourceArea)
+            if (!sourceFar) canvas.drawCircle(sx, sy, (sourceRadius * w * zoom).coerceIn(r * 0.8f, w * 0.45f * zoom), sourceArea)
             val k = r * 1.1f
             canvas.drawCircle(sx, sy, k, sourcePaint)
             canvas.drawLine(sx - k * 1.5f, sy, sx + k * 1.5f, sy, sourcePaint)
@@ -125,8 +174,8 @@ class MapView(context: Context, attrs: AttributeSet? = null) : View(context, att
         // Each phone's own two-mic bearing: a line from its dot (faint twin while left/right is unresolved).
         for ((letter, b) in bearings) {
             val p = dots[letter] ?: continue
-            val cx = p.first * w; val cy = p.second * w
-            val len = w * 0.35f
+            val cx = px(p.first); val cy = py(p.second)
+            val len = w * 0.35f * zoom
             b.second?.let { t ->
                 val a = Math.toRadians(t.toDouble())
                 canvas.drawLine(cx, cy, cx + (sin(a) * len).toFloat(), cy - (cos(a) * len).toFloat(), bearingTwinPaint)
@@ -135,7 +184,7 @@ class MapView(context: Context, attrs: AttributeSet? = null) : View(context, att
             canvas.drawLine(cx, cy, cx + (sin(a) * len).toFloat(), cy - (cos(a) * len).toFloat(), bearingPaint)
         }
         for ((letter, p) in dots) {
-            val cx = p.first * w; val cy = p.second * w
+            val cx = px(p.first); val cy = py(p.second)
             val paint = when {
                 letter == strongest -> strongPaint
                 letter == "A" -> commanderPaint

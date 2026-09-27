@@ -229,7 +229,7 @@ class CommanderScreen(activity: Activity, role: String) : SensorScreen(activity,
         // Dots live in Engine so they survive the screen being recreated (a sensor gets them from the commander's Fix).
         map.dots.putAll(Engine.screenDots())
         map.onPlaced = { letter -> Engine.mapDots[letter] = map.dots[letter]!!; renderPlaceButtons() }
-        map.strongest = Engine.lastRanking.firstOrNull()?.takeIf { it.score > 0f }?.letter
+        map.strongest = mapLeader(Engine.lastRanking)
         renderSource()
         activity.findViewById<Button>(R.id.btnActivate).setOnClickListener { Engine.activateSensors() }
         onDiscovered(Engine.discoveredPhones())
@@ -367,7 +367,18 @@ class CommanderScreen(activity: Activity, role: String) : SensorScreen(activity,
         warmthText.setTextColor(activity.getColor(fg))
     }
 
+    /**
+     * The map's green dot (and the arrow to it): the closest phone judged knock by knock (Closest.kt, same as the card),
+     * else the live ranking. The ranking alone decays over 15 s, so the map lagged the card by seconds (27 Sep, team).
+     */
+    private fun mapLeader(ranks: List<Engine.Rank>): String? {
+        val t = Engine.closestText
+        if (t.startsWith("CLOSEST") || t.startsWith("LEANING")) Regex("(?:Sensor|Commander) ([A-Z])").find(t.lineSequence().first())?.let { return it.groupValues[1] }
+        return ranks.firstOrNull()?.takeIf { it.score > 0f }?.letter
+    }
+
     override fun onClosest(text: String) {
+        map.strongest = mapLeader(ranks)
         renderClosest()
         map.dots.clear(); map.dots.putAll(Engine.screenDots())
         renderSource()
@@ -412,7 +423,7 @@ class CommanderScreen(activity: Activity, role: String) : SensorScreen(activity,
 
     override fun onRanking(ranks: List<Engine.Rank>, brief: String) {
         this.ranks = ranks
-        map.strongest = ranks.firstOrNull()?.takeIf { it.score > 0f }?.letter
+        map.strongest = mapLeader(ranks)
         briefText.text = brief
         briefText.setTextColor(activity.getColor(if (ranks.firstOrNull()?.let { it.evidence >= 0.9f } == true) R.color.good else R.color.text))
         render()

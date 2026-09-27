@@ -37,6 +37,27 @@ object AutoLocate {
 
     fun defaultBias(name: String): Double = DEFAULT_BIAS_M[name] ?: DEFAULT_OTHER_M
 
+    /** Shortest side a corrected distance may have (phones cannot be closer; the pick jitter is ±5 cm). */
+    const val MIN_SIDE_M = 0.15
+    /** How much of the stored range errors to try, in order: all of it first, none of it last. */
+    val BIAS_SCALES = listOf(1.0, 0.75, 0.5, 0.25, 0.0)
+
+    /**
+     * The per-phone errors did not hold on 27 Sep 08:48 (phones 0.6–1.3 m apart): ef39's 0.72 m turned raw
+     * 0.61 / 0.78 m into nothing and every round was refused ("first placement failed") for minutes. So: subtract the
+     * errors scaled by the first of [BIAS_SCALES] whose distances are all ≥ [MIN_SIDE_M] and pass [ok] (a triangle for
+     * the first placement, a fit onto the previous map later). Returns (scale, corrected distances) or null when even
+     * the raw distances fail.
+     */
+    fun fitBias(raw: Map<Pair<String, String>, Double>, bias: Map<String, Double>,
+                ok: (Map<Pair<String, String>, Double>) -> Boolean): Pair<Double, Map<Pair<String, String>, Double>>? {
+        for (k in BIAS_SCALES) {
+            val c = raw.mapValues { (p, d) -> d - k * ((bias[p.first] ?: 0.0) + (bias[p.second] ?: 0.0)) }
+            if (c.values.all { it >= MIN_SIDE_M } && ok(c)) return k to c
+        }
+        return null
+    }
+
     /** First placement of three phones from their distances: [a] at 0,0, [b] on +x, [c] on the +y side. Null if no triangle. */
     fun first(a: String, b: String, c: String, dist: Map<Pair<String, String>, Double>): Map<String, Pair<Double, Double>>? {
         fun d(x: String, y: String) = dist[x to y] ?: dist[y to x]
