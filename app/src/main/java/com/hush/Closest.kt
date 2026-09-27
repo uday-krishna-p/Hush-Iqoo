@@ -107,5 +107,10 @@ class Closest {
             wins.entries.sortedByDescending { it.value }.associate { it.key to it.value }, lastWinner)
     }
 
+    /** The clear knocks [summary] decides from (the last [WINDOW_KNOCKS] of the last [HISTORY_MS]), oldest first. */
+    fun recent(nowMs: Long): List<Knock> = synchronized(lock) {
+        done.filter { nowMs - it.tMs <= HISTORY_MS && it.decisive }.takeLast(WINDOW_KNOCKS)
+    }
+
     fun reset() = synchronized(lock) { open.clear(); done.clear(); judgedTimes.clear() }
 }

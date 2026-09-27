@@ -1110,7 +1110,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     private fun applyLayout(): String {
         if (layoutByName.isEmpty()) return "No layout stored"
         val pts = LinkedHashMap<String, Pair<Double, Double>>()
-        pts["A"] = 0.0 to 0.0
+        // The commander at its own stored spot when the layout names it (any phone may be commander), else at 0,0.
+        pts["A"] = layoutByName[localName.takeLast(4).lowercase()] ?: layoutByName[localName.takeLast(4)] ?: (0.0 to 0.0)
         for ((suffix, xy) in layoutByName) {
             val l = peers.values.firstOrNull { it.name.endsWith(suffix) }?.letter ?: continue
             pts[l] = xy
@@ -2087,7 +2088,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         link?.stop(); link = null
         ble?.stop(); ble = null
         radioDistance.clear(); peerBleAddress.clear(); radioStatus = ""
-        locator.reset(); peerHeading.clear(); doaAll.clear(); closest.reset(); closestText = ""; closestHeardUntil.clear(); closestHeardAt.clear()
+        locator.reset(); peerHeading.clear(); doaAll.clear(); closest.reset(); closestText = ""; closestHeardUntil.clear(); closestHeardAt.clear(); wherePoint = null; wherePointKey = ""
         com.hush.audio.KnockBearing.reset(); ownArrowUntilMs = 0L
         soundAlerts.reset(); homeAlerts.reset(); whistles.reset(); classifierRun = 0; classifierSkipped = 0
         walk.reset(); walkState = walk.state; com.hush.audio.KnockBearing.rescueTuning()
@@ -2529,6 +2530,18 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     /** Sensor: every phone's position in metres, the map's scale and orientation, from the commander's board. */
     private val boardPos = LinkedHashMap<String, Pair<Double, Double>>()
     @Volatile private var boardScale: Float? = null
+    /** Sensor: the commander's loudness point (x, y, radius in metres) from the Board. */
+    @Volatile private var boardWhere: Triple<Double, Double, Double>? = null
+
+    /** The loudness point on this phone's map: (x, y) as map fractions and the radius as a map fraction, or null. */
+    fun whereOnMap(): Pair<Pair<Float, Float>, Float>? {
+        if (role == ROLE_COMMANDER) {
+            val p = wherePoint ?: return null; val s = mapMetresPerUnit ?: return null
+            return (metresToMap(p.x, p.y) ?: return null) to (p.radiusM / s).toFloat()
+        }
+        val w = boardWhere ?: return null; val s = boardScale ?: return null
+        return ((0.5 + w.first / s).toFloat() to (0.5 - w.second / s).toFloat()) to (w.third / s).toFloat()
+    }
     @Volatile private var boardRot: Float? = null
 
     data class LocalArrow(val screenDeg: Float?, val metres: Float, val radius: Float, val knocks: Int, val edge: Boolean)
@@ -2595,6 +2608,20 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             sessionLog.addRecord("closest_knock", mapOf("peaks" to k.peaks.toString(), "winner" to k.winner, "lead_db" to k.leadDb, "counted" to k.decisive))
         }
         val s = closest.summary(now)
+        // WHERE between the phones (LoudnessLocator): the same clear knocks, the phones' hand-layout positions.
+        val placed = (listOf("A") + peers.values.map { it.letter }).mapNotNull { l -> posMetres(l)?.let { l to it } }.toMap()
+        val point = if (s == null) null else try { LoudnessLocator.locate(closest.recent(now).map { it.peaks }, placed) } catch (e: Exception) { HLog.d("ERROR in loudness locator: $e"); null }
+        if (point != null) {
+            val key = "%.1f,%.1f,%.1f".format(point.x, point.y, point.radiusM)
+            if (key != wherePointKey) {
+                wherePointKey = key
+                HLog.d("WHERE: (%.2f, %.2f) m ±%.2f from %d knocks heard by ≥ 3 phones, nearest %s %.2f m (positions %s)".format(
+                    point.x, point.y, point.radiusM, point.knocks, point.nearest, point.nearestM,
+                    placed.entries.joinToString(" ") { "%s(%.2f,%.2f)".format(it.key, it.value.first, it.value.second) }))
+                sessionLog.addRecord("where", mapOf("x" to point.x, "y" to point.y, "radius" to point.radiusM, "knocks" to point.knocks, "nearest" to point.nearest, "nearest_m" to point.nearestM))
+            }
+        }
+        wherePoint = point
         val text = if (s == null) "" else buildString {
             val sure = s.wins * 10 >= s.knocks * 6
             append(if (sure) "CLOSEST: " else "LEANING: ").append(if (s.leader == "A") "Commander A" else "Sensor ${s.leader}")
@@ -2603,6 +2630,12 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             if (s.leadDb != null && s.runnerUp != null) append(" · %.0f dB louder than %s".format(s.leadDb, s.runnerUp))
             append("\n").append(s.winsBy.entries.joinToString("  ") { "${it.key} ${it.value}" })
             if (s.lastWinner != s.leader) append("  · last knock: ${s.lastWinner}")
+            if (point != null) {
+                val who = if (point.nearest == "A") "Commander A" else "Sensor ${point.nearest}"
+                append("\nSound ≈ %.1f m from %s (±%.1f m) · red circle on the map".format(point.nearestM, who, point.radiusM))
+            } else if (placed.size < LoudnessLocator.MIN_PHONES) {
+                append("\nPlace 3 phones on the map (layout) to see where between them")
+            }
         }
         if (text != closestText) {
             closestText = text
@@ -2611,6 +2644,11 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             sendBoardDown(force = true)
         }
     }
+
+    /** Where the knocking is between the phones (metres, posMetres frame), or null. Commander computes it; sensors get it in the Board. */
+    @Volatile var wherePoint: LoudnessLocator.Point? = null
+        private set
+    private var wherePointKey = ""
 
     /** Per phone, on the commander's clock: every knock up to this time has been reported (its second's audio has ended and arrived). */
     private val closestHeardUntil = HashMap<String, Long>()
@@ -2674,7 +2712,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         val board = com.hush.model.Board(lastBrief, mode.name, lastRanking.map { com.hush.model.Board.Rank(it.letter, it.score, it.evidence, it.source) },
             names, fresh, status, discoveredText(discoveredPhones()),
             LinkedHashMap<String, Pair<Double, Double>>().apply { for (k in mapDots.keys) posMetres(k)?.let { put(k, it) } },
-            mapMetresPerUnit, mapRotationDeg, closestText)
+            mapMetresPerUnit, mapRotationDeg, closestText, wherePoint?.let { Triple(it.x, it.y, it.radiusM) })
         l.sendDown(board.toJson())
     }
 
@@ -2695,6 +2733,7 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
         lastRanking = b.ranks.map { Rank(it.letter, it.score, it.evidence, null, 0, false, 0, it.source) }
         if (b.brief != lastBrief && b.brief.isNotEmpty()) HLog.d("BOARD brief: ${b.brief}")
         lastBrief = b.brief
+        boardWhere = b.where
         if (b.closest != closestText) { closestText = b.closest; HLog.d("BOARD closest: ${b.closest.replace('\n', '|').ifEmpty { "(none)" }}"); listener?.onClosest(b.closest) }
         val l = listener ?: return
         if (peersChanged) l.onPeers(boardPeers())

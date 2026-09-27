@@ -307,7 +307,8 @@ data class Board(val brief: String, val mode: String, val ranks: List<Rank>, val
                  val pos: Map<String, Pair<Double, Double>> = emptyMap(),   // metres, map frame (every phone runs the locator on these)
                  val scale: Float? = null,                                  // metres per map width
                  val rotation: Float? = null,                               // map bearing + rotation = heading frame
-                 val closest: String = "") {                                // the closest-phone panel (Closest.kt), "" while none
+                 val closest: String = "",
+                 val where: Triple<Double, Double, Double>? = null) {       // the loudness point: x, y, radius (metres, pos frame)                                // the closest-phone panel (Closest.kt), "" while none
 
     data class Rank(val letter: String, val score: Float, val evidence: Float, val source: Int)
 
@@ -320,6 +321,7 @@ data class Board(val brief: String, val mode: String, val ranks: List<Rank>, val
             scale?.let { put("sc", Math.round(it * 1000.0) / 1000.0) }
             rotation?.let { put("rot", Math.round(it * 10.0) / 10.0) }
             if (closest.isNotEmpty()) put("cl", closest)
+            where?.let { put("wp", JSONArray().put(Math.round(it.first * 100.0) / 100.0).put(Math.round(it.second * 100.0) / 100.0).put(Math.round(it.third * 100.0) / 100.0)) }
         }
         .toString()
 
@@ -336,7 +338,8 @@ data class Board(val brief: String, val mode: String, val ranks: List<Rank>, val
                 },
                 if (o.has("sc")) o.getDouble("sc").toFloat() else null,
                 if (o.has("rot")) o.getDouble("rot").toFloat() else null,
-                o.optString("cl", ""))
+                o.optString("cl", ""),
+                o.optJSONArray("wp")?.let { Triple(it.getDouble(0), it.getDouble(1), it.getDouble(2)) })
         } catch (e: Exception) { HLog.d("bad Board json: $e"); null }
     }
 }

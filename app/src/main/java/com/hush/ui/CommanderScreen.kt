@@ -250,6 +250,8 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity,
     }
 
     private fun renderSource() {
+        // The loudness point (LoudnessLocator) first: the one that works on the phones (27 Sep 06:30).
+        Engine.whereOnMap()?.let { (xy, r) -> map.source = xy; map.sourceRadius = r; map.sourceFar = false; return }
         if (!isCommander) {
             // The commander's located source or crossing, as carried by its Fix.
             map.source = Engine.screenSource()
@@ -302,7 +304,12 @@ class CommanderScreen(activity: Activity) : SensorScreen(activity,
         render()
     }
 
-    override fun onClosest(text: String) = renderClosest()
+    override fun onClosest(text: String) {
+        renderClosest()
+        map.dots.clear(); map.dots.putAll(Engine.screenDots())
+        renderSource()
+        map.invalidate()
+    }
 
     /** The big panel: which phone hears the knocking loudest (Closest.kt). The first line is enlarged. */
     private fun renderClosest() {

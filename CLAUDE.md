@@ -193,7 +193,18 @@ waited a fixed 2.2 s before judging each knock. Since 06:25 every SensorEvent ca
 ended), the commander tracks per phone up to when everything is reported, and judges a knock once every talking phone is
 past it + 250 ms (`Closest.READY_MARGIN_MS`; 2.2 s stays as the fallback). A report arriving after its knock was judged is
 dropped (`CLOSEST late:` in the log) so it cannot make a false one-phone win. Each `CLOSEST knock` line ends with
-`judged N ms after the knock`. Next lag cut if needed: the 1 s audio chunk (open item: 250 ms hop).
+`judged N ms after the knock`. Next lag cut if needed: the 1 s audio chunk (open item: 250 ms hop). Team 06:30: "working perfectly".
+
+**Where between the phones, from loudness, 27 Sep 06:40 (`LoudnessLocator.kt`):** the same last 6 clear knocks, each
+phone's peak and its hand-layout position: a spot fits when ln(peak) + ln(distance) is equal across the phones (1/r law,
+knock strength cancels), Cauchy misfit with 6 dB per unit, grid 5 cm over the phones + 0.3 m. Needs 3 placed phones
+hearing the knock (two phones = a circle; in the narrow strip around two phones it looked falsely precise). Margin 0.3 m,
+not 1 m: two level ratios are two circles crossing at TWO points, the second outside the phones (simulated: a knock
+0.3 m from B came out 0.9-1.2 m away with a 1 m margin). Simulated in the 2 x 1.5 m corners: 2 dB level noise 0.05-0.35 m
+off (up to 0.6 m in the corner far from both others), 5 dB mostly 0.2-0.5 m, a few 0.8-1.5 m. Panel line "Sound ~ 0.3 m
+from Sensor B (+-0.2 m)", red cross-hair + shaded region on every phone's map (Board field `wp`), log `WHERE: (x, y) m
++-r from N knocks ...`, export record `where`. The layout may now name the commander by its suffix too (any phone can be
+commander): `--es layout "6a46=0,0;ef39=2,0;991e=2,1.5"`. Not yet run on the phones.
 
 **Timing locator back, inaudible chirps, every phone locates, 27 Sep 04:40 (team: "we are just pointing a compass
 … not using the power of multiple devices to triangulate"; "if the chirps are made, make them at such high frequencies
@@ -778,6 +789,7 @@ app/src/main/java/com/hush/
   HLog.kt                  // logcat + private file logger (the phones drop logcat)
   Ranging.kt               // two-way acoustic distance maths, triangle
   Locator.kt               // WHERE the sound is: clock offsets from chirps, mic axes, onset matching, grid fusion
+  LoudnessLocator.kt       // WHERE between the phones: per-knock peaks + hand-layout positions, 1/r fit on a grid
   Closest.kt               // WHICH phone hears each knock loudest (per-knock peaks matched across phones): the demo headline
   Crossing.kt              // where the phones' own-arrow bearing lines cross (least squares, mirror combinations, in-front rule)
   GpsLayout.kt             // positions from every phone's GPS fix (median, east/north of A, accepted only when far enough apart)
