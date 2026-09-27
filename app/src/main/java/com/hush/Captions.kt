@@ -18,13 +18,17 @@ import android.speech.SpeechRecognizer
  * Nothing leaves the phone when the offline model is present; if the phone falls back to online recognition the
  * status line says so and the person can stop it.
  */
-class Captions(private val context: Context, private val onText: (String, Boolean) -> Unit, private val onStatus: (String) -> Unit) {
+class Captions(private val context: Context, private val onText: (String, Boolean) -> Unit, private val onStatus: (String) -> Unit,
+               private val onStopped: () -> Unit = {}) {
 
     private val main = Handler(Looper.getMainLooper())
     private var recognizer: SpeechRecognizer? = null
     var running = false
         private set
     private var restarts = 0
+    /** Languages tried in order when the offline model refuses one (27 Sep 05:29: en-IN "not available offline" on the I2501; its on-device model is en-US). */
+    private val languages = listOf("en-IN", "en-US", "")
+    private var languageIndex = 0
 
     fun start(): Boolean {
         if (running) return true
@@ -36,7 +40,7 @@ class Captions(private val context: Context, private val onText: (String, Boolea
             if (onDevice) SpeechRecognizer.createOnDeviceSpeechRecognizer(context) else SpeechRecognizer.createSpeechRecognizer(context)
         } catch (e: Exception) { onStatus("Could not start the recogniser: $e"); HLog.d("CAPTIONS: create failed $e"); return false }
         recognizer?.setRecognitionListener(listener)
-        running = true; restarts = 0
+        running = true; restarts = 0; languageIndex = 0
         HLog.d("CAPTIONS: started (onDevice=$onDevice)")
         onStatus(if (onDevice) "Captions on · on-device recogniser" else "Captions on · phone's speech service (may need the offline English pack: Settings → Google → Speech)")
         listen()
@@ -49,8 +53,9 @@ class Captions(private val context: Context, private val onText: (String, Boolea
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-            .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
             .putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+        val lang = languages[languageIndex]
+        if (lang.isNotEmpty()) i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
         try { recognizer?.startListening(i) } catch (e: Exception) { HLog.d("CAPTIONS: startListening failed $e"); onStatus("Recogniser error: $e") }
     }
 
@@ -67,6 +72,7 @@ class Captions(private val context: Context, private val onText: (String, Boolea
         recognizer = null
         HLog.d("CAPTIONS: stopped after $restarts restarts")
         onStatus("Captions off")
+        onStopped()
     }
 
     private val listener = object : RecognitionListener {
@@ -89,7 +95,16 @@ class Captions(private val context: Context, private val onText: (String, Boolea
                 SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> restart(100)
                 SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> restart(1000)
                 SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> { onStatus("Microphone permission missing for captions"); stop() }
-                SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> { onStatus("English (India) is not available offline on this phone; download it in Settings → Google → Speech"); stop() }
+                SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> {
+                    if (languageIndex < languages.size - 1) {
+                        val tried = languages[languageIndex]
+                        languageIndex++
+                        val next = languages[languageIndex].ifEmpty { "the phone's default language" }
+                        HLog.d("CAPTIONS: $tried not available offline, trying $next")
+                        onStatus("Captions on · $next")
+                        restart(100)
+                    } else { onStatus("No offline English on this phone; download it in Settings → Google → Speech → Offline"); stop() }
+                }
                 SpeechRecognizer.ERROR_CLIENT -> restart(500)
                 else -> { HLog.d("CAPTIONS: error $error, restarting"); restart(1000) }
             }

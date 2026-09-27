@@ -299,6 +299,17 @@ notifications); KNOCK words carry the side from the own arrow ("KNOCK ×3 · lef
 I2501 has the offline English speech pack (the status line says which recogniser it got), and whether the recogniser
 gets the microphone from us cleanly.
 
+**First run on the phones, 27 Sep 05:20–05:35 (ALERTS on 991e and 6a46, merged build):** the role starts with no radios,
+TTS ready, mic open, model classifying; `--es alerttest DOORBELL` buzzed the pattern, found the back camera's flash
+(`TORCH: camera with flash = 0`) and posted the full-screen notification; ALARM repeated until dismissed on the
+phone. **Found and fixed:** the vibration motor is heard as knocks (×18–154), so every buzz produced a "KNOCK ×2" a
+second later, endlessly; `Haptics.busyUntilMs` now marks seconds up to 0.6 s after any buzz as the phone's own noise
+(alerts and whistles skip them, buzz onsets are dropped). **Captions:** the phone has Google's on-device recogniser
+(`com.google.android.as`), which refuses `en-IN` offline; the code now falls back en-IN → en-US → default, and en-US
+transcribed room speech within 10 s (`CAPTIONS: 'Hello hello the captions open'`). Captions that stop by themselves
+now give the microphone back to our capture (it stayed paused before). Laptop hook: `--ez captions true|false`.
+Not yet tried on the phones: type-to-speak's audible output, TEACH, the HOME role, KNOCK from real door knocks.
+
 **Phantom knocks, 27 Sep 02:50:** in a quiet room a third of all onsets (91 of 269 on 6a46 in 8 min) were clicks of
 about −38 dBFS (peak 0.011–0.016, ×5–8 the median frame) IDENTICAL in both microphone channels: two-mic delay 0.0,
 correlation 0.95–0.98, rise 0, no accelerometer jolt, at random moments in the second, on every phone, with or

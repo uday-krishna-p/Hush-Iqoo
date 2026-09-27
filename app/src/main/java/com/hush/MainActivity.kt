@@ -51,6 +51,7 @@ class MainActivity : AppCompatActivity() {
         const val EXTRA_MIC1TOP = "mic1top"
         const val EXTRA_MICSPACING = "micspacing"
         const val EXTRA_ALERTTEST = "alerttest"
+        const val EXTRA_CAPTIONS = "captions"
         const val EXTRA_SYNC = "sync"
     }
 
@@ -111,6 +112,11 @@ class MainActivity : AppCompatActivity() {
             HLog.d("Hook: range")
             if (Engine.role == Engine.ROLE_COMMANDER) Engine.autoPlace() else HLog.d("Hook: range ignored, not a commander")
         }
+        if (intent.hasExtra(EXTRA_CAPTIONS)) {
+            val on = intent.getBooleanExtra(EXTRA_CAPTIONS, false)
+            HLog.d("Hook: captions $on")
+            if (Engine.role == Engine.ROLE_ALERT) HLog.d("Hook: captions now ${Engine.setCaptions(on)}") else HLog.d("Hook: captions ignored, not the ALERT role")
+        }
         intent.getStringExtra(EXTRA_ALERTTEST)?.let { c ->
             HLog.d("Hook: alerttest $c")
             HLog.d("Hook: " + Engine.alertTest(c))
@@ -140,7 +146,7 @@ class MainActivity : AppCompatActivity() {
         }
         intent.removeExtra(EXTRA_ROLE); intent.removeExtra(EXTRA_PROBE); intent.removeExtra(EXTRA_HUSH)
         intent.removeExtra(EXTRA_RANGE); intent.removeExtra(EXTRA_PLAY); intent.removeExtra(EXTRA_PLAY_LEVEL); intent.removeExtra(EXTRA_ALIGN); intent.removeExtra(EXTRA_LAYOUT)
-        intent.removeExtra(EXTRA_MIC1TOP); intent.removeExtra(EXTRA_MICSPACING); intent.removeExtra(EXTRA_ALERTTEST); intent.removeExtra(EXTRA_SYNC)
+        intent.removeExtra(EXTRA_MIC1TOP); intent.removeExtra(EXTRA_MICSPACING); intent.removeExtra(EXTRA_ALERTTEST); intent.removeExtra(EXTRA_CAPTIONS); intent.removeExtra(EXTRA_SYNC)
     }
 
     private fun showRolePicker() {

@@ -1970,7 +1970,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
             // One microphone user at a time: stop our capture (the recogniser would get silence, or we would).
             capture?.stop(); capture = null
             HLog.d("CAPTIONS: own capture paused")
-            val c = captions ?: Captions(ctx, { t, f -> listener?.onCaption(t, f) }, { s -> HLog.d("CAPTIONS status: $s"); listener?.onCaptionStatus(s) }).also { captions = it }
+            val c = captions ?: Captions(ctx, { t, f -> listener?.onCaption(t, f) }, { s -> HLog.d("CAPTIONS status: $s"); listener?.onCaptionStatus(s) },
+                { resumeCapture(ctx) }).also { captions = it }   // captions that stop on their own give the microphone back
             val ok = c.start()
             if (!ok) resumeCapture(ctx)
             return ok
@@ -2003,7 +2004,8 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
 
     /** Main thread, ALERT role: one second → maybe one household alert. */
     private fun alertSecond(w: Window, selfNoiseIn: Boolean, now: Long) {
-        val selfNoise = selfNoiseIn || Speak.speaking   // the phone reading out a typed message is not a visitor
+        // The phone reading out a typed message is not a visitor, and its own vibration motor is heard as knocks.
+        val selfNoise = selfNoiseIn || Speak.speaking || now - 1000 < com.hush.audio.Haptics.busyUntilMs
         val tap = w.tap
         val knocks = ArrayList<com.hush.audio.SoundAlerts.Knock>(tap.onsets.size)
         for (i in tap.onsets.indices) {
@@ -2031,8 +2033,9 @@ object Engine : AudioCapture.Listener, NearbyLink.Listener {
     }
 
     /** Main thread, HOME role: the whistle counter, plus kitchen timers and alarms. [tonal] is null on quiet seconds. */
-    private fun homeSecond(w: Window, tonal: com.hush.audio.Tonality.Result?, selfNoise: Boolean, now: Long) {
+    private fun homeSecond(w: Window, tonal: com.hush.audio.Tonality.Result?, selfNoiseIn: Boolean, now: Long) {
         val ctx = appContext ?: return
+        val selfNoise = selfNoiseIn || Speak.speaking || now - 1000 < com.hush.audio.Haptics.busyUntilMs
         val loud = if (w.floor > 0f) w.rms / w.floor else 0f
         val ws = com.hush.audio.WhistleCounter.Second(now, w.cls?.sum(com.hush.audio.WhistleCounter.CLASSES) ?: 0f, loud,
             tonal?.peakToMedian ?: 0f, tonal?.peakHz ?: 0f, selfNoise)

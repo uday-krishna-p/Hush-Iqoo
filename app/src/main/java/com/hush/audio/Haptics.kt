@@ -22,13 +22,25 @@ object Haptics {
         context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
     }
 
+    /**
+     * Until when the phone is (or may be) vibrating, elapsedRealtime ms. The microphone hears the motor as sharp
+     * knocks (×18–134 on 27 Sep 05:21: every alert buzz produced a "KNOCK ×2" a second later, endlessly), so the
+     * household alerts treat seconds up to this time as the phone's own noise.
+     */
+    @Volatile var busyUntilMs = 0L
+        private set
+    private const val TAIL_MS = 600L
+
     /** Stops whatever is vibrating (a repeating household alarm pattern, once the person has seen it). */
     fun cancel(context: Context, what: String = "vibrate") {
         try { vibrator(context).cancel(); HLog.d("$what cancelled") } catch (e: Exception) { HLog.d("$what cancel failed: $e") }
+        busyUntilMs = minOf(busyUntilMs, android.os.SystemClock.elapsedRealtime() + TAIL_MS)
     }
 
     /** [repeatFrom] ≥ 0 repeats the pattern from that index until [cancel]; -1 (default) plays it once. */
     fun vibrate(context: Context, pattern: LongArray, what: String = "vibrate", repeatFrom: Int = -1) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        busyUntilMs = maxOf(busyUntilMs, now + (if (repeatFrom >= 0) 60_000L else pattern.sum()) + TAIL_MS)
         try {
             val vib = vibrator(context)
             val amplitudes = IntArray(pattern.size) { if (it % 2 == 1) 255 else 0 }

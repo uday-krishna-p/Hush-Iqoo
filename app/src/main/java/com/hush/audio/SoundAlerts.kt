@@ -138,9 +138,11 @@ class SoundAlerts {
         if (startMs < 0) startMs = s.nowMs
         history.addLast(s)
         while (history.size > 3) history.removeFirst()
+        // Our own buzz, beeps or voice: nothing this second is evidence, and its onsets must not linger into the next second.
+        if (s.selfNoise) { knocks.clear(); return null }
         for (k in s.knocks) knocks.addLast(k)
         while (knocks.isNotEmpty() && s.nowMs - knocks.first().atMs > KNOCK_WINDOW_MS) knocks.removeFirst()
-        if (s.nowMs - startMs < WARM_UP_MS || s.selfNoise) return null
+        if (s.nowMs - startMs < WARM_UP_MS) return null
 
         var best: Alert? = null
         // A taught sound first: the person's own doorbell beats the generic guess.
